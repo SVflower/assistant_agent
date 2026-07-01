@@ -1,0 +1,44 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "assistant-agent"
+version = "0.1.0"
+description = "一个模型后端可自由切换（云端 API / 本地）的通用任务 Agent，编码能力优先"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "litellm>=1.51.0",
+    "pydantic>=2.9.0",
+    "pyyaml>=6.0",
+    "typer>=0.12.0",
+    "rich>=13.7.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.6.0",
+]
+
+[project.scripts]
+assistant-agent = "assistant_agent.main:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.ruff.lint.per-file-ignores]
+# Typer 的命令参数默认值必须是 typer.Option()/Argument() 调用，这是其惯用法
+"src/assistant_agent/main.py" = ["B008"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]

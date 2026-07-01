@@ -1,0 +1,89 @@
+"""配置加载：读取 YAML、解析环境变量占位、校验。"""
+
+from __future__ import annotations
+
+import os
+import re
+from pathlib import Path
+
+import yaml
+from pydantic import ValidationError
+
+from assistant_agent.config.schema import AppConfig
+
+# 匹配 ${VAR} 或 ${VAR:-default} 形式的环境变量占位
+_ENV_PATTERN = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?\}")
+
+DEFAULT_CONFIG_NAME = "config.yaml"
+
+
+class ConfigError(Exception):
+    """配置加载或校验失败。"""
+
+
+def _expand_env(value: str) -> str:
+    """把字符串里的 ${VAR} / ${VAR:-default} 替换成环境变量值。"""
+
+    def repl(match: re.Match[str]) -> str:
+        var, default = match.group(1), match.group(2)
+        return os.environ.get(var, default if default is not None else "")
+
+    return _ENV_PATTERN.sub(repl, value)
+
+
+def _expand_env_recursive(obj: object) -> object:
+    """递归展开 dict / list / str 中的环境变量占位。"""
+    if isinstance(obj, dict):
+        return {k: _expand_env_recursive(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_expand_env_recursive(v) for v in obj]
+    if isinstance(obj, str):
+        return _expand_env(obj)
+    return obj
+
+
+def find_config_file(start: Path | None = None) -> Path | None:
+    """从指定目录（默认 cwd）向上查找 config.yaml。"""
+    current = (start or Path.cwd()).resolve()
+    for directory in [current, *current.parents]:
+        candidate = directory / DEFAULT_CONFIG_NAME
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def load_config(path: str | Path | None = None) -> AppConfig:
+    """加载并校验配置。
+
+    Args:
+        path: 配置文件路径；为 None 时自动向上查找 config.yaml。
+
+    Raises:
+        ConfigError: 文件不存在、YAML 解析失败或校验失败。
+    """
+    if path is not None:
+        config_path = Path(path)
+        if not config_path.is_file():
+            raise ConfigError(f"配置文件不存在：{config_path}")
+    else:
+        found = find_config_file()
+        if found is None:
+            raise ConfigError(
+                f"未找到 {DEFAULT_CONFIG_NAME}。请复制 config.example.yaml 为 config.yaml 并填写。"
+            )
+        config_path = found
+
+    try:
+        raw = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    except yaml.YAMLError as exc:
+        raise ConfigError(f"YAML 解析失败（{config_path}）：{exc}") from exc
+
+    if not isinstance(raw, dict):
+        raise ConfigError(f"配置根节点必须是映射（{config_path}）。")
+
+    expanded = _expand_env_recursive(raw)
+
+    try:
+        return AppConfig.model_validate(expanded)
+    except ValidationError as exc:
+        raise ConfigError(f"配置校验失败（{config_path}）：\n{exc}") from exc

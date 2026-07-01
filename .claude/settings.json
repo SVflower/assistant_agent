@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(PYTHONIOENCODING=utf-8 .venv/Scripts/python -m assistant_agent run \"列出 D:/Dev/AI/assistant_agent 目录下有哪些文件\")",
+      "Bash(.venv/Scripts/python -m assistant_agent run \"读取 D:/Dev/AI/assistant_agent/README.md 的第一行\")",
+      "Bash(rm -rf /d/tmp_agent_demo 2>/dev/null; echo \"cleaned\")",
+      "Bash(.venv/Scripts/python -c \"from assistant_agent.ui.console import Console; Console\\(\\).banner\\('cloud','openai/deepseek-v4-pro'\\)\")",
+      "Bash(.venv/Scripts/python -m ruff check src/assistant_agent/ui/console.py)",
+      "Bash(.venv/Scripts/python -c ' *)",
+      "Bash(.venv/Scripts/python -m ruff check --fix src/assistant_agent/ui/console.py)",
+      "WebSearch",
+      "WebFetch(domain:spillwave.com)",
+      "WebFetch(domain:blog.alexbeals.com)"
+    ],
+    "additionalDirectories": [
+      "D:\\tmp_agent_demo"
+    ]
+  }
+}

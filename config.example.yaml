@@ -1,0 +1,50 @@
+# Assistant Agent 配置模板
+# 用法：复制为 config.yaml 并填入你的实际值。config.yaml 已被 gitignore，不会提交。
+#
+# 核心理念：换模型后端只改这个文件，业务代码零改动。
+# 所有 provider 都走 OpenAI 兼容格式，云端和本地的区别只是 base_url / api_key。
+
+# 当前启用哪个 provider（对应下面 providers 里的 key）
+active: cloud
+
+providers:
+  # ---- 云端 API 示例 ----
+  cloud:
+    # LiteLLM 的模型名格式：见 https://docs.litellm.ai/docs/providers
+    # 例：anthropic/claude-sonnet-4-6、openai/gpt-4o、gemini/gemini-1.5-pro
+    model: anthropic/claude-sonnet-4-6
+    # API key：建议留空，改用环境变量（如 ANTHROPIC_API_KEY / OPENAI_API_KEY）
+    # 也可直接填这里，但注意 config.yaml 不要提交
+    api_key: null
+    api_base: null
+    temperature: 0.7
+    max_tokens: 4096
+
+  # ---- 本地 LM Studio 示例 ----
+  local_lmstudio:
+    # 本地模型统一用 openai/ 前缀走兼容端点；模型名填 LM Studio 里加载的名字
+    model: openai/local-model
+    api_key: "lm-studio"          # LM Studio 不校验，随便填非空值
+    api_base: "http://localhost:1234/v1"
+    temperature: 0.7
+    max_tokens: 4096
+
+  # ---- 本地 vLLM 示例 ----
+  local_vllm:
+    model: openai/Qwen/Qwen2.5-7B-Instruct
+    api_key: "EMPTY"
+    api_base: "http://localhost:8000/v1"
+    temperature: 0.7
+    max_tokens: 4096
+
+agent:
+  # 单个任务最多允许多少轮工具调用，防止跑飞
+  max_iterations: 25
+  # 上下文里保留的最大消息数（超过则做长度感知截断）
+  max_history_messages: 40
+
+tools:
+  # 危险 shell 操作（删除/覆盖/移动等）执行前是否要求用户确认
+  confirm_dangerous_shell: true
+  # shell 命令超时（秒）
+  shell_timeout: 60

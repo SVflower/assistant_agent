@@ -8,10 +8,13 @@ from __future__ import annotations
 import json
 import os
 import sys
+import time
+from collections.abc import Iterator
 from typing import Any
 
 from rich.console import Console as RichConsole
 from rich.panel import Panel
+from rich.spinner import Spinner
 from rich.table import Table
 
 from assistant_agent.agent.loop import StepEvent
@@ -20,7 +23,7 @@ from assistant_agent.agent.loop import StepEvent
 class Console:
     """对 Rich 的薄封装，集中所有终端输出。"""
 
-    def __init__(self) -> None:
+    def __init__(self, show_reasoning: bool = False) -> None:
         # Windows 终端默认 GBK，遇到中文/emoji 会抛 UnicodeEncodeError。
         # 把底层 stdout/stderr 重配为 UTF-8（Python 3.7+ 支持）。
         for stream in (sys.stdout, sys.stderr):
@@ -31,6 +34,10 @@ class Console:
                 except (ValueError, OSError):
                     pass
         self._console = RichConsole()
+        self._show_reasoning = show_reasoning
+
+    def set_show_reasoning(self, value: bool) -> None:
+        self._show_reasoning = value
 
     def banner(self, provider_name: str, model: str) -> None:
         # 当前处理位置：工作目录
@@ -49,22 +56,99 @@ class Console:
     def user_echo(self, task: str) -> None:
         self._console.print(f"[bold green]你:[/bold green] {task}")
 
-    def render_event(self, event: StepEvent) -> None:
-        if event.kind == "assistant":
-            self._console.print(f"[dim]{event.text}[/dim]")
-        elif event.kind == "tool_call":
-            args = _format_args(event.tool_args)
-            self._console.print(
-                f"[yellow]→ 调用工具[/yellow] [bold]{event.tool_name}[/bold]({args})"
-            )
-        elif event.kind == "tool_result":
-            style = "red" if event.is_error else "dim cyan"
-            preview = _truncate(event.text, 500)
-            self._console.print(f"[{style}]  {preview}[/{style}]")
-        elif event.kind == "final":
-            self._console.print(Panel(event.text, title="结果", border_style="green"))
-        elif event.kind == "error":
-            self._console.print(Panel(event.text, title="错误", border_style="red"))
+    def render_stream(self, events: Iterator[StepEvent]) -> None:
+        """消费一次任务的流式事件并渲染。
+
+        协调原则（见 M2 方案 7.4）：spinner（Live）只用于"无正文输出的空窗期"，
+        一旦有正文/思考增量就停 Live、直接打印，两者在时间上错开，避免刷屏错位。
+        """
+        from rich.live import Live
+
+        start = time.monotonic()
+        spinner = Spinner("dots", text="连接模型…")
+        live: Live | None = Live(
+            spinner, console=self._console, refresh_per_second=12, transient=True
+        )
+        live.start()
+        live_active = True
+        streaming_text = False  # 是否正在打印正文（正文期间不开 spinner）
+        final_streamed = False  # 最终回复是否已通过流式正文打印过（避免 final 重复整段）
+        usage: dict[str, int] | None = None
+
+        def stop_live() -> None:
+            nonlocal live, live_active
+            if live_active and live is not None:
+                live.stop()
+                live_active = False
+
+        def spin(text: str) -> None:
+            """切回 spinner 状态（仅在非正文期），附带已耗时。"""
+            nonlocal live, live_active
+            if streaming_text:
+                return
+            spinner.update(text=f"{text}（{_format_elapsed(time.monotonic() - start)}）")
+            if not live_active:
+                live = Live(
+                    spinner, console=self._console, refresh_per_second=12, transient=True
+                )
+                live.start()
+                live_active = True
+
+        try:
+            for event in events:
+                if event.kind == "reasoning":
+                    if self._show_reasoning:
+                        stop_live()
+                        self._console.print(f"[dim italic]{event.text}[/dim italic]", end="")
+                    else:
+                        spin("思考中…")
+                elif event.kind == "content_delta":
+                    stop_live()
+                    if not streaming_text:
+                        streaming_text = True
+                    final_streamed = True
+                    self._console.print(event.text, end="", markup=False)
+                elif event.kind == "tool_call":
+                    stop_live()
+                    streaming_text = False
+                    final_streamed = False  # 工具后模型会再流一段新的最终回复
+                    args = _format_args(event.tool_args)
+                    self._console.print(
+                        f"\n[yellow]→ 调用工具[/yellow] [bold]{event.tool_name}[/bold]({args})"
+                    )
+                    spin("执行中…")
+                elif event.kind == "tool_result":
+                    stop_live()
+                    style = "red" if event.is_error else "dim cyan"
+                    preview = _truncate(event.text, 500)
+                    self._console.print(f"[{style}]  {preview}[/{style}]")
+                    spin("思考中…")
+                elif event.kind == "usage":
+                    usage = event.usage
+                elif event.kind == "final":
+                    stop_live()
+                    streaming_text = False
+                    if final_streamed:
+                        # 正文已流式打印过，不重复整段，只收尾换行。
+                        self._console.print()
+                        self._console.print("[dim green]— 完成 —[/dim green]")
+                    else:
+                        # 没有流式正文（如纯工具轮直接结束），补一个结果面板。
+                        self._console.print()
+                        self._console.print(Panel(event.text, title="结果", border_style="green"))
+                elif event.kind == "error":
+                    stop_live()
+                    streaming_text = False
+                    self._console.print()
+                    self._console.print(Panel(event.text, title="错误", border_style="red"))
+        finally:
+            stop_live()
+
+        elapsed = time.monotonic() - start
+        summary = f"耗时 {_format_elapsed(elapsed)}"
+        if usage:
+            summary += f" · token 用量：{_format_usage(usage)}"
+        self._console.print(f"[dim]{summary}[/dim]")
 
     def confirm(self, message: str) -> bool:
         """危险操作确认。注入到 ToolContext.confirm。"""
@@ -95,3 +179,18 @@ def _format_args(args: dict[str, Any] | None) -> str:
 def _truncate(text: str, limit: int) -> str:
     text = str(text)
     return text if len(text) <= limit else text[:limit] + "…"
+
+
+def _format_usage(usage: dict[str, int]) -> str:
+    prompt = usage.get("prompt_tokens", 0)
+    completion = usage.get("completion_tokens", 0)
+    total = usage.get("total_tokens", 0)
+    return f"↑{prompt} ↓{completion} 共 {total}"
+
+
+def _format_elapsed(seconds: float) -> str:
+    """人类可读的耗时：<60s 显示秒，否则分秒。"""
+    if seconds < 60:
+        return f"{seconds:.1f}s"
+    minutes, secs = divmod(int(seconds), 60)
+    return f"{minutes}m {secs}s"

@@ -43,6 +43,7 @@ def _setup(config_path: Path | None, console: Console) -> tuple[AppConfig, Agent
         confirm=console.confirm,
     )
     loop = AgentLoop(config, client, registry, tool_ctx)
+    console.set_show_reasoning(config.ui.show_reasoning)
     console.banner(config.active, provider.model)
     return config, loop
 
@@ -56,8 +57,7 @@ def run(
     console = Console()
     _, loop = _setup(config, console)
     console.user_echo(task)
-    for event in loop.run(task):
-        console.render_event(event)
+    console.render_stream(loop.run(task))
 
 
 @app.command()
@@ -79,8 +79,7 @@ def chat(
         if task.lower() in ("exit", "quit"):
             console.info("再见。")
             break
-        for event in loop.run(task):
-            console.render_event(event)
+        console.render_stream(loop.run(task))
 
 
 def main() -> None:

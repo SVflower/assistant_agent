@@ -37,6 +37,14 @@ class ToolsConfig(BaseModel):
     shell_timeout: int = Field(default=60, gt=0, description="shell 命令超时（秒）")
 
 
+class UIConfig(BaseModel):
+    """终端 UI 行为。"""
+
+    show_reasoning: bool = Field(
+        default=False, description="是否实时显示模型的思考（reasoning）过程；关闭时只显示 spinner"
+    )
+
+
 class AppConfig(BaseModel):
     """顶层配置。"""
 
@@ -44,6 +52,7 @@ class AppConfig(BaseModel):
     providers: dict[str, ProviderConfig] = Field(..., min_length=1)
     agent: AgentConfig = Field(default_factory=AgentConfig)
     tools: ToolsConfig = Field(default_factory=ToolsConfig)
+    ui: UIConfig = Field(default_factory=UIConfig)
 
     @model_validator(mode="after")
     def _active_must_exist(self) -> AppConfig:

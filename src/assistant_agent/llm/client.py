@@ -8,8 +8,9 @@ from __future__ import annotations
 
 import json
 import os
+from collections.abc import Iterator
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Literal
 from urllib.parse import urlparse
 
 from assistant_agent.config.schema import ProviderConfig
@@ -40,6 +41,26 @@ class LLMResponse:
         return bool(self.tool_calls)
 
 
+StreamEventKind = Literal["reasoning", "content", "tool_calls", "usage", "error"]
+
+
+@dataclass
+class StreamEvent:
+    """流式调用的增量事件。
+
+    - reasoning：思考增量（部分模型有）
+    - content：正文增量
+    - tool_calls：本轮完整拼接好的工具调用（一次性给出，非碎片）
+    - usage：token 用量（通常在流末尾）
+    - error：流中途出错；text 为错误信息，此前已 yield 的增量应保留
+    """
+
+    kind: StreamEventKind
+    text: str = ""
+    tool_calls: list[ToolCall] = field(default_factory=list)
+    usage: dict[str, int] = field(default_factory=dict)
+
+
 def _parse_arguments(raw: Any) -> dict[str, Any]:
     """容错解析工具调用参数。
 
@@ -57,6 +78,36 @@ def _parse_arguments(raw: Any) -> dict[str, Any]:
         except (json.JSONDecodeError, ValueError):
             return {"_raw": raw, "_parse_error": True}
     return {}
+
+
+def _finalize_tool_calls(buffers: dict[int, dict[str, str]]) -> list[ToolCall]:
+    """把碎片缓冲区拼接成完整 ToolCall 列表（按 index 顺序）。
+
+    arguments 复用 _parse_arguments 容错解析，坏 JSON 不崩。
+    没有 name 的（拼接不完整）跳过。
+    """
+    result: list[ToolCall] = []
+    for index in sorted(buffers):
+        buf = buffers[index]
+        if not buf["name"]:
+            continue
+        result.append(
+            ToolCall(
+                id=buf["id"],
+                name=buf["name"],
+                arguments=_parse_arguments(buf["args"]),
+            )
+        )
+    return result
+
+
+def _normalize_usage(usage: Any) -> dict[str, int]:
+    """把 litellm 的 usage 对象归一化为简单 dict。"""
+    return {
+        "prompt_tokens": getattr(usage, "prompt_tokens", 0) or 0,
+        "completion_tokens": getattr(usage, "completion_tokens", 0) or 0,
+        "total_tokens": getattr(usage, "total_tokens", 0) or 0,
+    }
 
 
 def _bypass_proxy_for_local(api_base: str | None) -> None:
@@ -86,23 +137,12 @@ class LLMClient:
         self._provider = provider
         _bypass_proxy_for_local(provider.api_base)
 
-    def complete(
+    def _build_kwargs(
         self,
         messages: list[dict[str, Any]],
-        tools: list[dict[str, Any]] | None = None,
-    ) -> LLMResponse:
-        """调用模型，返回归一化结果。
-
-        Args:
-            messages: OpenAI 格式的消息列表。
-            tools: OpenAI 格式的工具 schema 列表；为空则不带工具。
-
-        Raises:
-            LLMError: 调用失败或返回结构异常。
-        """
-        # 延迟导入：litellm 较重，且便于测试时 monkeypatch。
-        import litellm
-
+        tools: list[dict[str, Any]] | None,
+    ) -> dict[str, Any]:
+        """构造 litellm.completion 的公共参数，流式/非流式共用。"""
         kwargs: dict[str, Any] = {
             "model": self._provider.model,
             "messages": messages,
@@ -116,13 +156,105 @@ class LLMClient:
         if tools:
             kwargs["tools"] = tools
             kwargs["tool_choice"] = "auto"
+        return kwargs
+
+    def complete(
+        self,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]] | None = None,
+    ) -> LLMResponse:
+        """调用模型，返回归一化结果（非流式，保留供降级与测试）。
+
+        Args:
+            messages: OpenAI 格式的消息列表。
+            tools: OpenAI 格式的工具 schema 列表；为空则不带工具。
+
+        Raises:
+            LLMError: 调用失败或返回结构异常。
+        """
+        # 延迟导入：litellm 较重，且便于测试时 monkeypatch。
+        import litellm
 
         try:
-            response = litellm.completion(**kwargs)
+            response = litellm.completion(**self._build_kwargs(messages, tools))
         except Exception as exc:  # litellm 抛出的异常类型繁杂，统一归一
             raise LLMError(f"模型调用失败（{self._provider.model}）：{exc}") from exc
 
         return self._normalize(response)
+
+    def complete_stream(
+        self,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]] | None = None,
+    ) -> Iterator[StreamEvent]:
+        """流式调用模型，逐步 yield StreamEvent。
+
+        增量顺序大致为：reasoning* → content* → tool_calls?（拼接完成后一次性）→ usage?
+        流中途出错时 yield 一个 error 事件（不抛出），此前的增量已经产出、应予保留。
+
+        工具调用在流中是碎片化到达的（首片带 id/name，后续片只带 arguments 片段），
+        本方法负责按 index 累积拼接，在流结束后统一产出完整 ToolCall。
+        """
+        import litellm
+
+        kwargs = self._build_kwargs(messages, tools)
+        kwargs["stream"] = True
+        # 要求在流末尾附带 token 用量（OpenAI 兼容端点通用参数）
+        kwargs["stream_options"] = {"include_usage": True}
+
+        # tool_call 碎片缓冲：index -> {"id","name","args"}
+        buffers: dict[int, dict[str, str]] = {}
+
+        try:
+            stream = litellm.completion(**kwargs)
+            for chunk in stream:
+                choices = getattr(chunk, "choices", None)
+                choice = choices[0] if choices else None
+                delta = getattr(choice, "delta", None) if choice else None
+
+                if delta is not None:
+                    reasoning = getattr(delta, "reasoning_content", None)
+                    if reasoning:
+                        yield StreamEvent(kind="reasoning", text=reasoning)
+
+                    content = getattr(delta, "content", None)
+                    if content:
+                        yield StreamEvent(kind="content", text=content)
+
+                    for frag in getattr(delta, "tool_calls", None) or []:
+                        self._accumulate_tool_call(buffers, frag)
+
+                usage = getattr(chunk, "usage", None)
+                if usage is not None:
+                    yield StreamEvent(kind="usage", usage=_normalize_usage(usage))
+        except Exception as exc:  # 流中途失败：产出 error 事件而非抛出
+            yield StreamEvent(kind="error", text=f"流式调用中断（{self._provider.model}）：{exc}")
+            return
+
+        # 流正常结束：把拼接好的工具调用一次性产出
+        tool_calls = _finalize_tool_calls(buffers)
+        if tool_calls:
+            yield StreamEvent(kind="tool_calls", tool_calls=tool_calls)
+
+    @staticmethod
+    def _accumulate_tool_call(buffers: dict[int, dict[str, str]], frag: Any) -> None:
+        """把一个 tool_call 碎片累加进缓冲区（按 index 分组）。
+
+        首片带 id/name、arguments 为空；后续片 id/name 为 None，只累加 arguments。
+        """
+        index = getattr(frag, "index", 0) or 0
+        buf = buffers.setdefault(index, {"id": "", "name": "", "args": ""})
+        frag_id = getattr(frag, "id", None)
+        if frag_id:
+            buf["id"] = frag_id
+        function = getattr(frag, "function", None)
+        if function is not None:
+            name = getattr(function, "name", None)
+            if name:
+                buf["name"] = name
+            args = getattr(function, "arguments", None)
+            if args:
+                buf["args"] += args
 
     @staticmethod
     def _normalize(response: Any) -> LLMResponse:

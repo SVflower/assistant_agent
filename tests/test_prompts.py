@@ -12,6 +12,17 @@ def test_build_system_prompt_includes_base():
     assert SYSTEM_PROMPT in prompt
 
 
+def test_system_prompt_names_all_tools():
+    # 显式列出真实工具名，帮小模型对齐 function-calling schema
+    for tool_name in ("read_file", "write_file", "list_dir", "run_shell"):
+        assert tool_name in SYSTEM_PROMPT
+
+
+def test_system_prompt_has_fewshot_example():
+    # 含一段演示正确工具循环节奏的 few-shot 示例
+    assert "示例" in SYSTEM_PROMPT
+
+
 def test_build_system_prompt_includes_os():
     prompt = build_system_prompt()
     assert platform.system() in prompt

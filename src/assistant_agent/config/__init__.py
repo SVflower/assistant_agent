@@ -6,6 +6,7 @@ from assistant_agent.config.schema import (
     AppConfig,
     ProviderConfig,
     ToolsConfig,
+    UIConfig,
 )
 
 __all__ = [
@@ -15,4 +16,5 @@ __all__ = [
     "ProviderConfig",
     "AgentConfig",
     "ToolsConfig",
+    "UIConfig",
 ]

@@ -35,6 +35,12 @@ class Console:
                     pass
         self._console = RichConsole()
         self._show_reasoning = show_reasoning
+        # 当前活动的 Live spinner（render_stream 期间）。confirm 需要在提示前停掉它，
+        # 否则 spinner 占着终端，确认输入提示不可见、无法输入 → 卡死。
+        self._active_live: Any = None
+        # 是否处于行首。流式正文用 end="" 打印会停在半行；confirm 提示前需据此补换行，
+        # 否则提示与残留文本挤在同一行，导致输入被污染、选择被误判为拒绝。
+        self._at_line_start = True
 
     def set_show_reasoning(self, value: bool) -> None:
         self._show_reasoning = value
@@ -71,6 +77,7 @@ class Console:
         )
         live.start()
         live_active = True
+        self._active_live = live
         streaming_text = False  # 是否正在打印正文（正文期间不开 spinner）
         final_streamed = False  # 最终回复是否已通过流式正文打印过（避免 final 重复整段）
         usage: dict[str, int] | None = None
@@ -80,6 +87,7 @@ class Console:
             if live_active and live is not None:
                 live.stop()
                 live_active = False
+                self._active_live = None
 
         def spin(text: str) -> None:
             """切回 spinner 状态（仅在非正文期），附带已耗时。"""
@@ -93,6 +101,7 @@ class Console:
                 )
                 live.start()
                 live_active = True
+            self._active_live = live
 
         try:
             for event in events:
@@ -100,6 +109,7 @@ class Console:
                     if self._show_reasoning:
                         stop_live()
                         self._console.print(f"[dim italic]{event.text}[/dim italic]", end="")
+                        self._at_line_start = False
                     else:
                         spin("思考中…")
                 elif event.kind == "content_delta":
@@ -108,6 +118,7 @@ class Console:
                         streaming_text = True
                     final_streamed = True
                     self._console.print(event.text, end="", markup=False)
+                    self._at_line_start = event.text.endswith("\n")
                 elif event.kind == "tool_call":
                     stop_live()
                     streaming_text = False
@@ -116,12 +127,14 @@ class Console:
                     self._console.print(
                         f"\n[yellow]→ 调用工具[/yellow] [bold]{event.tool_name}[/bold]({args})"
                     )
+                    self._at_line_start = True
                     spin("执行中…")
                 elif event.kind == "tool_result":
                     stop_live()
                     style = "red" if event.is_error else "dim cyan"
                     preview = _truncate(event.text, 500)
                     self._console.print(f"[{style}]  {preview}[/{style}]")
+                    self._at_line_start = True
                     spin("思考中…")
                 elif event.kind == "usage":
                     usage = event.usage
@@ -136,11 +149,13 @@ class Console:
                         # 没有流式正文（如纯工具轮直接结束），补一个结果面板。
                         self._console.print()
                         self._console.print(Panel(event.text, title="结果", border_style="green"))
+                    self._at_line_start = True
                 elif event.kind == "error":
                     stop_live()
                     streaming_text = False
                     self._console.print()
                     self._console.print(Panel(event.text, title="错误", border_style="red"))
+                    self._at_line_start = True
         finally:
             stop_live()
 
@@ -150,11 +165,32 @@ class Console:
             summary += f" · token 用量：{_format_usage(usage)}"
         self._console.print(f"[dim]{summary}[/dim]")
 
-    def confirm(self, message: str) -> bool:
-        """危险操作确认。注入到 ToolContext.confirm。"""
-        self._console.print(f"[bold red]⚠ {message}[/bold red]")
-        answer = self._console.input("[bold]输入 y 允许，其他键拒绝: [/bold]").strip().lower()
-        return answer in ("y", "yes")
+    def confirm(self, message: str) -> str:
+        """危险操作确认，返回用户选择：allow / always / deny。
+
+        关键：提示前必须停掉正在转的 Live spinner，否则 spinner 占着终端，
+        确认提示不可见、无法输入 → 卡死（M2 流式引入的问题）。
+        """
+        if self._active_live is not None:
+            self._active_live.stop()
+            self._active_live = None
+        # 若上一段流式正文停在半行，先补换行，保证提示与输入独占干净的新行，
+        # 避免残留文本污染输入、导致选择被误判。
+        if not self._at_line_start:
+            self._console.print()
+            self._at_line_start = True
+        self._console.print(f"[bold yellow]⚠ {message}[/bold yellow]")
+        self._console.print(
+            "  [green]1[/green] 允许    "
+            "[cyan]2[/cyan] 允许且本次会话不再询问此类    "
+            "[red]3[/red] 拒绝"
+        )
+        answer = self._console.input("[bold]请选择 [1/2/3]（默认 3 拒绝）: [/bold]").strip()
+        if answer == "1":
+            return "allow"
+        if answer == "2":
+            return "always"
+        return "deny"
 
     def info(self, text: str) -> None:
         self._console.print(f"[dim]{text}[/dim]")

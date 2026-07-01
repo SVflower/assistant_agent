@@ -56,7 +56,7 @@ def _loop(client, config=None) -> AgentLoop:
         config or _config(),
         client,  # 鸭子类型：只需有 complete_stream 方法
         build_default_registry(),
-        ToolContext(confirm=lambda _m: True),
+        ToolContext(confirm=lambda _m: "allow"),
     )
 
 

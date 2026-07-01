@@ -74,10 +74,32 @@ def test_shell_dangerous_allowed_when_confirmed(tmp_path):
     target.write_text("x", encoding="utf-8")
     result = ShellTool().run(
         {"command": f"rm {target}"},
-        _ctx(confirm_dangerous_shell=True, confirm=lambda _msg: True),
+        _ctx(confirm_dangerous_shell=True, confirm=lambda _msg: "allow"),
     )
     assert not result.is_error
     assert not target.exists()
+
+
+def test_shell_always_allow_skips_second_prompt(tmp_path):
+    """选择 always 后，同类危险操作本会话不再询问。"""
+    calls = {"n": 0}
+
+    def confirm(_msg: str) -> str:
+        calls["n"] += 1
+        return "always"
+
+    ctx = _ctx(confirm_dangerous_shell=True, confirm=confirm)
+    f1 = tmp_path / "a.txt"
+    f2 = tmp_path / "b.txt"
+    f1.write_text("x", encoding="utf-8")
+    f2.write_text("x", encoding="utf-8")
+    ShellTool().run({"command": f"rm {f1}"}, ctx)
+    ShellTool().run({"command": f"rm {f2}"}, ctx)
+    # 只在第一次询问过，第二次因 always 记忆而跳过
+    assert calls["n"] == 1
+    assert not f1.exists()
+    assert not f2.exists()
+    assert "run_shell" in ctx.always_allowed
 
 
 def test_shell_confirm_disabled_runs_dangerous(tmp_path):

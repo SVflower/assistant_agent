@@ -17,8 +17,13 @@ class Conversation:
     system 消息始终保留在最前，截断只作用于其后的对话消息。
     """
 
-    def __init__(self, max_history_messages: int = 40, system_prompt: str | None = None) -> None:
-        prompt = system_prompt if system_prompt is not None else build_system_prompt()
+    def __init__(
+        self,
+        max_history_messages: int = 40,
+        system_prompt: str | None = None,
+        interactive: bool = True,
+    ) -> None:
+        prompt = system_prompt if system_prompt is not None else build_system_prompt(interactive)
         self._system: dict[str, Any] = {"role": "system", "content": prompt}
         self._messages: list[dict[str, Any]] = []
         self._max = max_history_messages

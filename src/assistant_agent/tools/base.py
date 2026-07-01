@@ -7,8 +7,11 @@ from __future__ import annotations
 
 import abc
 from collections.abc import Callable
-from dataclasses import dataclass
-from typing import Any
+from dataclasses import dataclass, field
+from typing import Any, Literal
+
+# 确认结果：允许一次 / 本会话永远允许这类 / 拒绝。
+ConfirmChoice = Literal["allow", "always", "deny"]
 
 
 @dataclass
@@ -21,8 +24,25 @@ class ToolContext:
 
     confirm_dangerous_shell: bool = True
     shell_timeout: int = 60
-    # 危险操作确认回调：返回 True 表示用户允许。默认拒绝（安全优先）。
-    confirm: Callable[[str], bool] = lambda _msg: False
+    # 确认回调：给一条说明，返回用户的选择（allow/always/deny）。
+    # 默认拒绝（安全优先）。UI 层注入真正的多选交互。
+    confirm: Callable[[str], ConfirmChoice] = lambda _msg: "deny"
+    # 本会话内"永远允许"的类别集合（如 "run_shell"）。由 request_confirm 维护。
+    always_allowed: set[str] = field(default_factory=set)
+
+    def request_confirm(self, category: str, message: str) -> bool:
+        """请求某类危险操作的确认，返回是否放行。
+
+        统一处理"永远允许"记忆：某类别一旦被选为 always，本会话内同类不再询问。
+        工具只需调用本方法，不直接接触多选逻辑。
+        """
+        if category in self.always_allowed:
+            return True
+        choice = self.confirm(message)
+        if choice == "always":
+            self.always_allowed.add(category)
+            return True
+        return choice == "allow"
 
 
 @dataclass

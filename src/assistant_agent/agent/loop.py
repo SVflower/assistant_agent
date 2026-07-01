@@ -51,12 +51,16 @@ class AgentLoop:
         client: LLMClient,
         registry: ToolRegistry,
         tool_context: ToolContext,
+        interactive: bool = True,
     ) -> None:
         self._config = config
         self._client = client
         self._registry = registry
         self._tool_ctx = tool_context
-        self._conversation = Conversation(max_history_messages=config.agent.max_history_messages)
+        self._conversation = Conversation(
+            max_history_messages=config.agent.max_history_messages,
+            interactive=interactive,
+        )
 
     def run(self, task: str) -> Iterator[StepEvent]:
         """执行一个任务，逐步 yield 事件（流式）。

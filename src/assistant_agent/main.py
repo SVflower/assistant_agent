@@ -26,8 +26,13 @@ app = typer.Typer(
 )
 
 
-def _setup(config_path: Path | None, console: Console) -> tuple[AppConfig, AgentLoop]:
-    """加载配置并装配循环。失败时打印错误并退出。"""
+def _setup(
+    config_path: Path | None, console: Console, interactive: bool
+) -> tuple[AppConfig, AgentLoop]:
+    """加载配置并装配循环。失败时打印错误并退出。
+
+    interactive：True 为 chat 多轮（允许澄清提问），False 为 run 单次（遇歧义自行假设）。
+    """
     try:
         config = load_config(config_path)
     except ConfigError as exc:
@@ -42,7 +47,7 @@ def _setup(config_path: Path | None, console: Console) -> tuple[AppConfig, Agent
         shell_timeout=config.tools.shell_timeout,
         confirm=console.confirm,
     )
-    loop = AgentLoop(config, client, registry, tool_ctx)
+    loop = AgentLoop(config, client, registry, tool_ctx, interactive=interactive)
     console.set_show_reasoning(config.ui.show_reasoning)
     console.banner(config.active, provider.model)
     return config, loop
@@ -55,7 +60,7 @@ def run(
 ) -> None:
     """执行单个任务后退出。"""
     console = Console()
-    _, loop = _setup(config, console)
+    _, loop = _setup(config, console, interactive=False)
     console.user_echo(task)
     console.render_stream(loop.run(task))
 
@@ -66,7 +71,7 @@ def chat(
 ) -> None:
     """进入交互模式，连续对话（输入 exit/quit 退出）。"""
     console = Console()
-    _, loop = _setup(config, console)
+    _, loop = _setup(config, console, interactive=True)
     console.info("进入交互模式，输入 exit 或 quit 退出。")
     while True:
         try:

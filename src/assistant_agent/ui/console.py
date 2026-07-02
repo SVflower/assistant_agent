@@ -18,6 +18,7 @@ from rich.spinner import Spinner
 from rich.table import Table
 
 from assistant_agent.agent.loop import StepEvent
+from assistant_agent.tools.base import ConfirmChoice
 
 
 class Console:
@@ -171,7 +172,7 @@ class Console:
             summary += f" · token 用量：{_format_usage(usage)}"
         self._console.print(f"[dim]{summary}[/dim]")
 
-    def confirm(self, message: str) -> str:
+    def confirm(self, message: str) -> ConfirmChoice:
         """危险操作确认，返回用户选择：allow / always / deny。
 
         关键：提示前必须停掉正在转的 Live spinner，否则 spinner 占着终端，
@@ -192,7 +193,11 @@ class Console:
             "[red]3[/red] 拒绝"
         )
         answer = self._console.input("[bold]请选择 [1/2/3]（默认 3 拒绝）: [/bold]").strip()
-        choice = {"1": "allow", "2": "always"}.get(answer, "deny")
+        choice: ConfirmChoice = "deny"
+        if answer == "1":
+            choice = "allow"
+        elif answer == "2":
+            choice = "always"
         if choice != "deny":
             # 放行后到命令真正跑完之间没有 spinner（confirm 已停掉它）。
             # 补一行静态反馈，避免慢命令期间看着像"卡住无反应"。

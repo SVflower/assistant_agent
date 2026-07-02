@@ -51,12 +51,13 @@ def _config(max_iterations: int = 25) -> AppConfig:
     )
 
 
-def _loop(client, config=None) -> AgentLoop:
+def _loop(client, config=None, interrupt_check=None) -> AgentLoop:
     return AgentLoop(
         config or _config(),
         client,  # 鸭子类型：只需有 complete_stream 方法
         build_default_registry(),
         ToolContext(confirm=lambda _m: "allow"),
+        interrupt_check=interrupt_check,
     )
 
 
@@ -178,3 +179,34 @@ def test_loop_two_rounds_share_history():
     events2 = list(loop.run("第二个问题"))
     assert events1[-1].text == "第一次"
     assert events2[-1].text == "第二次"
+
+
+def test_loop_interrupt_during_stream_preserves_content():
+    """流式中途中断：保留已输出正文，干净终止为 interrupted。"""
+    client = FakeStreamClient([_text_round("正在输出的内容")])
+    # 中断检查始终为真：第一个事件后即触发中断
+    events = list(_loop(client, interrupt_check=lambda: True).run("test"))
+    # 已输出的 content_delta 仍在
+    deltas = [e.text for e in events if e.kind == "content_delta"]
+    assert "".join(deltas)  # 至少输出了部分
+    assert events[-1].kind == "interrupted"
+
+
+def test_loop_interrupt_before_tool_batch():
+    """工具批次执行前中断：不执行工具，干净终止。"""
+    call = ToolCall(id="c1", name="list_dir", arguments={"path": "."})
+    client = FakeStreamClient([_tool_round(call)])
+    # 中断触发：流结束后、工具执行前应停止
+    events = list(_loop(client, interrupt_check=lambda: True).run("test"))
+    # 没有工具真正执行（无 tool_result）
+    assert not [e for e in events if e.kind == "tool_result"]
+    assert events[-1].kind == "interrupted"
+
+
+def test_loop_not_interrupted_when_check_false():
+    """中断检查为假时，正常完成，不受影响。"""
+    client = FakeStreamClient([_text_round("正常完成")])
+    events = list(_loop(client, interrupt_check=lambda: False).run("test"))
+    assert events[-1].kind == "final"
+    assert events[-1].text == "正常完成"
+

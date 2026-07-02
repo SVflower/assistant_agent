@@ -156,6 +156,12 @@ class Console:
                     self._console.print()
                     self._console.print(Panel(event.text, title="错误", border_style="red"))
                     self._at_line_start = True
+                elif event.kind == "interrupted":
+                    stop_live()
+                    streaming_text = False
+                    self._console.print()
+                    self._console.print(f"[yellow]⏹ {event.text}[/yellow]")
+                    self._at_line_start = True
         finally:
             stop_live()
 

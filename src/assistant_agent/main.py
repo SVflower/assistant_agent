@@ -7,11 +7,15 @@
 
 from __future__ import annotations
 
+import signal
+import threading
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 
 import typer
 
-from assistant_agent.agent.loop import AgentLoop
+from assistant_agent.agent.loop import AgentLoop, StepEvent
 from assistant_agent.config.loader import ConfigError, load_config
 from assistant_agent.config.schema import AppConfig
 from assistant_agent.llm.client import LLMClient
@@ -24,6 +28,36 @@ app = typer.Typer(
     help="模型后端可切换的通用任务 Agent。",
     add_completion=False,
 )
+
+# 任务执行期间的中断标志。Ctrl+C 时由信号处理器置起，AgentLoop 检查它以干净停止。
+_interrupt = threading.Event()
+
+
+@contextmanager
+def _interruptible() -> Iterator[None]:
+    """任务执行期间把 Ctrl+C(SIGINT) 转成"置中断标志"而非抛异常。
+
+    退出时恢复默认处理器——这样在输入提示符处按 Ctrl+C 仍是正常的退出行为。
+    signal.signal 只能在主线程调用（CLI 主流程满足）。
+    """
+    _interrupt.clear()
+    previous = signal.getsignal(signal.SIGINT)
+    try:
+        signal.signal(signal.SIGINT, lambda *_: _interrupt.set())
+    except ValueError:
+        # 非主线程（如测试）无法设信号；此时不启用中断，直接放行。
+        yield
+        return
+    try:
+        yield
+    finally:
+        signal.signal(signal.SIGINT, previous)
+
+
+def _run_streamed(console: Console, events: Iterator[StepEvent]) -> None:
+    """在可中断上下文中渲染一次任务的流式事件。"""
+    with _interruptible():
+        console.render_stream(events)
 
 
 def _setup(
@@ -47,7 +81,14 @@ def _setup(
         shell_timeout=config.tools.shell_timeout,
         confirm=console.confirm,
     )
-    loop = AgentLoop(config, client, registry, tool_ctx, interactive=interactive)
+    loop = AgentLoop(
+        config,
+        client,
+        registry,
+        tool_ctx,
+        interactive=interactive,
+        interrupt_check=_interrupt.is_set,
+    )
     console.set_show_reasoning(config.ui.show_reasoning)
     console.banner(config.active, provider.model)
     return config, loop
@@ -62,7 +103,7 @@ def run(
     console = Console()
     _, loop = _setup(config, console, interactive=False)
     console.user_echo(task)
-    console.render_stream(loop.run(task))
+    _run_streamed(console, loop.run(task))
 
 
 @app.command()
@@ -84,7 +125,7 @@ def chat(
         if task.lower() in ("exit", "quit"):
             console.info("再见。")
             break
-        console.render_stream(loop.run(task))
+        _run_streamed(console, loop.run(task))
 
 
 def main() -> None:

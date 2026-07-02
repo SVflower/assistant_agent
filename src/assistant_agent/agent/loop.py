@@ -8,7 +8,7 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from typing import Any, Literal
 
@@ -27,6 +27,7 @@ EventKind = Literal[
     "usage",
     "final",
     "error",
+    "interrupted",
 ]
 
 
@@ -52,15 +53,21 @@ class AgentLoop:
         registry: ToolRegistry,
         tool_context: ToolContext,
         interactive: bool = True,
+        interrupt_check: Callable[[], bool] | None = None,
     ) -> None:
         self._config = config
         self._client = client
         self._registry = registry
         self._tool_ctx = tool_context
+        # 中断检查：返回 True 表示用户请求中断。默认从不中断。
+        self._interrupt_check = interrupt_check
         self._conversation = Conversation(
             max_history_messages=config.agent.max_history_messages,
             interactive=interactive,
         )
+
+    def _interrupted(self) -> bool:
+        return self._interrupt_check is not None and self._interrupt_check()
 
     def run(self, task: str) -> Iterator[StepEvent]:
         """执行一个任务，逐步 yield 事件（流式）。
@@ -76,6 +83,7 @@ class AgentLoop:
             content_parts: list[str] = []
             tool_calls: list[ToolCall] = []
             stream_error: str | None = None
+            interrupted = False
 
             for event in self._client.complete_stream(
                 messages=self._conversation.messages(),
@@ -92,8 +100,19 @@ class AgentLoop:
                     yield StepEvent(kind="usage", usage=event.usage)
                 elif event.kind == "error":
                     stream_error = event.text
+                # 流式过程中检查中断：保留已输出、干净停下。
+                if self._interrupted():
+                    interrupted = True
+                    break
 
             content = "".join(content_parts)
+
+            # 用户中断：把已输出的正文写回历史（不含未完成的工具调用），干净终止。
+            if interrupted:
+                if content:
+                    self._conversation.add_assistant(content)
+                yield StepEvent(kind="interrupted", text="已中断（用户请求停止）")
+                return
 
             # 流中途出错：保留已输出内容并写回历史，本轮标记失败终止。
             if stream_error is not None:
@@ -107,6 +126,14 @@ class AgentLoop:
                 final = content or "（模型未返回内容）"
                 self._conversation.add_assistant(final)
                 yield StepEvent(kind="final", text=final)
+                return
+
+            # 执行工具批次前检查中断：此时尚未写入 tool_calls 消息，可安全终止。
+            # （不在工具批次中途中断——那会留下无结果的 tool_call，破坏下一轮请求。）
+            if self._interrupted():
+                if content:
+                    self._conversation.add_assistant(content)
+                yield StepEvent(kind="interrupted", text="已中断（用户请求停止）")
                 return
 
             # 有工具调用：先把 assistant 的工具调用消息记入历史。

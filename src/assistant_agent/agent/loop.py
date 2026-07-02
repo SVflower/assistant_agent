@@ -63,11 +63,20 @@ class AgentLoop:
         self._interrupt_check = interrupt_check
         self._conversation = Conversation(
             max_history_messages=config.agent.max_history_messages,
+            max_context_tokens=config.agent.max_context_tokens,
             interactive=interactive,
         )
 
     def _interrupted(self) -> bool:
         return self._interrupt_check is not None and self._interrupt_check()
+
+    def export_history(self) -> list[dict[str, Any]]:
+        """导出对话历史（供会话持久化）。"""
+        return self._conversation.export_history()
+
+    def load_history(self, messages: list[dict[str, Any]]) -> None:
+        """载入对话历史（供恢复会话）。"""
+        self._conversation.load_history(messages)
 
     def run(self, task: str) -> Iterator[StepEvent]:
         """执行一个任务，逐步 yield 事件（流式）。

@@ -27,7 +27,14 @@ class AgentConfig(BaseModel):
     """Agent 循环行为。"""
 
     max_iterations: int = Field(default=25, gt=0, description="单任务最大工具调用轮数，防跑飞")
-    max_history_messages: int = Field(default=40, gt=0, description="上下文保留的最大消息数")
+    max_history_messages: int = Field(
+        default=40, gt=0, description="上下文保留的最大消息数（硬上限兜底）"
+    )
+    max_context_tokens: int = Field(
+        default=8000,
+        gt=0,
+        description="上下文 token 预算；超出则丢弃最旧消息。本地小模型窗口小，务必按需下调",
+    )
 
 
 class ToolsConfig(BaseModel):

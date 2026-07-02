@@ -131,25 +131,23 @@ Console 流式渲染（Live spinner 与正文时间错开）、show_reasoning �
 
 ---
 
-## M3 — 记忆与会话持久化（P1）
+## M3 — 记忆与会话持久化（P1）— 已完成 ✅
 
 **解决**：跨会话零记忆，下次重启忘光。
 
-**记忆分三层，本里程碑只做前两层**：
-- **短期（同会话）**：已存在，本阶段夯实——把上下文截断从"消息数量"改为 **token 感知截断**。
-- **中期（跨会话持久化）**：核心工作。对话存盘（如 JSON/SQLite），支持列出、恢复、删除历史会话。
-- **长期（跨项目向量检索）**：❌ 明确不做，避免过度设计。
-
-**架构影响**：主要在 `agent/context.py` + 新增存储层；内核基本不动。
-
-**风险**：记忆存哪、体积、隐私；避免一上来就上向量数据库。
+**已实现**：
+- **上下文工程（短期）**：`context.py` 截断从"消息数"升级为 **token 感知**（字符估算，CJK 安全偏保守；保留 system+最近消息应对 lost-in-the-middle）；`max_context_tokens` 配置（默认 8000）。
+- **Agent Memory（中期）**：`session/store.py`（JSON，项目 `./.assistant_agent/sessions/`）save/load/list/delete；`Conversation.export_history/load_history` 序列化（不含 system）；CLI：`chat` 默认新会话+每轮自动保存、`chat --resume <id>` 续接、`sessions` 列出、`sessions --delete <id>`（带确认）。
+- **长期（向量检索）**：❌ 明确不做。
 
 **验收标准**：
-1. `chat` 退出重启后，能**列出**历史会话
-2. 能**恢复**某个历史会话并续接对话（模型记得之前内容）
-3. 能**删除**指定历史会话
-4. 上下文截断改为 token 感知，本地小模型长对话不超窗
-5. 新增记忆/持久化测试，现有测试仍绿
+1. ✅ `chat` 退出重启后，`sessions` 能列出历史会话
+2. ✅ `--resume <id>` 能恢复并续接（export/load history 实测往返一致）
+3. ✅ `sessions --delete <id>` 能删除（带确认）
+4. ✅ 上下文截断改为 token 感知（含消息数硬上限兜底、不破坏 tool 配对）
+5. ✅ 新增测试全绿（68 通过：test_session/test_context/test_client 等），ruff + 架构测试通过
+
+**顺带还债**：D1（流式碎片拼接补直接单测）、D4（Console.input 收口）已还，见 docs/TECH_DEBT.md。
 
 ---
 

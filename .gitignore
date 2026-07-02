@@ -2,6 +2,9 @@
 config.yaml
 .env
 
+# 会话持久化（本地数据，不入库）
+.assistant_agent/
+
 # Python
 __pycache__/
 *.py[cod]

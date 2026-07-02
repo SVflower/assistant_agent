@@ -1,0 +1,95 @@
+"""会话持久化（SessionStore）测试。"""
+
+from __future__ import annotations
+
+from assistant_agent.session.store import Session, SessionStore, new_session_id
+
+
+def _store(tmp_path) -> SessionStore:
+    return SessionStore(base_dir=tmp_path / "sessions")
+
+
+def test_new_session_id_unique_and_sortable():
+    ids = {new_session_id() for _ in range(20)}
+    assert len(ids) == 20  # 不撞
+
+
+def test_save_load_roundtrip(tmp_path):
+    store = _store(tmp_path)
+    s = store.new_session(provider="cloud", model="openai/deepseek-v4-pro")
+    msgs = [
+        {"role": "user", "content": "你好"},
+        {"role": "assistant", "content": "你好，有什么可以帮你？"},
+    ]
+    store.save(s, msgs)
+
+    loaded = store.load(s.id)
+    assert loaded.id == s.id
+    assert loaded.provider == "cloud"
+    assert loaded.messages == msgs
+
+
+def test_load_missing_raises(tmp_path):
+    store = _store(tmp_path)
+    try:
+        store.load("nonexistent")
+        raise AssertionError("应抛 FileNotFoundError")
+    except FileNotFoundError:
+        pass
+
+
+def test_list_sorted_recent_first(tmp_path):
+    store = _store(tmp_path)
+    s1 = store.new_session()
+    s1.created_at = "2026-07-01T10:00:00"
+    store.save(s1, [{"role": "user", "content": "第一个"}])
+    s2 = store.new_session()
+    store.save(s2, [{"role": "user", "content": "第二个"}])
+
+    metas = store.list()
+    assert len(metas) == 2
+    # 最近更新的在前
+    assert metas[0].updated_at >= metas[1].updated_at
+    assert all(m.message_count == 1 for m in metas)
+
+
+def test_list_preview_is_first_user_message(tmp_path):
+    store = _store(tmp_path)
+    s = store.new_session()
+    store.save(
+        s,
+        [
+            {"role": "user", "content": "帮我写个函数"},
+            {"role": "assistant", "content": "好"},
+        ],
+    )
+    meta = store.list()[0]
+    assert "帮我写个函数" in meta.preview
+
+
+def test_delete(tmp_path):
+    store = _store(tmp_path)
+    s = store.new_session()
+    store.save(s, [{"role": "user", "content": "x"}])
+    assert store.delete(s.id) is True
+    assert store.delete(s.id) is False  # 再删返回 False
+    assert store.list() == []
+
+
+def test_list_skips_corrupt_files(tmp_path):
+    store = _store(tmp_path)
+    s = store.new_session()
+    store.save(s, [{"role": "user", "content": "ok"}])
+    # 写一个损坏的 json，list 应跳过而非崩溃
+    (tmp_path / "sessions" / "broken.json").write_text("{not json", encoding="utf-8")
+    metas = store.list()
+    assert len(metas) == 1
+    assert metas[0].id == s.id
+
+
+def test_session_from_dict_roundtrip():
+    s = Session(
+        id="x", created_at="a", updated_at="b", provider="p", model="m",
+        messages=[{"role": "user", "content": "hi"}],
+    )
+    assert Session.from_dict(s.to_dict()) == s

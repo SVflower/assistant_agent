@@ -19,6 +19,7 @@ from assistant_agent.agent.loop import AgentLoop, StepEvent
 from assistant_agent.config.loader import ConfigError, load_config
 from assistant_agent.config.schema import AppConfig
 from assistant_agent.llm.client import LLMClient
+from assistant_agent.session.store import SessionStore
 from assistant_agent.tools.base import ToolContext
 from assistant_agent.tools.registry import build_default_registry
 from assistant_agent.ui.console import Console
@@ -109,14 +110,33 @@ def run(
 @app.command()
 def chat(
     config: Path | None = typer.Option(None, "--config", "-c", help="配置文件路径"),
+    resume: str | None = typer.Option(None, "--resume", "-r", help="恢复指定会话 id 并续接"),
 ) -> None:
-    """进入交互模式，连续对话（输入 exit/quit 退出）。"""
+    """进入交互模式，连续对话（输入 exit/quit 退出）。
+
+    默认新建会话并自动保存；--resume <id> 恢复历史会话续接。
+    """
     console = Console()
-    _, loop = _setup(config, console, interactive=True)
-    console.info("进入交互模式，输入 exit 或 quit 退出。")
+    config_obj, loop = _setup(config, console, interactive=True)
+    store = SessionStore()
+
+    if resume:
+        try:
+            session = store.load(resume)
+        except (FileNotFoundError, ValueError) as exc:
+            console.error(f"无法恢复会话：{exc}")
+            raise typer.Exit(code=1) from exc
+        loop.load_history(session.messages)
+        console.info(f"已恢复会话 {resume}（{len(session.messages)} 条消息），继续对话。")
+    else:
+        session = store.new_session(
+            provider=config_obj.active, model=config_obj.active_provider.model
+        )
+        console.info(f"新会话 {session.id}。输入 exit 或 quit 退出。")
+
     while True:
         try:
-            task = console._console.input("\n[bold green]你: [/bold green]").strip()
+            task = console.input("\n[bold green]你: [/bold green]").strip()
         except (EOFError, KeyboardInterrupt):
             console.info("\n再见。")
             break
@@ -126,6 +146,43 @@ def chat(
             console.info("再见。")
             break
         _run_streamed(console, loop.run(task))
+        # 每轮结束自动保存（覆盖写整个会话文件）
+        store.save(session, loop.export_history())
+
+
+@app.command()
+def sessions(
+    delete: str | None = typer.Option(None, "--delete", "-d", help="删除指定会话 id"),
+) -> None:
+    """列出历史会话；--delete <id> 删除指定会话。"""
+    console = Console()
+    store = SessionStore()
+
+    if delete:
+        meta = next((m for m in store.list() if m.id == delete), None)
+        if meta is None:
+            console.error(f"会话不存在：{delete}")
+            raise typer.Exit(code=1)
+        # 删除不可逆，先确认
+        answer = (
+            console.input(
+                f"[bold yellow]确认删除会话 {delete}（{meta.preview}）？输入 y 确认: [/bold yellow]"
+            )
+            .strip()
+            .lower()
+        )
+        if answer in ("y", "yes"):
+            store.delete(delete)
+            console.info(f"已删除会话 {delete}。")
+        else:
+            console.info("已取消。")
+        return
+
+    metas = store.list()
+    if not metas:
+        console.info("暂无历史会话。")
+        return
+    console.print_sessions(metas)
 
 
 def main() -> None:

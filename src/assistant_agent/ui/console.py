@@ -192,17 +192,34 @@ class Console:
             "[red]3[/red] 拒绝"
         )
         answer = self._console.input("[bold]请选择 [1/2/3]（默认 3 拒绝）: [/bold]").strip()
-        if answer == "1":
-            return "allow"
-        if answer == "2":
-            return "always"
-        return "deny"
+        choice = {"1": "allow", "2": "always"}.get(answer, "deny")
+        if choice != "deny":
+            # 放行后到命令真正跑完之间没有 spinner（confirm 已停掉它）。
+            # 补一行静态反馈，避免慢命令期间看着像"卡住无反应"。
+            self._console.print("[dim]▶ 执行中，请稍候…[/dim]")
+            self._at_line_start = True
+        return choice
 
     def info(self, text: str) -> None:
         self._console.print(f"[dim]{text}[/dim]")
 
     def error(self, text: str) -> None:
         self._console.print(f"[bold red]{text}[/bold red]")
+
+    def input(self, prompt: str) -> str:
+        """读取一行用户输入（收口对底层 console 的访问）。"""
+        return self._console.input(prompt)
+
+    def print_sessions(self, metas: list[Any]) -> None:
+        """渲染历史会话列表。metas 为 SessionMeta 序列。"""
+        table = Table(title="历史会话", show_lines=False, border_style="blue")
+        table.add_column("id", style="cyan", no_wrap=True)
+        table.add_column("更新时间", style="dim")
+        table.add_column("消息数", justify="right")
+        table.add_column("首条内容")
+        for m in metas:
+            table.add_row(m.id, m.updated_at, str(m.message_count), m.preview)
+        self._console.print(table)
 
 
 def _format_args(args: dict[str, Any] | None) -> str:

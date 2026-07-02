@@ -28,12 +28,21 @@ cp config.example.yaml config.yaml
 # 单次任务
 assistant-agent run "读取 README.md，在末尾追加一行 changelog，然后列出当前目录确认"
 
-# 交互模式
+# 交互模式（默认新建会话，自动保存）
 assistant-agent chat
+
+# 恢复历史会话续接
+assistant-agent chat --resume <会话id>
+
+# 列出 / 删除历史会话
+assistant-agent sessions
+assistant-agent sessions --delete <会话id>
 
 # 指定配置文件
 assistant-agent run "..." --config /path/to/config.yaml
 ```
+
+会话存于项目下 `./.assistant_agent/sessions/`（已 gitignore）。
 
 ## 开发
 

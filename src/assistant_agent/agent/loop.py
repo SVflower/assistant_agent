@@ -70,6 +70,14 @@ class AgentLoop:
     def _interrupted(self) -> bool:
         return self._interrupt_check is not None and self._interrupt_check()
 
+    def set_client(self, client: LLMClient) -> None:
+        """替换模型客户端（用于对话中切换 provider/模型）。
+
+        仅换客户端，_conversation 不动——切换后对话历史完整保留。
+        不改 run() 控制流。
+        """
+        self._client = client
+
     def export_history(self) -> list[dict[str, Any]]:
         """导出对话历史（供会话持久化）。"""
         return self._conversation.export_history()

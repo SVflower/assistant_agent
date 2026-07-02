@@ -210,3 +210,23 @@ def test_loop_not_interrupted_when_check_false():
     assert events[-1].kind == "final"
     assert events[-1].text == "正常完成"
 
+
+def test_set_client_preserves_history():
+    """对话中切换 client：历史完整保留（切模型不丢上下文）。"""
+    loop = _loop(FakeStreamClient([_text_round("第一次回答")]))
+    list(loop.run("第一个问题"))
+    before = loop.export_history()
+
+    # 换一个新 client 继续对话
+    new_client = FakeStreamClient([_text_round("第二次回答")])
+    loop.set_client(new_client)
+    list(loop.run("第二个问题"))
+    after = loop.export_history()
+
+    # 切换后历史包含切换前的全部内容（前缀一致），且用了新 client
+    assert after[: len(before)] == before
+    assert new_client.calls == 1
+    assert any("第一个问题" in str(m.get("content")) for m in after)
+    assert any("第二个问题" in str(m.get("content")) for m in after)
+
+

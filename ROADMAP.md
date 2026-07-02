@@ -169,6 +169,25 @@ Console 流式渲染（Live spinner 与正文时间错开）、show_reasoning �
 
 ---
 
+## M4.5 — 模型管理与切换（P1）— 已完成 ✅
+
+**解决**：模型切换只能"改 config.yaml + 重启"，不灵活。
+
+**已实现**（方案见 docs/m4_5-model-management-plan.md）：
+- **`--provider/-p` 启动标志**：run/chat 临时指定后端，覆盖 config.active，不改文件；非法名报错列可选。
+- **对话内 `/model`**：chat 输入 `/model` 弹方向键菜单（复用 questionary）选择、`/model <名>` 直切；**切换保留对话历史**（M3 的 token 截断兜底更小窗口）。
+- **`providers` 命令**：列出所有 provider（名/模型/云端或本地/当前标记）。
+- **内核轻碰（已批准）**：`AgentLoop.set_client` 仅换 client、不改 run() 控制流，历史天然保留。
+
+**验收标准**：
+1. ✅ `--provider <名>` 覆盖生效；非法名报错列可选（实测）
+2. ✅ `/model` 菜单/直切，切换保留历史（set_client 单测证明 export_history 前缀不变）
+3. ✅ `providers` 列出所有 provider（实测表格含云端/本地/当前）
+4. ✅ 切换无副作用、不触发确认
+5. ✅ 90 测试全绿，ruff + 架构测试通过；内核仅加 setter，控制流未改
+
+---
+
 ## M5 — 上手体验（P2）
 
 **解决**：新用户/新机器上手门槛（当前需手动 cp config、填 key）。

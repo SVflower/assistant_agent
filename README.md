@@ -38,6 +38,11 @@ assistant-agent chat --resume <会话id>
 assistant-agent sessions
 assistant-agent sessions --delete <会话id>
 
+# 模型/后端管理
+assistant-agent providers                 # 列出所有 provider
+assistant-agent run "..." --provider local_lmstudio   # 临时指定后端（-p，覆盖 active）
+# 对话中输入 /model 可切换模型（保留上下文）；/model <名> 直切
+
 # 指定配置文件
 assistant-agent run "..." --config /path/to/config.yaml
 ```

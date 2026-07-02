@@ -270,6 +270,16 @@ class Console:
                 return self.input("[bold]请输入你的想法: [/bold]").strip()
         return answer
 
+    def print_providers(self, rows: list[tuple[str, str, str]]) -> None:
+        """渲染 provider 列表。rows 为 (名字, 模型, 云端/本地)。"""
+        table = Table(title="可用 provider", border_style="blue")
+        table.add_column("provider", style="cyan", no_wrap=True)
+        table.add_column("模型")
+        table.add_column("类型", style="dim")
+        for name, model, kind in rows:
+            table.add_row(name, model, kind)
+        self._console.print(table)
+
     def print_sessions(self, metas: list[Any]) -> None:
         """渲染历史会话列表。metas 为 SessionMeta 序列。"""
         table = Table(title="历史会话", show_lines=False, border_style="blue")

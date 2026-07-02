@@ -5,7 +5,6 @@
 
 from __future__ import annotations
 
-import json
 import os
 import sys
 import time
@@ -19,6 +18,12 @@ from rich.table import Table
 
 from assistant_agent.agent.loop import StepEvent
 from assistant_agent.tools.base import ConfirmChoice
+from assistant_agent.ui.formatting import (
+    format_args,
+    format_elapsed,
+    format_usage,
+    truncate,
+)
 
 
 class Console:
@@ -95,7 +100,7 @@ class Console:
             nonlocal live, live_active
             if streaming_text:
                 return
-            spinner.update(text=f"{text}（{_format_elapsed(time.monotonic() - start)}）")
+            spinner.update(text=f"{text}（{format_elapsed(time.monotonic() - start)}）")
             if not live_active:
                 live = Live(
                     spinner, console=self._console, refresh_per_second=12, transient=True
@@ -124,7 +129,7 @@ class Console:
                     stop_live()
                     streaming_text = False
                     final_streamed = False  # 工具后模型会再流一段新的最终回复
-                    args = _format_args(event.tool_args)
+                    args = format_args(event.tool_args)
                     self._console.print(
                         f"\n[yellow]→ 调用工具[/yellow] [bold]{event.tool_name}[/bold]({args})"
                     )
@@ -133,7 +138,7 @@ class Console:
                 elif event.kind == "tool_result":
                     stop_live()
                     style = "red" if event.is_error else "dim cyan"
-                    preview = _truncate(event.text, 500)
+                    preview = truncate(event.text, 500)
                     self._console.print(f"[{style}]  {preview}[/{style}]")
                     self._at_line_start = True
                     spin("思考中…")
@@ -167,9 +172,9 @@ class Console:
             stop_live()
 
         elapsed = time.monotonic() - start
-        summary = f"耗时 {_format_elapsed(elapsed)}"
+        summary = f"耗时 {format_elapsed(elapsed)}"
         if usage:
-            summary += f" · token 用量：{_format_usage(usage)}"
+            summary += f" · token 用量：{format_usage(usage)}"
         self._console.print(f"[dim]{summary}[/dim]")
 
     def confirm(self, message: str) -> ConfirmChoice:
@@ -215,6 +220,56 @@ class Console:
         """读取一行用户输入（收口对底层 console 的访问）。"""
         return self._console.input(prompt)
 
+    def ask_question(self, question: str, options: list[str]) -> str:
+        """层1 意图澄清：方向键菜单选择，返回用户所选（或"其他"的自由文本）。
+
+        与 confirm 一样：提示前停掉 spinner、补换行，避免占屏/输入污染。
+        优先用 questionary 的 ↑/↓ 选择菜单（Claude 风格）；终端不支持时回退到编号输入。
+        """
+        if self._active_live is not None:
+            self._active_live.stop()
+            self._active_live = None
+        if not self._at_line_start:
+            self._console.print()
+            self._at_line_start = True
+
+        other = "其他（自行输入）"
+        try:
+            import questionary
+
+            selected = questionary.select(
+                question,
+                choices=[*options, other],
+                use_shortcuts=True,  # 每项带数字快捷键，可按数字直接选
+                instruction="（↑/↓ 或数字键选择，回车确认）",
+            ).ask()  # Esc/Ctrl+C 返回 None
+            self._at_line_start = True
+            if selected is None:
+                return ""  # 用户取消，交模型判断
+            if selected == other:
+                return questionary.text("请输入你的想法：").ask() or ""
+            return selected
+        except Exception:
+            # 终端不支持交互菜单（或 prompt_toolkit 出错）→ 回退到编号输入
+            return self._ask_question_fallback(question, options, other)
+
+    def _ask_question_fallback(self, question: str, options: list[str], other: str) -> str:
+        """编号输入兜底（questionary 不可用时）。"""
+        self._console.print(f"[bold cyan]? {question}[/bold cyan]")
+        for i, opt in enumerate(options, start=1):
+            self._console.print(f"  [cyan]{i}[/cyan] {opt}")
+        other_idx = len(options) + 1
+        self._console.print(f"  [cyan]{other_idx}[/cyan] {other}")
+        answer = self.input(f"[bold]请选择 [1-{other_idx}]: [/bold]").strip()
+        self._at_line_start = True
+        if answer.isdigit():
+            idx = int(answer)
+            if 1 <= idx <= len(options):
+                return options[idx - 1]
+            if idx == other_idx:
+                return self.input("[bold]请输入你的想法: [/bold]").strip()
+        return answer
+
     def print_sessions(self, metas: list[Any]) -> None:
         """渲染历史会话列表。metas 为 SessionMeta 序列。"""
         table = Table(title="历史会话", show_lines=False, border_style="blue")
@@ -225,36 +280,3 @@ class Console:
         for m in metas:
             table.add_row(m.id, m.updated_at, str(m.message_count), m.preview)
         self._console.print(table)
-
-
-def _format_args(args: dict[str, Any] | None) -> str:
-    if not args:
-        return ""
-    try:
-        items = []
-        for k, v in args.items():
-            v_str = json.dumps(v, ensure_ascii=False) if not isinstance(v, str) else v
-            items.append(f"{k}={_truncate(v_str, 80)}")
-        return ", ".join(items)
-    except (TypeError, ValueError):
-        return str(args)
-
-
-def _truncate(text: str, limit: int) -> str:
-    text = str(text)
-    return text if len(text) <= limit else text[:limit] + "…"
-
-
-def _format_usage(usage: dict[str, int]) -> str:
-    prompt = usage.get("prompt_tokens", 0)
-    completion = usage.get("completion_tokens", 0)
-    total = usage.get("total_tokens", 0)
-    return f"↑{prompt} ↓{completion} 共 {total}"
-
-
-def _format_elapsed(seconds: float) -> str:
-    """人类可读的耗时：<60s 显示秒，否则分秒。"""
-    if seconds < 60:
-        return f"{seconds:.1f}s"
-    minutes, secs = divmod(int(seconds), 60)
-    return f"{minutes}m {secs}s"

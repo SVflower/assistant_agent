@@ -81,6 +81,7 @@ def _setup(
         confirm_dangerous_shell=config.tools.confirm_dangerous_shell,
         shell_timeout=config.tools.shell_timeout,
         confirm=console.confirm,
+        ask=console.ask_question,
     )
     loop = AgentLoop(
         config,

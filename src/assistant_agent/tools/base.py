@@ -13,6 +13,9 @@ from typing import Any, Literal
 # 确认结果：允许一次 / 本会话永远允许这类 / 拒绝。
 ConfirmChoice = Literal["allow", "always", "deny"]
 
+# 无人应答时的退化信号：非交互环境（管道/无 tty）下 ask_user 的返回。
+NO_USER_AVAILABLE = "当前非交互环境，无用户应答；请基于最合理的假设继续，并说明你做了哪些假设。"
+
 
 @dataclass
 class ToolContext:
@@ -27,6 +30,9 @@ class ToolContext:
     # 确认回调：给一条说明，返回用户的选择（allow/always/deny）。
     # 默认拒绝（安全优先）。UI 层注入真正的多选交互。
     confirm: Callable[[str], ConfirmChoice] = lambda _msg: "deny"
+    # 澄清回调（层1）：给问题+选项，返回用户所选。默认返回退化信号（无 UI 可问）。
+    # UI 层注入真正的交互；ask_user 工具在非交互环境会自行退化，不调用它。
+    ask: Callable[[str, list[str]], str] = lambda _q, _opts: NO_USER_AVAILABLE
     # 本会话内"永远允许"的类别集合（如 "run_shell"）。由 request_confirm 维护。
     always_allowed: set[str] = field(default_factory=set)
 

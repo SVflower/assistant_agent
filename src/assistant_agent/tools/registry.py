@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from assistant_agent.tools.ask import AskUserTool
 from assistant_agent.tools.base import Tool, ToolContext, ToolResult
 from assistant_agent.tools.file_ops import ListDirTool, ReadFileTool, WriteFileTool
 from assistant_agent.tools.git import GitTool
@@ -46,7 +47,7 @@ class ToolRegistry:
 
 
 def build_default_registry() -> ToolRegistry:
-    """构建带内置工具的注册表：文件四件套 + 代码检索 + git 只读。"""
+    """构建带内置工具的注册表：文件四件套 + 代码检索 + git 只读 + 用户澄清。"""
     registry = ToolRegistry()
     registry.register(ReadFileTool())
     registry.register(WriteFileTool())
@@ -54,4 +55,5 @@ def build_default_registry() -> ToolRegistry:
     registry.register(ShellTool())
     registry.register(CodeSearchTool())
     registry.register(GitTool())
+    registry.register(AskUserTool())
     return registry

@@ -153,13 +153,14 @@ def test_default_registry_has_expected_tools():
         "run_shell",
         "code_search",
         "git",
+        "ask_user",
     }
 
 
 def test_registry_schemas_shape():
     registry = build_default_registry()
     schemas = registry.schemas()
-    assert len(schemas) == 6
+    assert len(schemas) == 7
     for schema in schemas:
         assert schema["type"] == "function"
         assert "name" in schema["function"]

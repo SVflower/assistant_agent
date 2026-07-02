@@ -151,20 +151,21 @@ Console 流式渲染（Live spinner 与正文时间错开）、show_reasoning �
 
 ---
 
-## M4 — 工具集扩展（P1–P2）
+## M4 — 工具集扩展（P1–P2）— 已完成 ✅
 
 **解决**：工具集太窄，做不了真实开发任务。
 
-**范围**：新增高频工具，纯走 `tools/` 扩展点，**不动内核**：
-- grep / 代码搜索
-- git 操作（status/diff/log 等只读优先）
-- HTTP 请求 / 网络搜索（视需要）
+**已实现**（纯走 `tools/` 扩展点，内核未动；方案见 docs/m4-tools-plan.md）：
+- **code_search**（`tools/search.py`）：纯 Python grep，跨平台（Windows 可用），只读不确认；支持 pattern/path/glob/ignore_case/max_results。
+- **git 只读**（`tools/git.py`）：单工具 + 子命令白名单（status/diff/log/show/branch）；写操作拒绝；shell=False 防注入；args 经 shlex 解析。
+
+**明确未做**：web_fetch/网络搜索（安全边界不成熟，暂缓）、glob/find_files（可选，暂缓）、git 写操作（不可逆，不做）。
 
 **验收标准**：
-1. 每个新工具各带单元测试
-2. 能完成真实开发任务链，如"搜索代码 → 修改 → git diff 确认"
-3. 危险操作（如 git 写操作）纳入确认机制
-4. 现有测试仍绿
+1. ✅ 每个新工具各带单元测试（test_search 9 + test_git 7）
+2. ✅ 能完成真实链路："搜索代码 → 读取 → 修改 → git diff 确认"（实测通过）
+3. ✅ 危险操作纳入机制：git 写子命令被白名单拒绝；只读工具不确认（对齐 Claude Code）
+4. ✅ 现有测试仍绿（84 通过），ruff + 架构测试通过
 
 ---
 

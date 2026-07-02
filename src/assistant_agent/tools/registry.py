@@ -6,6 +6,8 @@ from typing import Any
 
 from assistant_agent.tools.base import Tool, ToolContext, ToolResult
 from assistant_agent.tools.file_ops import ListDirTool, ReadFileTool, WriteFileTool
+from assistant_agent.tools.git import GitTool
+from assistant_agent.tools.search import CodeSearchTool
 from assistant_agent.tools.shell import ShellTool
 
 
@@ -44,10 +46,12 @@ class ToolRegistry:
 
 
 def build_default_registry() -> ToolRegistry:
-    """构建带内置四件套工具的注册表。"""
+    """构建带内置工具的注册表：文件四件套 + 代码检索 + git 只读。"""
     registry = ToolRegistry()
     registry.register(ReadFileTool())
     registry.register(WriteFileTool())
     registry.register(ListDirTool())
     registry.register(ShellTool())
+    registry.register(CodeSearchTool())
+    registry.register(GitTool())
     return registry

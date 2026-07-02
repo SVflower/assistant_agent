@@ -143,16 +143,23 @@ def test_decode_empty():
 # ---- registry ----
 
 
-def test_default_registry_has_four_tools():
+def test_default_registry_has_expected_tools():
     registry = build_default_registry()
     names = set(registry.names())
-    assert names == {"read_file", "write_file", "list_dir", "run_shell"}
+    assert names == {
+        "read_file",
+        "write_file",
+        "list_dir",
+        "run_shell",
+        "code_search",
+        "git",
+    }
 
 
 def test_registry_schemas_shape():
     registry = build_default_registry()
     schemas = registry.schemas()
-    assert len(schemas) == 4
+    assert len(schemas) == 6
     for schema in schemas:
         assert schema["type"] == "function"
         assert "name" in schema["function"]

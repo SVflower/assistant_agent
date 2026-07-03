@@ -25,6 +25,7 @@ from assistant_agent.ui.formatting import (
     format_context,
     format_elapsed,
     format_usage,
+    read_input,
     truncate,
 )
 
@@ -204,7 +205,7 @@ class Console:
             "[cyan]2[/cyan] 允许且本次会话不再询问此类    "
             "[red]3[/red] 拒绝"
         )
-        answer = self._console.input("[bold]请选择 [1/2/3]（默认 3 拒绝）: [/bold]").strip()
+        answer = self.input("[bold]请选择 [1/2/3]（默认 3 拒绝）: [/bold]").strip()
         choice: ConfirmChoice = "deny"
         if answer == "1":
             choice = "allow"
@@ -223,9 +224,8 @@ class Console:
     def error(self, text: str) -> None:
         self._console.print(f"[bold red]{text}[/bold red]")
 
-    def input(self, prompt: str) -> str:
-        """读取一行用户输入（收口对底层 console 的访问）。"""
-        return self._console.input(prompt)
+    def input(self, prompt: str = "") -> str:
+        return read_input(prompt)  # 纯文本 prompt，避免 Linux 退格删提示符
 
     def confirm_continue(self, used: int) -> bool:
         """用尽轮数时询问是否继续。注入到 AgentLoop.continue_check。"""
@@ -233,7 +233,7 @@ class Console:
             self._active_live.stop()
             self._active_live = None
         answer = (
-            self._console.input(
+            self.input(
                 f"[bold yellow]已执行 {used} 轮仍未完成，继续吗？输入 y 继续: [/bold yellow]"
             )
             .strip()

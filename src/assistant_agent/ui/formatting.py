@@ -7,6 +7,18 @@ from typing import Any
 
 from rich.panel import Panel
 from rich.table import Table
+from rich.text import Text
+
+
+def read_input(prompt: str = "") -> str:
+    """用纯文本提示符读取一行输入。
+
+    Linux/readline 下，Rich 的"打印带色提示符 + 空 input()"会让退格越过输入起点、
+    删掉提示符本身。改用纯文本 prompt 传给内置 input()，让 readline 正确保护提示符
+    （代价：提示符无颜色，换取正确行编辑）。
+    """
+    plain = Text.from_markup(prompt).plain if prompt else ""
+    return input(plain)
 
 
 def build_banner(provider_name: str, model: str, cwd: str) -> Panel:

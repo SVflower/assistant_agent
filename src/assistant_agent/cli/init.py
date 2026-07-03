@@ -64,6 +64,19 @@ def check_endpoint(base_url: str, timeout: float = 3.0) -> tuple[bool, str]:
         return True, "已连接"
 
 
+def normalize_model(kind: str, model: str) -> str:
+    """确保模型名带 LiteLLM 可路由的 provider 前缀。
+
+    用户常填裸模型名（如 LM Studio 里的 `lm_studio`）；LiteLLM 需要 `openai/xxx`
+    这类前缀才能判断 provider（本地/OpenAI 兼容端点靠 `openai/` + api_base 路由）。
+    已含 `/` 则原样保留（用户已指定 provider）。
+    """
+    if "/" in model:
+        return model
+    prefix = "anthropic/" if kind == "anthropic" else "openai/"
+    return prefix + model
+
+
 def generate_config(
     kind: str,
     model: str,
@@ -73,7 +86,7 @@ def generate_config(
 ) -> dict[str, Any]:
     """按选择拼出 config 字典。key 用 ${VAR}（云端）或占位（本地），绝不含明文。"""
     name = kind  # provider 名直接用类别：cloud / anthropic / local
-    prov: dict[str, Any] = {"model": model}
+    prov: dict[str, Any] = {"model": normalize_model(kind, model)}
     if kind == "local":
         prov["api_key"] = _LOCAL_PLACEHOLDER_KEY
         prov["api_base"] = api_base
@@ -147,7 +160,9 @@ def run_init(console: Console, config_path: Path | None = None) -> int:
         api_base = console.input(
             "本地端点 base_url [http://localhost:1234/v1]: "
         ).strip() or "http://localhost:1234/v1"
-        model = console.input("模型名（LM Studio 里加载的名字）[openai/local-model]: ").strip()
+        model = console.input(
+            "模型名（LM Studio 里加载的名字，会自动补 openai/ 前缀）[openai/local-model]: "
+        ).strip()
         model = model or "openai/local-model"
         ok, detail = check_endpoint(api_base)
         if ok:

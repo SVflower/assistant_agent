@@ -41,6 +41,28 @@ def test_generate_anthropic():
     assert "api_base" not in prov
 
 
+def test_model_prefix_autofilled_for_local():
+    """裸模型名（如 lm_studio）自动补 openai/ 前缀，避免 LiteLLM 路由失败。"""
+    cfg = generate_config("local", "lm_studio", api_base="http://localhost:1234/v1")
+    assert cfg["providers"]["local"]["model"] == "openai/lm_studio"
+
+
+def test_model_prefix_autofilled_for_cloud():
+    cfg = generate_config("cloud", "gpt-4o", env_var="OPENAI_API_KEY")
+    assert cfg["providers"]["cloud"]["model"] == "openai/gpt-4o"
+
+
+def test_model_prefix_autofilled_for_anthropic():
+    cfg = generate_config("anthropic", "claude-sonnet-4-6", env_var="ANTHROPIC_API_KEY")
+    assert cfg["providers"]["anthropic"]["model"] == "anthropic/claude-sonnet-4-6"
+
+
+def test_model_prefix_preserved_when_present():
+    """已带前缀则不动。"""
+    cfg = generate_config("local", "openai/local-model", api_base="http://x/v1")
+    assert cfg["providers"]["local"]["model"] == "openai/local-model"
+
+
 def test_generate_local_placeholder_key():
     cfg = generate_config("local", "openai/local-model", api_base="http://localhost:1234/v1")
     prov = cfg["providers"]["local"]

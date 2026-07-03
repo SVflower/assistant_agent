@@ -185,7 +185,6 @@ def chat(
         try:
             task = console.input("\n[bold green]你: [/bold green]").strip()
         except (EOFError, KeyboardInterrupt):
-            console.info("\n再见。")
             break
         if not task:
             continue
@@ -199,7 +198,8 @@ def chat(
         _run_streamed(console, loop.run(task))
         # 每轮结束自动保存（/clear 可能已换 session，用 ctx.session 为准）
         store.save(ctx.session, loop.export_history())
-    console.info("再见。")
+    # 单一出口打印一次；带前导换行，Ctrl+C/D 中断后也能干净换行
+    console.info("\n再见。")
 
 
 @app.command()

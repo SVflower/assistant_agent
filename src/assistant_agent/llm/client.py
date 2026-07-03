@@ -15,6 +15,11 @@ from urllib.parse import urlparse
 
 from assistant_agent.config.schema import ProviderConfig
 
+# 让 LiteLLM 用自带的本地价格表，不去 GitHub 拉远程 cost map。
+# 我们不用 litellm 的成本计算（token 自己数），联网拉取只会在墙内/弱网首调时超时刷警告。
+# 用 setdefault 便于用户仍可用环境变量覆盖。
+os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
+
 
 class LLMError(Exception):
     """模型调用失败。"""

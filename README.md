@@ -41,7 +41,7 @@ assistant-agent sessions --delete <会话id>
 # 模型/后端管理
 assistant-agent providers                 # 列出所有 provider
 assistant-agent run "..." --provider local_lmstudio   # 临时指定后端（-p，覆盖 active）
-# 对话中输入 /model 可切换模型（保留上下文）；/model <名> 直切
+# 对话中输入 / 或 /help 查看所有命令（/model 切模型、/clear 新会话、/context 看用量、/sessions、/exit）
 
 # 轮数上限（复杂任务不够时提高）
 assistant-agent run "..." --max-iterations 30
@@ -63,6 +63,7 @@ ruff format . && ruff check .   # 格式化 + lint
 
 ```
 config/   配置加载与校验（Pydantic + YAML）
+cli/      slash 命令系统（/help /model /clear /context 等，本地控制、不进循环）
 llm/      模型抽象层（封装 LiteLLM，统一云端/本地）
 tools/    工具系统（base/registry + 内置：读/写/局部编辑/多处编辑/列目录/shell/代码检索/git 只读/澄清）
 session/  会话持久化（JSON 存档，跨会话续接）

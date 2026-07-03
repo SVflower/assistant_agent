@@ -16,6 +16,7 @@ from pathlib import Path
 import typer
 
 from assistant_agent.agent.loop import AgentLoop, StepEvent
+from assistant_agent.cli.commands import ChatContext, build_default_slash_registry
 from assistant_agent.config.loader import ConfigError, load_config
 from assistant_agent.config.schema import AppConfig
 from assistant_agent.llm.client import LLMClient
@@ -154,7 +155,7 @@ def chat(
     """进入交互模式，连续对话（输入 exit/quit 退出）。
 
     默认新建会话并自动保存；--resume <id> 恢复历史会话续接。
-    对话中输入 /model 可切换模型（保留上下文）。
+    对话中输入 / 或 /help 查看所有命令（/model 切模型、/clear 新会话等）。
     """
     console = Console()
     config_obj, loop = _setup(
@@ -174,7 +175,10 @@ def chat(
         session = store.new_session(
             provider=config_obj.active, model=config_obj.active_provider.model
         )
-        console.info(f"新会话 {session.id}。输入 exit 或 quit 退出；/model 切换模型。")
+        console.info(f"新会话 {session.id}。输入 / 查看命令，exit/quit 退出。")
+
+    ctx = ChatContext(config_obj, loop, console, store, session)
+    registry = build_default_slash_registry()
 
     while True:
         try:
@@ -185,47 +189,16 @@ def chat(
         if not task:
             continue
         if task.lower() in ("exit", "quit"):
-            console.info("再见。")
             break
-        if task.split()[0] == "/model":
-            _handle_model_command(task, config_obj, loop, console)
+        if task.startswith("/"):
+            registry.dispatch(task, ctx)
+            if ctx.should_exit:
+                break
             continue
         _run_streamed(console, loop.run(task))
-        # 每轮结束自动保存（覆盖写整个会话文件）
-        store.save(session, loop.export_history())
-
-
-def _handle_model_command(
-    task: str, config: AppConfig, loop: AgentLoop, console: Console
-) -> None:
-    """处理 chat 内的 /model：切换 provider，保留当前对话历史。"""
-    parts = task.split(maxsplit=1)
-    names = sorted(config.providers)
-    arg = parts[1].strip() if len(parts) > 1 else ""
-
-    if arg:
-        target = arg
-    else:
-        # 无参：弹菜单选择（复用 ask_question）；非交互下提示用带名形式
-        import sys
-
-        if not sys.stdin.isatty():
-            console.info(f"非交互环境，请用 /model <名>。可选：{', '.join(names)}")
-            return
-        choices = [f"{n}（当前）" if n == config.active else n for n in names]
-        picked = console.ask_question("切换到哪个 provider？", choices)
-        target = picked.replace("（当前）", "").strip()
-
-    if target not in config.providers:
-        console.error(f"未知 provider：{target}。可选：{', '.join(names)}")
-        return
-    if target == config.active:
-        console.info(f"已在使用 {target}，无需切换。")
-        return
-
-    config.active = target
-    loop.set_client(_build_client(config))
-    console.info(f"已切换到 {target}（{config.active_provider.model}），对话上下文保留。")
+        # 每轮结束自动保存（/clear 可能已换 session，用 ctx.session 为准）
+        store.save(ctx.session, loop.export_history())
+    console.info("再见。")
 
 
 @app.command()

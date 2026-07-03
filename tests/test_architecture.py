@@ -23,7 +23,8 @@ _LAYER_RANK = {
     "tools": 2,
     "agent": 3,
     "ui": 4,
-    "main": 5,  # 顶层：main.py / __main__.py
+    "cli": 5,  # slash 命令：编排 agent/ui/session，供 main 使用
+    "main": 6,  # 顶层：main.py / __main__.py
 }
 
 # 单文件行数预算：超过就该拆分。当前最大 client.py(≈283)，留少量余量。

@@ -230,6 +230,26 @@ Console 流式渲染（Live spinner 与正文时间错开）、show_reasoning �
 
 ---
 
+## M4.9 — Slash 命令系统（P1）— 已完成 ✅
+
+**解决**：`/model` 等能力用户不知道存在（无可发现性）；控制命令散在 chat 循环的 if 里。
+
+**已实现**（方案见 docs/slash-commands-plan.md）：
+- 新增 `cli/commands.py`：SlashCommand/SlashRegistry/ChatContext（仿 ToolRegistry）。
+- 内置命令：`/help`（列出全部+说明，可发现性核心）、`/model`、`/sessions`、`/clear`（新会话）、
+  `/context`（会话状态/用量）、`/exit`。收编原散落的 /model 与 exit。
+- 本地拦截、不进 ReAct、不花 token（对齐 Claude）；未知命令友好提示。
+- 基础档（纯打印、鲁棒）；实时下拉菜单（prompt_toolkit）作为后续可选增强，本期不做。
+
+**验收标准**：
+1. ✅ `/` 或 `/help` 列出所有命令+说明（实测）
+2. ✅ /model /sessions /clear /context /exit 各生效（实测 + 单测）
+3. ✅ 未知 /xxx 友好提示、不进 ReAct
+4. ✅ slash 本地处理、不调模型（0 token）
+5. ✅ 119 测试全绿（+9 命令测试），ruff + 架构测试通过（新增 cli 层）；内核未动
+
+---
+
 ## M5 — 上手体验（P2）
 
 **解决**：新用户/新机器上手门槛（当前需手动 cp config、填 key）。

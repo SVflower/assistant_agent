@@ -188,6 +188,29 @@ Console 流式渲染（Live spinner 与正文时间错开）、show_reasoning �
 
 ---
 
+## M4.7 — 循环工程与写入安全（P1）— 已完成 ✅
+
+**解决**：真实使用发现 ① agent 复杂循环里自作主张改文件（write_file 无范围限制）；② 用尽轮数硬失败、卡死空耗。
+
+**已实现**（方案见 docs/m4_7-loop-engineering-plan.md）：
+- **工作区范围写入**：写项目目录内直接放行，写目录外需确认（对齐 Codex workspace-write / Claude acceptEdits）；靠"流式可见 + Ctrl+C + git"兜底，不逐个弹窗。
+- **重复动作熔断**（内核）：连续 3 轮完全相同的工具调用 → 判定卡死终止，不空耗到上限。
+- **用尽轮数优雅**（内核）：注入 continue_check——chat 问"继续吗"、run 带如何继续的提示停。
+- **`--max-iterations`**：覆盖 config。
+- 提示词：只改任务相关文件、改前说明范围。
+- 内核改动：run() 加"重复检测 + 用尽续跑"分支 + continue_check 参数，控制流主体未变。
+
+**未做（按方案）**：权限模式（readonly/strict）——可选，后置；OS 沙箱——过重，记为未来信号（不可信/全自动时才需）。
+
+**验收标准**：
+1. ✅ 区内写放行、区外写确认、拒绝不写（实测）
+2. ✅ 连续相同动作达阈值熔断（单测 client.calls==3）
+3. ✅ chat 用尽问续、run 优雅提示停（单测）
+4. ✅ --max-iterations 生效（实测）
+5. ✅ 96 测试全绿，ruff + 架构测试通过（护栏逼出 console.py 拆分至 formatting.py）
+
+---
+
 ## M5 — 上手体验（P2）
 
 **解决**：新用户/新机器上手门槛（当前需手动 cp config、填 key）。

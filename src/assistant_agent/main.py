@@ -71,11 +71,13 @@ def _setup(
     console: Console,
     interactive: bool,
     provider: str | None = None,
+    max_iterations: int | None = None,
 ) -> tuple[AppConfig, AgentLoop]:
     """加载配置并装配循环。失败时打印错误并退出。
 
     interactive：True 为 chat 多轮（允许澄清提问），False 为 run 单次（遇歧义自行假设）。
     provider：非空则覆盖 config 的 active（临时指定后端，不改文件）；非法名报错列出可选。
+    max_iterations：非空则覆盖 config 的最大轮数。
     """
     try:
         config = load_config(config_path)
@@ -90,6 +92,9 @@ def _setup(
             raise typer.Exit(code=1)
         config.active = provider
 
+    if max_iterations is not None:
+        config.agent.max_iterations = max_iterations
+
     client = _build_client(config)
     registry = build_default_registry()
     tool_ctx = ToolContext(
@@ -98,6 +103,8 @@ def _setup(
         confirm=console.confirm,
         ask=console.ask_question,
     )
+    # 交互模式(chat)：用尽轮数时问用户是否继续；单次(run)：不问，优雅终止。
+    continue_check = console.confirm_continue if interactive else None
     loop = AgentLoop(
         config,
         client,
@@ -105,6 +112,7 @@ def _setup(
         tool_ctx,
         interactive=interactive,
         interrupt_check=_interrupt.is_set,
+        continue_check=continue_check,
     )
     console.set_show_reasoning(config.ui.show_reasoning)
     console.banner(config.active, config.active_provider.model)
@@ -118,10 +126,15 @@ def run(
     provider: str | None = typer.Option(
         None, "--provider", "-p", help="临时指定 provider（覆盖 config 的 active）"
     ),
+    max_iterations: int | None = typer.Option(
+        None, "--max-iterations", help="最大工具调用轮数（覆盖 config）"
+    ),
 ) -> None:
     """执行单个任务后退出。"""
     console = Console()
-    _, loop = _setup(config, console, interactive=False, provider=provider)
+    _, loop = _setup(
+        config, console, interactive=False, provider=provider, max_iterations=max_iterations
+    )
     console.user_echo(task)
     _run_streamed(console, loop.run(task))
 
@@ -133,6 +146,9 @@ def chat(
     provider: str | None = typer.Option(
         None, "--provider", "-p", help="临时指定 provider（覆盖 config 的 active）"
     ),
+    max_iterations: int | None = typer.Option(
+        None, "--max-iterations", help="最大工具调用轮数（覆盖 config）"
+    ),
 ) -> None:
     """进入交互模式，连续对话（输入 exit/quit 退出）。
 
@@ -140,7 +156,9 @@ def chat(
     对话中输入 /model 可切换模型（保留上下文）。
     """
     console = Console()
-    config_obj, loop = _setup(config, console, interactive=True, provider=provider)
+    config_obj, loop = _setup(
+        config, console, interactive=True, provider=provider, max_iterations=max_iterations
+    )
     store = SessionStore()
 
     if resume:

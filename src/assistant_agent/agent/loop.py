@@ -18,6 +18,9 @@ from assistant_agent.llm.client import LLMClient, ToolCall
 from assistant_agent.tools.base import ToolContext
 from assistant_agent.tools.registry import ToolRegistry
 
+# 连续多少轮完全相同的工具调用判定为卡死并熔断。
+_REPEAT_LIMIT = 3
+
 EventKind = Literal[
     "reasoning",
     "content_delta",
@@ -54,6 +57,7 @@ class AgentLoop:
         tool_context: ToolContext,
         interactive: bool = True,
         interrupt_check: Callable[[], bool] | None = None,
+        continue_check: Callable[[int], bool] | None = None,
     ) -> None:
         self._config = config
         self._client = client
@@ -61,6 +65,8 @@ class AgentLoop:
         self._tool_ctx = tool_context
         # 中断检查：返回 True 表示用户请求中断。默认从不中断。
         self._interrupt_check = interrupt_check
+        # 用尽轮数时的续跑检查：给已用轮数，返回 True 表示再放一批。None=不续（run 模式）。
+        self._continue_check = continue_check
         self._conversation = Conversation(
             max_history_messages=config.agent.max_history_messages,
             max_context_tokens=config.agent.max_context_tokens,
@@ -95,7 +101,29 @@ class AgentLoop:
         self._conversation.add_user(task)
         tool_schemas = self._registry.schemas()
 
-        for _ in range(self._config.agent.max_iterations):
+        # 重复动作熔断：连续多轮完全相同的工具调用 → 判定卡死。
+        last_signature: str | None = None
+        repeat_count = 0
+
+        # 轮数预算：用尽时若有 continue_check（交互）且用户同意，则再加一批。
+        count = 0
+        budget = self._config.agent.max_iterations
+
+        while True:
+            if count >= budget:
+                if self._continue_check is not None and self._continue_check(count):
+                    budget += self._config.agent.max_iterations
+                else:
+                    yield StepEvent(
+                        kind="error",
+                        text=(
+                            f"已达最大轮数（{count}），任务未完成。已执行的步骤见上方；"
+                            "可用 --max-iterations 提高上限，或在 chat 中继续对话。"
+                        ),
+                        is_error=True,
+                    )
+                    return
+            count += 1
             # 累积本轮的正文与工具调用，供历史写回（中断时用已累积内容，保持"所见即所存"）。
             content_parts: list[str] = []
             tool_calls: list[ToolCall] = []
@@ -145,6 +173,27 @@ class AgentLoop:
                 yield StepEvent(kind="final", text=final)
                 return
 
+            # 重复动作熔断：连续 REPEAT_LIMIT 轮完全相同的工具调用 → 判定卡死，
+            # 在写入 tool_calls 消息前终止（不留悬空调用）。
+            signature = json.dumps(
+                [(c.name, c.arguments) for c in tool_calls],
+                sort_keys=True,
+                ensure_ascii=False,
+                default=str,
+            )
+            if signature == last_signature:
+                repeat_count += 1
+            else:
+                last_signature = signature
+                repeat_count = 1
+            if repeat_count >= _REPEAT_LIMIT:
+                yield StepEvent(
+                    kind="error",
+                    text=f"检测到连续 {repeat_count} 次相同的工具调用，已停止以避免死循环。",
+                    is_error=True,
+                )
+                return
+
             # 执行工具批次前检查中断：此时尚未写入 tool_calls 消息，可安全终止。
             # （不在工具批次中途中断——那会留下无结果的 tool_call，破坏下一轮请求。）
             if self._interrupted():
@@ -182,10 +231,3 @@ class AgentLoop:
                     text=result.output,
                     is_error=result.is_error,
                 )
-
-        # 用尽最大轮数仍未完成。
-        yield StepEvent(
-            kind="error",
-            text=f"已达最大轮数（{self._config.agent.max_iterations}），任务未完成。",
-            is_error=True,
-        )

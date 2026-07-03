@@ -16,14 +16,61 @@ def _ctx(**kwargs) -> ToolContext:
 
 
 def test_write_then_read(tmp_path):
+    # 工作区设为 tmp_path，写在区内 → 直接放行
     target = tmp_path / "sub" / "note.txt"
-    write = WriteFileTool().run({"path": str(target), "content": "你好"}, _ctx())
+    write = WriteFileTool().run(
+        {"path": str(target), "content": "你好"}, _ctx(workspace_root=tmp_path)
+    )
     assert not write.is_error
     assert target.read_text(encoding="utf-8") == "你好"
 
     read = ReadFileTool().run({"path": str(target)}, _ctx())
     assert not read.is_error
     assert read.output == "你好"
+
+
+def test_write_inside_workspace_no_confirm(tmp_path):
+    """区内写不触发确认（confirm 回调即便拒绝也不该被调用）。"""
+    called = {"n": 0}
+
+    def confirm(_msg: str) -> str:
+        called["n"] += 1
+        return "deny"
+
+    target = tmp_path / "a.txt"
+    r = WriteFileTool().run(
+        {"path": str(target), "content": "x"},
+        _ctx(workspace_root=tmp_path, confirm=confirm),
+    )
+    assert not r.is_error
+    assert called["n"] == 0  # 区内写没问
+
+
+def test_write_outside_workspace_confirmed(tmp_path):
+    """区外写：确认放行则写入。"""
+    ws = tmp_path / "proj"
+    ws.mkdir()
+    outside = tmp_path / "outside.txt"
+    r = WriteFileTool().run(
+        {"path": str(outside), "content": "x"},
+        _ctx(workspace_root=ws, confirm=lambda _m: "allow"),
+    )
+    assert not r.is_error
+    assert outside.read_text(encoding="utf-8") == "x"
+
+
+def test_write_outside_workspace_denied(tmp_path):
+    """区外写：默认拒绝则不写。"""
+    ws = tmp_path / "proj"
+    ws.mkdir()
+    outside = tmp_path / "outside.txt"
+    r = WriteFileTool().run(
+        {"path": str(outside), "content": "x"},
+        _ctx(workspace_root=ws),  # 默认 confirm 返回 deny
+    )
+    assert r.is_error
+    assert "工作区外" in r.output
+    assert not outside.exists()
 
 
 def test_read_missing_file(tmp_path):

@@ -8,6 +8,7 @@ from __future__ import annotations
 import abc
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Literal
 
 # 确认结果：允许一次 / 本会话永远允许这类 / 拒绝。
@@ -35,6 +36,8 @@ class ToolContext:
     ask: Callable[[str, list[str]], str] = lambda _q, _opts: NO_USER_AVAILABLE
     # 本会话内"永远允许"的类别集合（如 "run_shell"）。由 request_confirm 维护。
     always_allowed: set[str] = field(default_factory=set)
+    # 工作区根目录：写在此目录树内直接放行，写到外面需确认（默认启动时的 cwd）。
+    workspace_root: Path = field(default_factory=lambda: Path.cwd().resolve())
 
     def request_confirm(self, category: str, message: str) -> bool:
         """请求某类危险操作的确认，返回是否放行。

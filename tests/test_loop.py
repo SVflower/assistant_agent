@@ -103,9 +103,13 @@ def test_loop_executes_tool_then_finishes(tmp_path):
 
 
 def test_loop_respects_max_iterations():
-    # 模型永远只调工具，不收尾 → 应在 max_iterations 后报错终止
-    looping = _tool_round(ToolCall(id="x", name="list_dir", arguments={"path": "."}))
-    client = FakeStreamClient([looping] * 10)
+    # 模型只调工具、不收尾 → 应在 max_iterations 后报错终止。
+    # 每轮用不同 args，避免触发重复动作熔断（那是另一条路径）。
+    rounds = [
+        _tool_round(ToolCall(id="x", name="list_dir", arguments={"path": f"dir{i}"}))
+        for i in range(10)
+    ]
+    client = FakeStreamClient(rounds)
     events = list(_loop(client, _config(max_iterations=3)).run("无限循环"))
     assert events[-1].kind == "error"
     assert "最大轮数" in events[-1].text
@@ -209,6 +213,59 @@ def test_loop_not_interrupted_when_check_false():
     events = list(_loop(client, interrupt_check=lambda: False).run("test"))
     assert events[-1].kind == "final"
     assert events[-1].text == "正常完成"
+
+
+def test_loop_continue_check_extends_budget():
+    """用尽轮数时 continue_check 返回 True → 再放一批继续。"""
+    # 每轮不同工具调用（避免重复熔断），第 3 轮才收尾
+    rounds = [
+        _tool_round(ToolCall(id="x", name="list_dir", arguments={"path": f"d{i}"}))
+        for i in range(2)
+    ] + [_text_round("终于完成")]
+    client = FakeStreamClient(rounds)
+    calls = {"n": 0}
+
+    def cont(_used: int) -> bool:
+        calls["n"] += 1
+        return True  # 每次都同意续
+
+    # max_iterations=2：跑完 2 轮未完成 → 问续 → 加批 → 第 3 轮收尾
+    loop = AgentLoop(
+        _config(max_iterations=2),
+        client,
+        build_default_registry(),
+        ToolContext(confirm=lambda _m: "allow"),
+        continue_check=cont,
+    )
+    events = list(loop.run("test"))
+    assert events[-1].kind == "final"
+    assert events[-1].text == "终于完成"
+    assert calls["n"] >= 1  # 至少问过一次是否继续
+
+
+def test_loop_no_continue_check_stops_gracefully():
+    """无 continue_check（run 模式）：用尽轮数优雅终止，提示如何继续。"""
+    rounds = [
+        _tool_round(ToolCall(id="x", name="list_dir", arguments={"path": f"d{i}"}))
+        for i in range(10)
+    ]
+    client = FakeStreamClient(rounds)
+    events = list(_loop(client, _config(max_iterations=2)).run("test"))
+    assert events[-1].kind == "error"
+    assert "已达最大轮数" in events[-1].text
+    assert "max-iterations" in events[-1].text  # 提示如何继续
+
+
+def test_loop_circuit_breaks_on_repeated_action():
+    """连续相同工具调用达阈值 → 熔断终止，不空耗到最大轮数。"""
+    same = _tool_round(ToolCall(id="x", name="list_dir", arguments={"path": "."}))
+    # 提供远超阈值的相同轮次；应在第 3 次相同时熔断
+    client = FakeStreamClient([same] * 10)
+    events = list(_loop(client, _config(max_iterations=20)).run("卡死"))
+    assert events[-1].kind == "error"
+    assert "死循环" in events[-1].text
+    # 熔断发生在第 3 轮，远早于 max_iterations=20
+    assert client.calls == 3
 
 
 def test_set_client_preserves_history():

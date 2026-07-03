@@ -19,6 +19,8 @@ from rich.table import Table
 from assistant_agent.agent.loop import StepEvent
 from assistant_agent.tools.base import ConfirmChoice
 from assistant_agent.ui.formatting import (
+    build_providers_table,
+    build_sessions_table,
     format_args,
     format_elapsed,
     format_usage,
@@ -220,6 +222,20 @@ class Console:
         """读取一行用户输入（收口对底层 console 的访问）。"""
         return self._console.input(prompt)
 
+    def confirm_continue(self, used: int) -> bool:
+        """用尽轮数时询问是否继续。注入到 AgentLoop.continue_check。"""
+        if self._active_live is not None:
+            self._active_live.stop()
+            self._active_live = None
+        answer = (
+            self._console.input(
+                f"[bold yellow]已执行 {used} 轮仍未完成，继续吗？输入 y 继续: [/bold yellow]"
+            )
+            .strip()
+            .lower()
+        )
+        return answer in ("y", "yes")
+
     def ask_question(self, question: str, options: list[str]) -> str:
         """层1 意图澄清：方向键菜单选择，返回用户所选（或"其他"的自由文本）。
 
@@ -272,21 +288,8 @@ class Console:
 
     def print_providers(self, rows: list[tuple[str, str, str]]) -> None:
         """渲染 provider 列表。rows 为 (名字, 模型, 云端/本地)。"""
-        table = Table(title="可用 provider", border_style="blue")
-        table.add_column("provider", style="cyan", no_wrap=True)
-        table.add_column("模型")
-        table.add_column("类型", style="dim")
-        for name, model, kind in rows:
-            table.add_row(name, model, kind)
-        self._console.print(table)
+        self._console.print(build_providers_table(rows))
 
     def print_sessions(self, metas: list[Any]) -> None:
         """渲染历史会话列表。metas 为 SessionMeta 序列。"""
-        table = Table(title="历史会话", show_lines=False, border_style="blue")
-        table.add_column("id", style="cyan", no_wrap=True)
-        table.add_column("更新时间", style="dim")
-        table.add_column("消息数", justify="right")
-        table.add_column("首条内容")
-        for m in metas:
-            table.add_row(m.id, m.updated_at, str(m.message_count), m.preview)
-        self._console.print(table)
+        self._console.print(build_sessions_table(metas))

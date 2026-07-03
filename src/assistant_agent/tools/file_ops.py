@@ -11,6 +11,15 @@ from assistant_agent.tools.base import Tool, ToolContext, ToolResult
 _MAX_READ_CHARS = 100_000
 
 
+def _within_workspace(path: Path, workspace_root: Path) -> bool:
+    """path 是否在工作区根目录树内（用于写入范围判断）。"""
+    try:
+        path.resolve().relative_to(Path(workspace_root).resolve())
+        return True
+    except ValueError:
+        return False
+
+
 class ReadFileTool(Tool):
     name = "read_file"
     description = "读取文本文件的内容。返回文件全文（过大时会截断）。"
@@ -66,6 +75,17 @@ class WriteFileTool(Tool):
             return ToolResult.error("缺少参数 path")
         content = args.get("content", "")
         path = Path(path_str)
+
+        # 工作区范围：区内写直接放行；区外写需确认（防"自己动别处文件"）。
+        # 区内的可见/回滚靠流式显示 + git，不逐个弹窗。
+        if not _within_workspace(path, ctx.workspace_root):
+            allowed = ctx.request_confirm(
+                "write_outside_workspace",
+                f"即将写入工作区外的文件：\n  {path.resolve()}",
+            )
+            if not allowed:
+                return ToolResult.error(f"用户拒绝写入工作区外：{path}")
+
         try:
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(content, encoding="utf-8")

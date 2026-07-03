@@ -43,6 +43,9 @@ assistant-agent providers                 # 列出所有 provider
 assistant-agent run "..." --provider local_lmstudio   # 临时指定后端（-p，覆盖 active）
 # 对话中输入 /model 可切换模型（保留上下文）；/model <名> 直切
 
+# 轮数上限（复杂任务不够时提高）
+assistant-agent run "..." --max-iterations 30
+
 # 指定配置文件
 assistant-agent run "..." --config /path/to/config.yaml
 ```

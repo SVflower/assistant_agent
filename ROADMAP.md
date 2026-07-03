@@ -211,6 +211,25 @@ Console 流式渲染（Live spinner 与正文时间错开）、show_reasoning �
 
 ---
 
+## M4.8 — 基础工具补全：局部编辑（P1）— 已完成 ✅
+
+**解决**：只有 write_file 整篇重写——改一行也要模型重输出整个文件，费 token、慢、易误伤其余内容。
+
+**已实现**（方案见 docs/base-tools-plan.md）：
+- **edit_file**：精确替换（old_string→new_string），唯一匹配才改（防误替），支持 replace_all；对齐 Claude Edit。
+- **multi_edit**：同文件多处替换，顺序应用、原子写入（任一失败整体不改）；对齐 Claude MultiEdit。
+- 沿用工作区范围（区外编辑需确认）；提示词引导"局部改优先 edit_file"。
+- 调研结论：各家"局部改"本质是 SEARCH/REPLACE（Claude Edit、Roo/Cline apply_diff 底层），
+  **不做行号 unified diff**——对本地小模型太脆弱，违背"对笨模型健壮"原则。
+
+**验收标准**：
+1. ✅ edit_file 唯一替换；未找到/多次歧义/文件不存在 → 清晰 error（实测）
+2. ✅ replace_all 替换所有；multi_edit 原子中止（单测覆盖）
+3. ✅ 区外编辑走确认
+4. ✅ 110 测试全绿（+8 edit 测试），ruff + 架构测试通过；内核未动
+
+---
+
 ## M5 — 上手体验（P2）
 
 **解决**：新用户/新机器上手门槛（当前需手动 cp config、填 key）。

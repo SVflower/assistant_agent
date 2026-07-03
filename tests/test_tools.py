@@ -3,7 +3,13 @@
 from __future__ import annotations
 
 from assistant_agent.tools.base import ToolContext, ToolResult
-from assistant_agent.tools.file_ops import ListDirTool, ReadFileTool, WriteFileTool
+from assistant_agent.tools.file_ops import (
+    EditFileTool,
+    ListDirTool,
+    MultiEditTool,
+    ReadFileTool,
+    WriteFileTool,
+)
 from assistant_agent.tools.registry import build_default_registry
 from assistant_agent.tools.shell import ShellTool, _decode, is_dangerous
 
@@ -86,6 +92,118 @@ def test_list_dir(tmp_path):
     assert not result.is_error
     assert "a.txt" in result.output
     assert "subdir" in result.output
+
+
+# ---- edit_file ----
+
+
+def test_edit_unique_replace(tmp_path):
+    f = tmp_path / "a.py"
+    f.write_text("x = 1\ny = 2\n", encoding="utf-8")
+    r = EditFileTool().run(
+        {"path": str(f), "old_string": "y = 2", "new_string": "y = 3"},
+        _ctx(workspace_root=tmp_path),
+    )
+    assert not r.is_error
+    assert f.read_text(encoding="utf-8") == "x = 1\ny = 3\n"
+
+
+def test_edit_not_found(tmp_path):
+    f = tmp_path / "a.py"
+    f.write_text("x = 1\n", encoding="utf-8")
+    r = EditFileTool().run(
+        {"path": str(f), "old_string": "zzz", "new_string": "q"},
+        _ctx(workspace_root=tmp_path),
+    )
+    assert r.is_error
+    assert "未找到" in r.output
+
+
+def test_edit_ambiguous_multiple(tmp_path):
+    f = tmp_path / "a.py"
+    f.write_text("a\na\n", encoding="utf-8")
+    r = EditFileTool().run(
+        {"path": str(f), "old_string": "a", "new_string": "b"},
+        _ctx(workspace_root=tmp_path),
+    )
+    assert r.is_error
+    assert "歧义" in r.output
+    # 未改动
+    assert f.read_text(encoding="utf-8") == "a\na\n"
+
+
+def test_edit_replace_all(tmp_path):
+    f = tmp_path / "a.py"
+    f.write_text("a\na\n", encoding="utf-8")
+    r = EditFileTool().run(
+        {"path": str(f), "old_string": "a", "new_string": "b", "replace_all": True},
+        _ctx(workspace_root=tmp_path),
+    )
+    assert not r.is_error
+    assert f.read_text(encoding="utf-8") == "b\nb\n"
+
+
+def test_edit_missing_file(tmp_path):
+    r = EditFileTool().run(
+        {"path": str(tmp_path / "nope.py"), "old_string": "a", "new_string": "b"},
+        _ctx(workspace_root=tmp_path),
+    )
+    assert r.is_error
+    assert "不存在" in r.output
+
+
+def test_edit_outside_workspace_denied(tmp_path):
+    ws = tmp_path / "proj"
+    ws.mkdir()
+    outside = tmp_path / "o.py"
+    outside.write_text("a\n", encoding="utf-8")
+    r = EditFileTool().run(
+        {"path": str(outside), "old_string": "a", "new_string": "b"},
+        _ctx(workspace_root=ws),  # 默认 deny
+    )
+    assert r.is_error
+    assert "工作区外" in r.output
+    assert outside.read_text(encoding="utf-8") == "a\n"  # 未改
+
+
+# ---- multi_edit ----
+
+
+def test_multi_edit_sequential(tmp_path):
+    f = tmp_path / "a.py"
+    f.write_text("one\ntwo\nthree\n", encoding="utf-8")
+    r = MultiEditTool().run(
+        {
+            "path": str(f),
+            "edits": [
+                {"old_string": "one", "new_string": "1"},
+                {"old_string": "three", "new_string": "3"},
+            ],
+        },
+        _ctx(workspace_root=tmp_path),
+    )
+    assert not r.is_error
+    assert f.read_text(encoding="utf-8") == "1\ntwo\n3\n"
+
+
+def test_multi_edit_atomic_abort(tmp_path):
+    """任一处失败 → 整体不改（原子）。"""
+    f = tmp_path / "a.py"
+    f.write_text("one\ntwo\n", encoding="utf-8")
+    r = MultiEditTool().run(
+        {
+            "path": str(f),
+            "edits": [
+                {"old_string": "one", "new_string": "1"},
+                {"old_string": "zzz", "new_string": "q"},  # 第二处找不到
+            ],
+        },
+        _ctx(workspace_root=tmp_path),
+    )
+    assert r.is_error
+    assert "中止" in r.output
+    # 第一处也不应生效（原子）
+    assert f.read_text(encoding="utf-8") == "one\ntwo\n"
 
 
 # ---- shell ----
@@ -196,6 +314,8 @@ def test_default_registry_has_expected_tools():
     assert names == {
         "read_file",
         "write_file",
+        "edit_file",
+        "multi_edit",
         "list_dir",
         "run_shell",
         "code_search",
@@ -207,7 +327,7 @@ def test_default_registry_has_expected_tools():
 def test_registry_schemas_shape():
     registry = build_default_registry()
     schemas = registry.schemas()
-    assert len(schemas) == 7
+    assert len(schemas) == 9
     for schema in schemas:
         assert schema["type"] == "function"
         assert "name" in schema["function"]

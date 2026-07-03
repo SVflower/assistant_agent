@@ -6,7 +6,13 @@ from typing import Any
 
 from assistant_agent.tools.ask import AskUserTool
 from assistant_agent.tools.base import Tool, ToolContext, ToolResult
-from assistant_agent.tools.file_ops import ListDirTool, ReadFileTool, WriteFileTool
+from assistant_agent.tools.file_ops import (
+    EditFileTool,
+    ListDirTool,
+    MultiEditTool,
+    ReadFileTool,
+    WriteFileTool,
+)
 from assistant_agent.tools.git import GitTool
 from assistant_agent.tools.search import CodeSearchTool
 from assistant_agent.tools.shell import ShellTool
@@ -51,6 +57,8 @@ def build_default_registry() -> ToolRegistry:
     registry = ToolRegistry()
     registry.register(ReadFileTool())
     registry.register(WriteFileTool())
+    registry.register(EditFileTool())
+    registry.register(MultiEditTool())
     registry.register(ListDirTool())
     registry.register(ShellTool())
     registry.register(CodeSearchTool())

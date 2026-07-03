@@ -64,7 +64,7 @@ ruff format . && ruff check .   # 格式化 + lint
 ```
 config/   配置加载与校验（Pydantic + YAML）
 llm/      模型抽象层（封装 LiteLLM，统一云端/本地）
-tools/    工具系统（base/registry + 内置：读写文件、列目录、shell、代码检索、git 只读、用户澄清）
+tools/    工具系统（base/registry + 内置：读/写/局部编辑/多处编辑/列目录/shell/代码检索/git 只读/澄清）
 session/  会话持久化（JSON 存档，跨会话续接）
 agent/    ReAct 主循环 + 上下文管理 + 提示词
 ui/       终端输入输出（Rich）

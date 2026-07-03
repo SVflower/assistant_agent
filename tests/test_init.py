@@ -112,6 +112,14 @@ def test_validate_generated_ok(tmp_path):
 # ---- check_env_var ----
 
 
+def test_mask_hides_secret():
+    from assistant_agent.cli.init import _mask
+
+    masked = _mask("sk-FAKEabcdef0123456789")
+    assert masked == "sk-***"
+    assert "FAKEabcdef" not in masked
+
+
 def test_check_env_var(monkeypatch):
     monkeypatch.setenv("AA_TEST_KEY", "x")
     assert check_env_var("AA_TEST_KEY") is True

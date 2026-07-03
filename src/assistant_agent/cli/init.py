@@ -33,6 +33,11 @@ def check_env_var(name: str) -> bool:
     return bool(os.environ.get(name))
 
 
+def _mask(s: str) -> str:
+    """脱敏：只留前 3 字符，其余打码，避免误粘的 key 在提示里再次泄露。"""
+    return s[:3] + "***" if len(s) > 3 else "***"
+
+
 def env_setup_hint(var: str) -> str:
     """按平台给出设置环境变量的指引（只打印，不代改）。"""
     if sys.platform == "win32":
@@ -178,9 +183,17 @@ def run_init(console: Console, config_path: Path | None = None) -> int:
             api_base = console.input(
                 "自定义 API base_url（DeepSeek 等填，OpenAI 官方留空）: "
             ).strip() or None
-        env_var = console.input(
-            f"存放 API key 的环境变量名 [{_DEFAULT_ENV[kind]}]: "
-        ).strip() or _DEFAULT_ENV[kind]
+        # 只填变量名（不是 key 本身）。校验为合法标识符，防用户误粘 key（含 - 等会被拒）。
+        while True:
+            env_var = console.input(
+                f"存放 API key 的环境变量名（只填名字，如 {_DEFAULT_ENV[kind]}，不要填 key）: "
+            ).strip() or _DEFAULT_ENV[kind]
+            if env_var.isidentifier():
+                break
+            console.error(
+                f"'{_mask(env_var)}' 不是合法的变量名。这里只填名字"
+                f"（字母/数字/下划线，如 {_DEFAULT_ENV[kind]}）；真实 key 之后用 export 设置。"
+            )
         # 只检测环境变量是否已设，绝不读取/写入真实 key
         if check_env_var(env_var):
             console.info(f"✅ 已检测到环境变量 {env_var}")

@@ -38,6 +38,16 @@ def test_load_missing_raises(tmp_path):
         pass
 
 
+def test_save_survives_surrogate_chars(tmp_path):
+    """内容含孤代理（如失败模型输出/错误串）时，保存不得崩溃。"""
+    store = _store(tmp_path)
+    s = store.new_session()
+    # \udce8 是孤代理，utf-8 直接编码会抛 UnicodeEncodeError
+    store.save(s, [{"role": "assistant", "content": "坏字符\udce8结尾"}])
+    # 不崩即通过；文件应已写出
+    assert store._path(s.id).exists()
+
+
 def test_list_sorted_recent_first(tmp_path):
     store = _store(tmp_path)
     s1 = store.new_session()

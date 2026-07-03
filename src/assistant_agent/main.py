@@ -196,8 +196,12 @@ def chat(
                 break
             continue
         _run_streamed(console, loop.run(task))
-        # 每轮结束自动保存（/clear 可能已换 session，用 ctx.session 为准）
-        store.save(ctx.session, loop.export_history())
+        # 每轮结束自动保存（/clear 可能已换 session，用 ctx.session 为准）。
+        # 自动保存失败不应崩掉会话：只警告并继续。
+        try:
+            store.save(ctx.session, loop.export_history())
+        except Exception as exc:  # noqa: BLE001 - 自动保存兜底，任何异常都不该中断对话
+            console.error(f"（自动保存失败，已跳过：{exc}）")
     # 单一出口打印一次；带前导换行，Ctrl+C/D 中断后也能干净换行
     console.info("\n再见。")
 

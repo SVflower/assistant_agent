@@ -106,10 +106,10 @@ class SessionStore:
             session.messages = messages
         session.updated_at = _now_iso()
         self._dir.mkdir(parents=True, exist_ok=True)
-        self._path(session.id).write_text(
-            json.dumps(session.to_dict(), ensure_ascii=False, indent=2),
-            encoding="utf-8",
-        )
+        text = json.dumps(session.to_dict(), ensure_ascii=False, indent=2)
+        # 用 errors="replace" 编码：模型输出/错误串偶尔含孤代理等无法编码的字符，
+        # 保存会话绝不能因此崩溃并带崩整个程序。坏字符替换为占位即可。
+        self._path(session.id).write_bytes(text.encode("utf-8", errors="replace"))
 
     def load(self, session_id: str) -> Session:
         """载入指定会话。文件不存在或损坏时抛异常。"""

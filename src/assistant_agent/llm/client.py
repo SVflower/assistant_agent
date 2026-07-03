@@ -1,6 +1,6 @@
 """模型抽象层：封装 LiteLLM，统一云端 API 与本地后端的调用。
 
-这是整个项目的关键扩展点。业务逻辑只依赖本模块暴露的 LLMClient / LLMResponse，
+这是整个项目的关键扩展点。业务逻辑只依赖本模块暴露的 LLMClient / StreamEvent，
 不感知具体 provider。换后端 = 换传入的 ProviderConfig，本模块代码不变。
 """
 
@@ -27,18 +27,6 @@ class ToolCall:
     id: str
     name: str
     arguments: dict[str, Any]
-
-
-@dataclass
-class LLMResponse:
-    """一次模型调用的归一化结果。"""
-
-    content: str | None = None
-    tool_calls: list[ToolCall] = field(default_factory=list)
-
-    @property
-    def wants_tools(self) -> bool:
-        return bool(self.tool_calls)
 
 
 StreamEventKind = Literal["reasoning", "content", "tool_calls", "usage", "error"]
@@ -158,30 +146,6 @@ class LLMClient:
             kwargs["tool_choice"] = "auto"
         return kwargs
 
-    def complete(
-        self,
-        messages: list[dict[str, Any]],
-        tools: list[dict[str, Any]] | None = None,
-    ) -> LLMResponse:
-        """调用模型，返回归一化结果（非流式，保留供降级与测试）。
-
-        Args:
-            messages: OpenAI 格式的消息列表。
-            tools: OpenAI 格式的工具 schema 列表；为空则不带工具。
-
-        Raises:
-            LLMError: 调用失败或返回结构异常。
-        """
-        # 延迟导入：litellm 较重，且便于测试时 monkeypatch。
-        import litellm
-
-        try:
-            response = litellm.completion(**self._build_kwargs(messages, tools))
-        except Exception as exc:  # litellm 抛出的异常类型繁杂，统一归一
-            raise LLMError(f"模型调用失败（{self._provider.model}）：{exc}") from exc
-
-        return self._normalize(response)
-
     def complete_stream(
         self,
         messages: list[dict[str, Any]],
@@ -255,29 +219,3 @@ class LLMClient:
             args = getattr(function, "arguments", None)
             if args:
                 buf["args"] += args
-
-    @staticmethod
-    def _normalize(response: Any) -> LLMResponse:
-        """把 LiteLLM 的返回归一化为 LLMResponse。"""
-        try:
-            message = response.choices[0].message
-        except (AttributeError, IndexError, TypeError) as exc:
-            raise LLMError(f"模型返回结构异常：{exc}") from exc
-
-        content = getattr(message, "content", None)
-
-        tool_calls: list[ToolCall] = []
-        raw_calls = getattr(message, "tool_calls", None) or []
-        for call in raw_calls:
-            function = getattr(call, "function", None)
-            if function is None:
-                continue
-            tool_calls.append(
-                ToolCall(
-                    id=getattr(call, "id", "") or "",
-                    name=getattr(function, "name", "") or "",
-                    arguments=_parse_arguments(getattr(function, "arguments", None)),
-                )
-            )
-
-        return LLMResponse(content=content, tool_calls=tool_calls)

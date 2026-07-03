@@ -3,9 +3,8 @@
 from assistant_agent.llm.client import (
     LLMClient,
     LLMError,
-    LLMResponse,
     StreamEvent,
     ToolCall,
 )
 
-__all__ = ["LLMClient", "LLMResponse", "ToolCall", "StreamEvent", "LLMError"]
+__all__ = ["LLMClient", "ToolCall", "StreamEvent", "LLMError"]

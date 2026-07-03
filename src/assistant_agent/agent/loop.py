@@ -24,7 +24,6 @@ _REPEAT_LIMIT = 3
 EventKind = Literal[
     "reasoning",
     "content_delta",
-    "assistant",
     "tool_call",
     "tool_result",
     "usage",

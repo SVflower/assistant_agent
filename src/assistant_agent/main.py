@@ -17,6 +17,7 @@ import typer
 
 from assistant_agent.agent.loop import AgentLoop, StepEvent
 from assistant_agent.cli.commands import ChatContext, build_default_slash_registry
+from assistant_agent.cli.init import run_init
 from assistant_agent.config.loader import ConfigError, load_config
 from assistant_agent.config.schema import AppConfig
 from assistant_agent.llm.client import LLMClient
@@ -254,6 +255,17 @@ def providers(
         active = " (当前)" if name == cfg.active else ""
         rows.append((name + active, p.model, kind))
     console.print_providers(rows)
+
+
+@app.command()
+def init(
+    config: Path | None = typer.Option(None, "--config", "-c", help="生成的配置文件路径"),
+) -> None:
+    """交互式配置向导：选后端、配 key/端点、生成 config.yaml。"""
+    console = Console()
+    code = run_init(console, config)
+    if code != 0:
+        raise typer.Exit(code=code)
 
 
 def main() -> None:

@@ -250,18 +250,21 @@ Console 流式渲染（Live spinner 与正文时间错开）、show_reasoning �
 
 ---
 
-## M5 — 上手体验（P2）
+## M5 — 上手体验（P2）— 已完成 ✅
 
-**解决**：新用户/新机器上手门槛（当前需手动 cp config、填 key）。
+**解决**：新用户/新机器上手门槛（安装 + 手动 cp config、填 key）。
 
-**范围**：`assistant-agent init` 交互式向导——引导选后端、填 key、检测环境、生成 `config.yaml`。
-
-**风险**：向导别把 key 明文存不安全的位置；引导用环境变量。
+**已实现**（方案见 docs/m5-init-plan.md、docs/INSTALL.md）：
+- **安装与平台支持**：`docs/INSTALL.md` 各平台步骤 + 矩阵（Windows 原生/Git Bash/WSL2 已实测；Linux/macOS 高置信；Termux 非目标）。
+- **`assistant-agent init` 交互向导**（`cli/init.py`）：选后端（云端 OpenAI 兼容/Anthropic/本地）→ 配 model/env/端点 → 检测 → 生成 config.yaml → 校验。
+- **安全**：复用 `${VAR}` 展开（不改 schema）；config 只写 `${环境变量名}`，**init 默认不读/不写真实 key**，只检测变量是否已设并给设置指引；本地端点写占位 key；已存在 config 先备份不静默覆盖；端点检测带 timeout + 本地关代理。
+- **非交互模式**：暂缓（接口预留）；init 在无 tty 时明确拒绝。
 
 **验收标准**：
-1. 新机器上 `assistant-agent init` 一路问答后生成可用 `config.yaml`
-2. 向导能检测本地端点（如 LM Studio）连通性
-3. 生成的配置能直接跑通 `run`
+1. ✅ init 一路问答生成可用 config.yaml（云端 `${VAR}`／本地占位+api_base；已存在则备份）
+2. ✅ 本地端点连通检测（成功报模型数/失败/超时三态，mock 测试覆盖）
+3. ✅ 生成配置经 loader 校验通过；生成物不含明文 key（脱敏回归测试）
+4. ✅ 135 测试全绿（+16 init 测试），ruff + 架构测试通过；内核未动
 
 ---
 

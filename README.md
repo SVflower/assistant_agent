@@ -7,8 +7,12 @@
 ## 安装
 
 ```bash
+python -m venv .venv          # Python 3.11+
+# 激活 venv 后：
 pip install -e ".[dev]"
 ```
+
+各平台安装步骤、平台支持矩阵与已知坑见 [docs/INSTALL.md](docs/INSTALL.md)（Windows / WSL2 已验证）。
 
 ## 配置
 

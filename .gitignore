@@ -5,6 +5,11 @@ config.yaml
 # 会话持久化（本地数据，不入库）
 .assistant_agent/
 
+# 手动试跑 agent 时生成的测试产物（不入库）
+crudtest/
+test_crud/
+tmp_agent_demo/
+
 # Python
 __pycache__/
 *.py[cod]

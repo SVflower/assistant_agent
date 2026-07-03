@@ -5,7 +5,20 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from rich.panel import Panel
 from rich.table import Table
+
+
+def build_banner(provider_name: str, model: str, cwd: str) -> Panel:
+    """构建启动横幅：Agent 名 / provider / model / 工作目录。"""
+    info = Table.grid(padding=(0, 1))
+    info.add_column(justify="right", style="dim")
+    info.add_column()
+    info.add_row("Agent", "[bold]Assistant Agent[/bold]")
+    info.add_row("provider", f"[cyan]{provider_name}[/cyan]")
+    info.add_row("model", f"[cyan]{model}[/cyan]")
+    info.add_row("位置", f"[green]{cwd}[/green]")
+    return Panel(info, border_style="blue", expand=False)
 
 
 def format_args(args: dict[str, Any] | None) -> str:
@@ -27,11 +40,18 @@ def truncate(text: str, limit: int) -> str:
     return text if len(text) <= limit else text[:limit] + "…"
 
 
-def format_usage(usage: dict[str, int]) -> str:
-    prompt = usage.get("prompt_tokens", 0)
-    completion = usage.get("completion_tokens", 0)
-    total = usage.get("total_tokens", 0)
-    return f"↑{prompt} ↓{completion} 共 {total}"
+def format_usage(total_in: int, total_out: int) -> str:
+    """累计 token（成本视角）：跨轮求和的输入/输出/合计。"""
+    return f"↑{total_in} ↓{total_out} 共 {total_in + total_out}"
+
+
+def format_context(prompt_tokens: int, limit: int) -> str:
+    """上下文占用（容量视角）：最后一轮 prompt / 窗口预算，近满变色。"""
+    if limit <= 0:
+        return f"上下文 {prompt_tokens}"
+    pct = round(prompt_tokens / limit * 100)
+    color = "red" if pct >= 90 else "yellow" if pct >= 80 else "dim"
+    return f"[{color}]上下文 {prompt_tokens}/{limit}（{pct}%）[/{color}]"
 
 
 def format_elapsed(seconds: float) -> str:

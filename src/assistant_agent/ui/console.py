@@ -14,14 +14,15 @@ from typing import Any
 from rich.console import Console as RichConsole
 from rich.panel import Panel
 from rich.spinner import Spinner
-from rich.table import Table
 
 from assistant_agent.agent.loop import StepEvent
 from assistant_agent.tools.base import ConfirmChoice
 from assistant_agent.ui.formatting import (
+    build_banner,
     build_providers_table,
     build_sessions_table,
     format_args,
+    format_context,
     format_elapsed,
     format_usage,
     truncate,
@@ -43,6 +44,8 @@ class Console:
                     pass
         self._console = RichConsole()
         self._show_reasoning = show_reasoning
+        # 上下文窗口预算，用于结尾显示"上下文占用 %"（由 main 按 config 注入）。
+        self._context_limit = 0
         # 当前活动的 Live spinner（render_stream 期间）。confirm 需要在提示前停掉它，
         # 否则 spinner 占着终端，确认输入提示不可见、无法输入 → 卡死。
         self._active_live: Any = None
@@ -53,19 +56,11 @@ class Console:
     def set_show_reasoning(self, value: bool) -> None:
         self._show_reasoning = value
 
+    def set_context_limit(self, limit: int) -> None:
+        self._context_limit = limit
+
     def banner(self, provider_name: str, model: str) -> None:
-        # 当前处理位置：工作目录
-        cwd = os.getcwd()
-
-        info = Table.grid(padding=(0, 1))
-        info.add_column(justify="right", style="dim")
-        info.add_column()
-        info.add_row("Agent", "[bold]Assistant Agent[/bold]")
-        info.add_row("provider", f"[cyan]{provider_name}[/cyan]")
-        info.add_row("model", f"[cyan]{model}[/cyan]")
-        info.add_row("位置", f"[green]{cwd}[/green]")
-
-        self._console.print(Panel(info, border_style="blue", expand=False))
+        self._console.print(build_banner(provider_name, model, os.getcwd()))
 
     def user_echo(self, task: str) -> None:
         self._console.print(f"[bold green]你:[/bold green] {task}")
@@ -88,7 +83,12 @@ class Console:
         self._active_live = live
         streaming_text = False  # 是否正在打印正文（正文期间不开 spinner）
         final_streamed = False  # 最终回复是否已通过流式正文打印过（避免 final 重复整段）
-        usage: dict[str, int] | None = None
+        # token 累计：跨轮求和 = 本次任务真实消耗（每轮 input 都计费）。
+        total_in = 0
+        total_out = 0
+        # 最后一轮的 prompt_tokens = 当前上下文占用（容量视角，非累计）。
+        last_prompt = 0
+        got_usage = False
 
         def stop_live() -> None:
             nonlocal live, live_active
@@ -145,7 +145,11 @@ class Console:
                     self._at_line_start = True
                     spin("思考中…")
                 elif event.kind == "usage":
-                    usage = event.usage
+                    # 跨轮累加（成本视角）；同时记录最后一轮 prompt（上下文占用视角）。
+                    got_usage = True
+                    total_in += event.usage.get("prompt_tokens", 0)
+                    total_out += event.usage.get("completion_tokens", 0)
+                    last_prompt = event.usage.get("prompt_tokens", last_prompt)
                 elif event.kind == "final":
                     stop_live()
                     streaming_text = False
@@ -174,10 +178,11 @@ class Console:
             stop_live()
 
         elapsed = time.monotonic() - start
-        summary = f"耗时 {format_elapsed(elapsed)}"
-        if usage:
-            summary += f" · token 用量：{format_usage(usage)}"
-        self._console.print(f"[dim]{summary}[/dim]")
+        parts = [f"耗时 {format_elapsed(elapsed)}"]
+        if got_usage:
+            parts.append(f"token {format_usage(total_in, total_out)}")
+            parts.append(format_context(last_prompt, self._context_limit))
+        self._console.print(f"[dim]{' · '.join(parts)}[/dim]")
 
     def confirm(self, message: str) -> ConfirmChoice:
         """危险操作确认，返回用户选择：allow / always / deny。

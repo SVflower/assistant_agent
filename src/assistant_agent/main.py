@@ -115,6 +115,7 @@ def _setup(
         continue_check=continue_check,
     )
     console.set_show_reasoning(config.ui.show_reasoning)
+    console.set_context_limit(config.agent.max_context_tokens)
     console.banner(config.active, config.active_provider.model)
     return config, loop
 

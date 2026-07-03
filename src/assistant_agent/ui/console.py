@@ -144,8 +144,8 @@ class Console:
                     self._console.print(f"[{style}]  {preview}[/{style}]")
                     self._at_line_start = True
                     spin("思考中…")
-                elif event.kind == "usage":
-                    # 跨轮累加（成本视角）；同时记录最后一轮 prompt（上下文占用视角）。
+                elif event.kind == "usage" and event.usage:
+                    # 条件里的 event.usage 把类型收窄为非 None，.get 合法；同时跨轮累加。
                     got_usage = True
                     total_in += event.usage.get("prompt_tokens", 0)
                     total_out += event.usage.get("completion_tokens", 0)

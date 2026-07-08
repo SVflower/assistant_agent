@@ -2,7 +2,7 @@
 
 降低首次上手门槛：选后端 → 配 model/env/端点 → 检测 → 生成 config.yaml → 校验。
 
-安全原则（见 docs/m5-init-plan.md）：
+安全原则（见 docs/archive/phase1/m5-init-plan.md）：
 - API key 绝不明文写入 config；云端只写 `${环境变量名}`，加载时由 loader 展开。
 - init 默认不读取真实 key，只检测环境变量是否已设、并打印设置指引。
 - 本地端点写占位 key（非机密）+ api_base，并做带超时的连通检测。

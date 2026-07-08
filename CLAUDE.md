@@ -1,5 +1,6 @@
 # CLAUDE.md
 
+> 始终使用中文与我交互。
 > 给 Claude 的项目说明。保持精简——这个文件每轮都进上下文。
 > 详细设计见 [DESIGN.md](DESIGN.md)。
 

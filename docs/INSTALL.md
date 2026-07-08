@@ -85,5 +85,5 @@ assistant-agent run "列出当前目录有哪些文件"        # 需已配好可
 ## 未来（暂未做）
 
 - 发布 PyPI / 支持 `pipx install`
-- `assistant-agent init` 交互式配置向导（见 docs/m5-init-plan.md）
+- `assistant-agent init` 交互式配置向导（见 docs/archive/phase1/m5-init-plan.md）
 - macOS / 原生 Linux 真机验证

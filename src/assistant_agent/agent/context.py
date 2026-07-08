@@ -2,7 +2,7 @@
 
 两个职责：
 1. 上下文工程：累积历史，按 token 预算截断——保留 system(头) + 最近消息(尾)，
-   契合模型"lost-in-the-middle"的注意力规律（见 docs/m3-memory-plan.md）。
+   契合模型"lost-in-the-middle"的注意力规律（见 docs/archive/phase1/m3-memory-plan.md）。
 2. 序列化：导出/载入原始历史（不含 system），供会话持久化。
 """
 

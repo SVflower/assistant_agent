@@ -2,7 +2,29 @@
 
 > 开工蓝本。第一阶段（MVP）已完成，见 [DESIGN.md](DESIGN.md) 第 8 节。
 > 本文档规划第二阶段起的里程碑，每个里程碑只列可清晰验收的目标。
-> 最后更新：2026-07-01
+> 最后更新：2026-07-03
+
+---
+
+## 项目当前状态（截至 2026-07-03）
+
+**一句话**：从"能跑的 MVP"长成了一个功能相当完整、多平台实测、且全程守调研→方案→测试→验收纪律的本地 Agent。
+
+**已具备能力**：
+- **模型**：后端可切换（云端 OpenAI 兼容 / Anthropic / 本地 LM Studio·Ollama·vLLM），config/`--provider`/对话内 `/model` 三种切法，切换保留上下文。
+- **交互**：流式输出 + 思考显示 + spinner + 耗时/token（跨轮累计）+ 上下文占用%；Ctrl+C 中断。
+- **安全/控制**：两层用户选择（层1 澄清 ask_user / 层2 权限确认，多选+永久允许）；工作区写入范围（区外确认）；重复动作熔断；用尽轮数优雅续跑。
+- **记忆**：token 感知截断（上下文工程）；会话持久化（JSON，`/sessions`、`--resume`、`/clear`）。
+- **工具**：读/写/局部编辑(edit_file/multi_edit)/列目录/shell/代码检索/git 只读/用户澄清。
+- **命令层**：slash 命令系统（`/help /model /sessions /clear /context /exit`，本地拦截不花 token）。
+- **上手**：`assistant-agent init` 交互向导 + `docs/INSTALL.md` 多平台安装（Windows/WSL2 实测）。
+- **健壮性**：对"笨模型"容错、Windows/Linux 终端适配、保存不崩、自动保存非致命。
+
+**质量**：141 测试、覆盖率 ~61%、约 2958 行源码；架构适应度测试 + 技术债册 + DoD + 里程碑工作流全在。
+
+**边界（明确未做）**：子 Agent 编排、真沙箱、Web GUI、rewind/recap、MCP、skill、非交互 init、PyPI 分发。
+
+**剩余技术债**：D5（UI 层测试仍薄）、D6（provider/model 未分层，4+ 模型再重构）——均低优先、信号驱动。
 
 ---
 
@@ -21,18 +43,36 @@
 
 ---
 
-## 里程碑总览与优先级
+## 里程碑总览（全部完成 ✅）
 
-| 里程碑 | 主题 | 优先级 | 是否动内核 |
-|--------|------|--------|-----------|
-| M2 | 流式与过程透明 | P0 | 是（loop.py）| ✅ 已完成 |
-| M2.5 | 任务中确认机制升级 + 中断 | P1 | 否（工具/UI 层）|
-| M3 | 记忆与会话持久化 | P1 | 否（context + 存储层）|
-| M4 | 工具集扩展 | P1–P2 | 否（tools/ 扩展点）|
-| M5 | 上手体验（init 向导）| P2 | 否（加 CLI 子命令）|
-| 延后 | 子 Agent 编排 / 完整沙箱 / Web GUI / rewind / recap | P3 | — |
+| 里程碑 | 主题 | 状态 |
+|--------|------|------|
+| MVP | 配置/模型抽象/工具/ReAct/CLI | ✅ |
+| M2 | 流式与过程透明 | ✅ |
+| M2.5 | 确认机制升级 + 两层用户选择 + Ctrl+C 中断 | ✅（拒绝附原因回传待做）|
+| 质量护栏 | 架构适应度测试 + 技术债册 + 覆盖率 + DoD + 里程碑工作流 | ✅ |
+| M3 | 记忆与会话持久化（token 截断 + JSON 存档）| ✅ |
+| M4 | 工具集扩展（code_search + git 只读）| ✅ |
+| M4.5 | 模型管理与切换（--provider / /model / providers）| ✅ |
+| M4.7 | 循环工程与写入安全（工作区范围 + 重复熔断 + 用尽优雅）| ✅ |
+| M4.8 | 基础工具补全（edit_file + multi_edit）| ✅ |
+| M4.9 | Slash 命令系统 | ✅ |
+| M5 | 上手体验（init 向导 + INSTALL 多平台）| ✅ |
 
-**推进顺序**：M2 ✅ → M2.5 → M3 → M4 → M5。先解决最痛的体验（流式），再做人在环中的确认机制，再补最大能力缺口（记忆）。
+**下一步没有"必须做"**：主线里程碑已全部落地。可选方向见下方"未来方向"。
+
+## 未来方向（P3，信号驱动，暂不做）
+
+| 方向 | 触发信号 |
+|------|---------|
+| 拒绝确认时附原因回传模型 | M2.5 尾巴，想让模型据拒绝原因换做法时做 |
+| D5：补 UI 层测试（console/main）| 触及相关改动时补 |
+| D6：provider/model 分层重构 | 同厂商挂 4+ 模型、重复条目变烦时 |
+| 真沙箱（OS 级隔离）| 要跑不可信任务 / 全自动无人值守 / 给别人用时 |
+| MCP 适配 / skill 体系 | 需要接外部工具生态 / 编排多步流程时 |
+| 子 Agent 编排、Web GUI、rewind/recap | 需求明确且前置能力成熟时 |
+| 非交互 init、PyPI/pipx 分发、macOS·原生 Linux 真机验证 | 分享/多平台推广时 |
+| 摘要压缩（替代截断）| 长对话截断明显丢信息时 |
 
 ---
 
@@ -155,7 +195,7 @@ Console 流式渲染（Live spinner 与正文时间错开）、show_reasoning �
 
 **解决**：工具集太窄，做不了真实开发任务。
 
-**已实现**（纯走 `tools/` 扩展点，内核未动；方案见 docs/m4-tools-plan.md）：
+**已实现**（纯走 `tools/` 扩展点，内核未动；方案见 docs/archive/phase1/m4-tools-plan.md）：
 - **code_search**（`tools/search.py`）：纯 Python grep，跨平台（Windows 可用），只读不确认；支持 pattern/path/glob/ignore_case/max_results。
 - **git 只读**（`tools/git.py`）：单工具 + 子命令白名单（status/diff/log/show/branch）；写操作拒绝；shell=False 防注入；args 经 shlex 解析。
 
@@ -173,7 +213,7 @@ Console 流式渲染（Live spinner 与正文时间错开）、show_reasoning �
 
 **解决**：模型切换只能"改 config.yaml + 重启"，不灵活。
 
-**已实现**（方案见 docs/m4_5-model-management-plan.md）：
+**已实现**（方案见 docs/archive/phase1/m4_5-model-management-plan.md）：
 - **`--provider/-p` 启动标志**：run/chat 临时指定后端，覆盖 config.active，不改文件；非法名报错列可选。
 - **对话内 `/model`**：chat 输入 `/model` 弹方向键菜单（复用 questionary）选择、`/model <名>` 直切；**切换保留对话历史**（M3 的 token 截断兜底更小窗口）。
 - **`providers` 命令**：列出所有 provider（名/模型/云端或本地/当前标记）。
@@ -192,7 +232,7 @@ Console 流式渲染（Live spinner 与正文时间错开）、show_reasoning �
 
 **解决**：真实使用发现 ① agent 复杂循环里自作主张改文件（write_file 无范围限制）；② 用尽轮数硬失败、卡死空耗。
 
-**已实现**（方案见 docs/m4_7-loop-engineering-plan.md）：
+**已实现**（方案见 docs/archive/phase1/m4_7-loop-engineering-plan.md）：
 - **工作区范围写入**：写项目目录内直接放行，写目录外需确认（对齐 Codex workspace-write / Claude acceptEdits）；靠"流式可见 + Ctrl+C + git"兜底，不逐个弹窗。
 - **重复动作熔断**（内核）：连续 3 轮完全相同的工具调用 → 判定卡死终止，不空耗到上限。
 - **用尽轮数优雅**（内核）：注入 continue_check——chat 问"继续吗"、run 带如何继续的提示停。
@@ -215,7 +255,7 @@ Console 流式渲染（Live spinner 与正文时间错开）、show_reasoning �
 
 **解决**：只有 write_file 整篇重写——改一行也要模型重输出整个文件，费 token、慢、易误伤其余内容。
 
-**已实现**（方案见 docs/base-tools-plan.md）：
+**已实现**（方案见 docs/archive/phase1/base-tools-plan.md）：
 - **edit_file**：精确替换（old_string→new_string），唯一匹配才改（防误替），支持 replace_all；对齐 Claude Edit。
 - **multi_edit**：同文件多处替换，顺序应用、原子写入（任一失败整体不改）；对齐 Claude MultiEdit。
 - 沿用工作区范围（区外编辑需确认）；提示词引导"局部改优先 edit_file"。
@@ -234,7 +274,7 @@ Console 流式渲染（Live spinner 与正文时间错开）、show_reasoning �
 
 **解决**：`/model` 等能力用户不知道存在（无可发现性）；控制命令散在 chat 循环的 if 里。
 
-**已实现**（方案见 docs/slash-commands-plan.md）：
+**已实现**（方案见 docs/archive/phase1/slash-commands-plan.md）：
 - 新增 `cli/commands.py`：SlashCommand/SlashRegistry/ChatContext（仿 ToolRegistry）。
 - 内置命令：`/help`（列出全部+说明，可发现性核心）、`/model`、`/sessions`、`/clear`（新会话）、
   `/context`（会话状态/用量）、`/exit`。收编原散落的 /model 与 exit。
@@ -254,7 +294,7 @@ Console 流式渲染（Live spinner 与正文时间错开）、show_reasoning �
 
 **解决**：新用户/新机器上手门槛（安装 + 手动 cp config、填 key）。
 
-**已实现**（方案见 docs/m5-init-plan.md、docs/INSTALL.md）：
+**已实现**（方案见 docs/archive/phase1/m5-init-plan.md、docs/INSTALL.md）：
 - **安装与平台支持**：`docs/INSTALL.md` 各平台步骤 + 矩阵（Windows 原生/Git Bash/WSL2 已实测；Linux/macOS 高置信；Termux 非目标）。
 - **`assistant-agent init` 交互向导**（`cli/init.py`）：选后端（云端 OpenAI 兼容/Anthropic/本地）→ 配 model/env/端点 → 检测 → 生成 config.yaml → 校验。
 - **安全**：复用 `${VAR}` 展开（不改 schema）；config 只写 `${环境变量名}`，**init 默认不读/不写真实 key**，只检测变量是否已设并给设置指引；本地端点写占位 key；已存在 config 先备份不静默覆盖；端点检测带 timeout + 本地关代理。

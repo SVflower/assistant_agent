@@ -16,9 +16,11 @@ SRC = Path(__file__).resolve().parent.parent / "src" / "assistant_agent"
 # 分层：数字越小越"底层"。每个模块只能依赖同层或更低层（经典分层架构，防环）。
 #   config(0) → llm(1) → tools(2) → agent(3) → ui(4) → main(5)
 #   session(0)：纯存储，不依赖任何内部模块，与 config 同为底层基础设施。
+#   obs(0)：可观测性（结构化日志/审计），底层基础设施，被 tools/agent/main 使用，不依赖上层。
 _LAYER_RANK = {
     "config": 0,
     "session": 0,
+    "obs": 0,
     "llm": 1,
     "tools": 2,
     "agent": 3,

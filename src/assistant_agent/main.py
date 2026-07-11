@@ -21,7 +21,8 @@ from assistant_agent.cli.init import run_init
 from assistant_agent.config.loader import ConfigError, load_config
 from assistant_agent.config.schema import AppConfig
 from assistant_agent.llm.client import LLMClient
-from assistant_agent.session.store import SessionStore
+from assistant_agent.obs import NullLogger, create_logger
+from assistant_agent.session.store import SessionStore, new_session_id
 from assistant_agent.tools.base import ToolContext
 from assistant_agent.tools.registry import build_default_registry
 from assistant_agent.ui.console import Console
@@ -74,12 +75,14 @@ def _setup(
     interactive: bool,
     provider: str | None = None,
     max_iterations: int | None = None,
-) -> tuple[AppConfig, AgentLoop]:
+) -> tuple[AppConfig, AgentLoop, NullLogger]:
     """加载配置并装配循环。失败时打印错误并退出。
 
     interactive：True 为 chat 多轮（允许澄清提问），False 为 run 单次（遇歧义自行假设）。
     provider：非空则覆盖 config 的 active（临时指定后端，不改文件）；非法名报错列出可选。
     max_iterations：非空则覆盖 config 的最大轮数。
+
+    返回事件日志器（logging.enabled=false 时为 NullLogger），供上层记 task/session_end。
     """
     try:
         config = load_config(config_path)
@@ -99,11 +102,22 @@ def _setup(
 
     client = _build_client(config)
     registry = build_default_registry()
+
+    # 事件日志器：一次运行一个 session_id 归组事件。禁用时为 NullLogger（零副作用）。
+    logger = create_logger(config.logging, new_session_id())
+    logger.session_start(
+        provider=config.active,
+        model=config.active_provider.model,
+        mode="chat" if interactive else "run",
+        cwd=str(Path.cwd()),
+    )
+
     tool_ctx = ToolContext(
         confirm_dangerous_shell=config.tools.confirm_dangerous_shell,
         shell_timeout=config.tools.shell_timeout,
         confirm=console.confirm,
         ask=console.ask_question,
+        logger=logger,
     )
     # 交互模式(chat)：用尽轮数时问用户是否继续；单次(run)：不问，优雅终止。
     continue_check = console.confirm_continue if interactive else None
@@ -119,7 +133,7 @@ def _setup(
     console.set_show_reasoning(config.ui.show_reasoning)
     console.set_context_limit(config.agent.max_context_tokens)
     console.banner(config.active, config.active_provider.model)
-    return config, loop
+    return config, loop, logger
 
 
 @app.command()
@@ -135,11 +149,13 @@ def run(
 ) -> None:
     """执行单个任务后退出。"""
     console = Console()
-    _, loop = _setup(
+    _, loop, logger = _setup(
         config, console, interactive=False, provider=provider, max_iterations=max_iterations
     )
     console.user_echo(task)
+    logger.task(task)
     _run_streamed(console, loop.run(task))
+    logger.session_end()
 
 
 @app.command()
@@ -159,7 +175,7 @@ def chat(
     对话中输入 / 或 /help 查看所有命令（/model 切模型、/clear 新会话等）。
     """
     console = Console()
-    config_obj, loop = _setup(
+    config_obj, loop, logger = _setup(
         config, console, interactive=True, provider=provider, max_iterations=max_iterations
     )
     store = SessionStore()
@@ -195,6 +211,7 @@ def chat(
             if ctx.should_exit:
                 break
             continue
+        logger.task(task)
         _run_streamed(console, loop.run(task))
         # 每轮结束自动保存（/clear 可能已换 session，用 ctx.session 为准）。
         # 自动保存失败不应崩掉会话：只警告并继续。
@@ -202,6 +219,7 @@ def chat(
             store.save(ctx.session, loop.export_history())
         except Exception as exc:  # noqa: BLE001 - 自动保存兜底，任何异常都不该中断对话
             console.error(f"（自动保存失败，已跳过：{exc}）")
+    logger.session_end()
     # 单一出口打印一次；带前导换行，Ctrl+C/D 中断后也能干净换行
     console.info("\n再见。")
 

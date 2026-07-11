@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from typing import Any
 
 from assistant_agent.tools.ask import AskUserTool
@@ -42,14 +43,27 @@ class ToolRegistry:
         return list(self._tools)
 
     def execute(self, name: str, args: dict[str, Any], ctx: ToolContext) -> ToolResult:
-        """按名执行工具。未知工具或异常都归一为 ToolResult，不向外抛。"""
+        """按名执行工具。未知工具或异常都归一为 ToolResult，不向外抛。
+
+        执行前后计时，把工具调用作为结构化事件写入 ctx.logger（默认 NullLogger 无副作用）。
+        """
         tool = self._tools.get(name)
         if tool is None:
             return ToolResult.error(f"未知工具：{name}。可用工具：{', '.join(self.names())}")
+        start = time.perf_counter()
         try:
-            return tool.run(args, ctx)
+            result = tool.run(args, ctx)
         except Exception as exc:  # 工具实现的兜底，绝不让循环崩
-            return ToolResult.error(f"工具 {name} 执行异常：{exc}")
+            result = ToolResult.error(f"工具 {name} 执行异常：{exc}")
+        duration_ms = int((time.perf_counter() - start) * 1000)
+        ctx.logger.tool_call(
+            name=name,
+            args=args,
+            duration_ms=duration_ms,
+            status="error" if result.is_error else "ok",
+            output=result.output,
+        )
+        return result
 
 
 def build_default_registry() -> ToolRegistry:

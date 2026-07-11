@@ -11,6 +11,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
 
+from assistant_agent.obs import NullLogger
+
 # 确认结果：允许一次 / 本会话永远允许这类 / 拒绝。
 ConfirmChoice = Literal["allow", "always", "deny"]
 
@@ -38,19 +40,24 @@ class ToolContext:
     always_allowed: set[str] = field(default_factory=set)
     # 工作区根目录：写在此目录树内直接放行，写到外面需确认（默认启动时的 cwd）。
     workspace_root: Path = field(default_factory=lambda: Path.cwd().resolve())
+    # 事件日志器（可观测/审计）。默认 NullLogger（零副作用）；main 注入真正的 EventLogger。
+    logger: NullLogger = field(default_factory=NullLogger)
 
     def request_confirm(self, category: str, message: str) -> bool:
         """请求某类危险操作的确认，返回是否放行。
 
         统一处理"永远允许"记忆：某类别一旦被选为 always，本会话内同类不再询问。
-        工具只需调用本方法，不直接接触多选逻辑。
+        工具只需调用本方法，不直接接触多选逻辑。授权决策写入审计日志。
         """
         if category in self.always_allowed:
+            self.logger.confirm(category=category, decision="allow", remembered=True)
             return True
         choice = self.confirm(message)
         if choice == "always":
             self.always_allowed.add(category)
+            self.logger.confirm(category=category, decision="always", remembered=False)
             return True
+        self.logger.confirm(category=category, decision=choice, remembered=False)
         return choice == "allow"
 
 

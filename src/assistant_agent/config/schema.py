@@ -52,6 +52,20 @@ class UIConfig(BaseModel):
     )
 
 
+class LoggingConfig(BaseModel):
+    """结构化事件日志与工具审计。日志只落本地，随 .assistant_agent/ gitignore 不入库。"""
+
+    enabled: bool = Field(default=True, description="是否记录结构化事件日志")
+    dir: str = Field(default=".assistant_agent/logs", description="JSONL 日志目录（按天分卷）")
+    log_tool_io: bool = Field(
+        default=True,
+        description="是否记录工具参数/输出载荷（截断+脱敏）；关掉则只记元数据（名/耗时/状态/长度）",
+    )
+    max_payload_chars: int = Field(
+        default=2000, gt=0, description="单个参数/输出载荷记录的最大字符数，超出截断"
+    )
+
+
 class AppConfig(BaseModel):
     """顶层配置。"""
 
@@ -60,6 +74,7 @@ class AppConfig(BaseModel):
     agent: AgentConfig = Field(default_factory=AgentConfig)
     tools: ToolsConfig = Field(default_factory=ToolsConfig)
     ui: UIConfig = Field(default_factory=UIConfig)
+    logging: LoggingConfig = Field(default_factory=LoggingConfig)
 
     @model_validator(mode="after")
     def _active_must_exist(self) -> AppConfig:

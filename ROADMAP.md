@@ -43,7 +43,9 @@
 
 ---
 
-## 里程碑总览（全部完成 ✅）
+## 里程碑总览
+
+### 第一阶段（全部完成 ✅）
 
 | 里程碑 | 主题 | 状态 |
 |--------|------|------|
@@ -59,7 +61,16 @@
 | M4.9 | Slash 命令系统 | ✅ |
 | M5 | 上手体验（init 向导 + INSTALL 多平台）| ✅ |
 
-**下一步没有"必须做"**：主线里程碑已全部落地。可选方向见下方"未来方向"。
+### 第二阶段（进行中）
+
+> 总体目标：从"功能完整的单体 agent"走向"**可观测、可扩展、可接生态**的平台"，每步小切口、优先不动内核。
+> 方向评估与路线见 [docs/m6-observability-plan.md](docs/m6-observability-plan.md)（含第二阶段启动评审结论）。
+
+| 里程碑 | 主题 | 状态 |
+|--------|------|------|
+| M6 | 结构化日志与工具审计（obs 层：JSONL 事件 + 权限决策留痕）| ✅ |
+| M7 | 外部生态接入（skill / MCP client 最小可用）| 规划中 |
+| M8 | 上下文进化（摘要压缩替代硬截断）| 规划中 |
 
 ## 未来方向（P3，信号驱动，暂不做）
 
@@ -307,6 +318,30 @@ Console 流式渲染（Live spinner 与正文时间错开）、show_reasoning �
 4. ✅ 135 测试全绿（+16 init 测试），ruff + 架构测试通过；内核未动
 
 ---
+
+## M6 — 结构化日志与工具审计（第二阶段第一项）— 已完成 ✅
+
+**解决**：agent 每一步（调什么工具、参数、耗时、成败、危险操作的授权决策）跑完不留痕——不可观测、不可审计，也挡住后续多 Agent/沙箱/生态接入的调试。还清第一阶段"无结构化日志"债。
+
+**已实现**（方案见 docs/m6-observability-plan.md，**内核未动**）：
+- **新增 `obs/` 层（rank 0）**：`EventLogger`（JSONL 按天分卷）+ `NullLogger`（禁用时零副作用）+ `create_logger` 工厂 + 脱敏截断。登记进架构测试 `_LAYER_RANK`，护栏强制"obs 不依赖上层"。
+- **两个落点（皆在内核外）**：`ToolRegistry.execute` 计时 + `tool_call` 事件；`ToolContext.request_confirm` 记 `confirm` 审计（allow/always/deny + 是否命中永久允许记忆）。
+- **会话生命周期**：`main._setup` 构建注入 logger 并记 `session_start`；run/chat 记 `task` 与 `session_end`。
+- **配置 `LoggingConfig`**：enabled / dir / log_tool_io / max_payload_chars；`config.example.yaml` 补示例。日志落 `.assistant_agent/logs/`（随 gitignore 不入库）。
+- **隐私**：参数/输出截断 + 尽力脱敏（sk-/ghp_/AKIA 等前缀 + 敏感键名遮蔽；刻意不做"任意 32+ 长串"以免误伤正文）；写入非致命（异常吞掉，绝不因日志中断任务）。
+
+**验收标准**：
+1. ✅ 跑一次带工具调用的任务后生成 `logs/<日期>.jsonl`，含 session_start + tool_call（带耗时/状态），每行可 `json.loads`（冒烟实测 + 单测端到端）
+2. ✅ 危险操作授权留痕（confirm 事件 allow/always/deny）
+3. ✅ 日志不出现明文密钥（脱敏回归测试；冒烟实测 sk- 被遮蔽）
+4. ✅ `enabled=false` 走 NullLogger、零副作用
+5. ✅ 写入失败非致命
+6. ✅ **内核 `agent/loop.py` 未动**；155 测试全绿（+20：test_obs 15 + config 2 + 架构 obs 登记等），ruff 全绿
+7. ✅ 新增测试覆盖 obs logger、两个落点、配置解析
+
+**顺带**：D7（main.py 逼近 300 行）——本期曾触线 305，以"logger 构建外移到 obs.create_logger"化解回 298。复盘另发现 4 项观测缺口登记为 D8（duration 含确认等待、脱敏不递归、/clear 与 /model 后日志元信息不更新），均非阻断、留信号驱动。债册已更新。
+
+**未做（留后续）**：`/audit` 命令、把 final/error/interrupted 循环结果落日志、日志自动清理、记录完整 LLM prompt/response。
 
 ## 延后（P3，不进近期路线）
 

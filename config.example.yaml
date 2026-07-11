@@ -48,3 +48,13 @@ tools:
   confirm_dangerous_shell: true
   # shell 命令超时（秒）
   shell_timeout: 60
+
+logging:
+  # 结构化事件日志与工具审计。日志只落本地，随 .assistant_agent/ gitignore 不入库。
+  enabled: true
+  # JSONL 日志目录（按天分卷：logs/YYYY-MM-DD.jsonl）
+  dir: ".assistant_agent/logs"
+  # 是否记录工具参数/输出载荷（会截断+尽力脱敏）；设 false 则只记元数据（名/耗时/状态/长度）
+  log_tool_io: true
+  # 单个参数/输出载荷记录的最大字符数，超出截断
+  max_payload_chars: 2000

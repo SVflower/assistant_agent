@@ -81,3 +81,25 @@ def test_switching_provider_is_config_only(tmp_path):
     config2 = load_config(_write(tmp_path, switched))
     assert config2.active_provider.model == "openai/local-model"
     assert config2.active_provider.api_base == "http://localhost:1234/v1"
+
+
+def test_logging_config_defaults(tmp_path):
+    """未配置 logging 时用安全默认值。"""
+    config = load_config(_write(tmp_path, _VALID_YAML))
+    assert config.logging.enabled is True
+    assert config.logging.log_tool_io is True
+    assert config.logging.dir == ".assistant_agent/logs"
+    assert config.logging.max_payload_chars == 2000
+
+
+def test_logging_config_override(tmp_path):
+    yaml_text = _VALID_YAML + """
+logging:
+  enabled: false
+  log_tool_io: false
+  max_payload_chars: 100
+"""
+    config = load_config(_write(tmp_path, yaml_text))
+    assert config.logging.enabled is False
+    assert config.logging.log_tool_io is False
+    assert config.logging.max_payload_chars == 100

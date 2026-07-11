@@ -83,10 +83,10 @@ python -m assistant_agent
 
 ## 当前状态
 
-第一阶段（MVP）已完成并验证：
-- 配置系统、模型抽象层、工具系统、ReAct 循环、CLI 全部跑通。
+**第一阶段（MVP→M5）全部完成**，第二阶段进行中。里程碑详情见 ROADMAP.md。
+- 第一阶段：配置/模型抽象/工具/ReAct 循环/CLI，加流式输出、会话持久化、工具集扩展（edit/multi_edit/code_search/git 只读）、模型切换、循环工程与写入安全、slash 命令、init 向导，全部落地。
+- **第二阶段 M6 已完成**：结构化日志与工具审计（新增 `obs/` 层，JSONL 事件 + 权限决策留痕，内核未动）。
 - 双后端实测通过：云端 DeepSeek + 本地 LM Studio，切换只改 `config.yaml`，业务代码零改动。
-- shell 工具 bug 已修：交互命令 stdin 切断（不再卡超时）、提示词注入 OS/日期、输出编码容错。
-- 28 个测试通过，ruff 全绿。
+- 155 个测试通过，ruff 全绿。
 
-下一阶段：流式输出（让思考/等待过程透明），会动 `agent/loop.py` 内核，见 DESIGN.md 第 9 节。
+下一步：M7（skill / MCP client 最小可用）或 M8（摘要压缩替代硬截断），见 ROADMAP.md。

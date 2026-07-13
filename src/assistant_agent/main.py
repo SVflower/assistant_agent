@@ -118,6 +118,7 @@ def _setup(
         confirm=console.confirm,
         ask=console.ask_question,
         logger=logger,
+        max_tool_output_chars=config.agent.max_tool_output_chars,
     )
     # 交互模式(chat)：用尽轮数时问用户是否继续；单次(run)：不问，优雅终止。
     continue_check = console.confirm_continue if interactive else None

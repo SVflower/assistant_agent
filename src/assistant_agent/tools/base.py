@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import abc
+import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -42,17 +43,26 @@ class ToolContext:
     workspace_root: Path = field(default_factory=lambda: Path.cwd().resolve())
     # 事件日志器（可观测/审计）。默认 NullLogger（零副作用）；main 注入真正的 EventLogger。
     logger: NullLogger = field(default_factory=NullLogger)
+    # 单个工具输出写入上下文的最大字符数（0=不截断）。防单个大输出吞噬本地模型上下文。
+    max_tool_output_chars: int = 0
+    # 一次性字段：上次 request_confirm 等待用户应答的墙钟毫秒（无确认时为 None）。
+    # registry.execute 读取后立即清零，用于把"等人时间"从工具执行耗时里剥离。
+    _last_approval_wait_ms: int | None = None
 
     def request_confirm(self, category: str, message: str) -> bool:
         """请求某类危险操作的确认，返回是否放行。
 
         统一处理"永远允许"记忆：某类别一旦被选为 always，本会话内同类不再询问。
         工具只需调用本方法，不直接接触多选逻辑。授权决策写入审计日志。
+        测量确认回调墙钟耗时到 _last_approval_wait_ms，供 registry 从执行耗时中剥离。
         """
         if category in self.always_allowed:
+            # 命中永久允许：未真正询问用户，不计等待时间。
             self.logger.confirm(category=category, decision="allow", remembered=True)
             return True
+        start = time.perf_counter()
         choice = self.confirm(message)
+        self._last_approval_wait_ms = int((time.perf_counter() - start) * 1000)
         if choice == "always":
             self.always_allowed.add(category)
             self.logger.confirm(category=category, decision="always", remembered=False)

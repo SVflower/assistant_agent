@@ -35,6 +35,11 @@ class AgentConfig(BaseModel):
         gt=0,
         description="上下文 token 预算；超出则丢弃最旧消息。本地小模型窗口小，务必按需下调",
     )
+    max_tool_output_chars: int = Field(
+        default=8000,
+        ge=0,
+        description="单个工具输出写入上下文的最大字符数，超出截断+标记；0=不截断。本地小模型按需下调",
+    )
 
 
 class ToolsConfig(BaseModel):

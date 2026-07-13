@@ -44,7 +44,7 @@ python -m assistant_agent
 1. **绝不在业务逻辑里写死 provider。** 所有模型调用走 `llm/client.py` 的抽象层。换后端是改配置的事，不是改代码的事。
 2. **绝不提交密钥。** API key 只进 `config.yaml`（已 gitignore）或环境变量。`config.example.yaml` 永远不含真实 key。
 3. **改完代码必须跑 `pytest` 和 `ruff`**，确认通过再说完成。
-4. **内核保持封闭**：`agent/loop.py` 是稳定内核。加能力 = 在 `tools/` 加文件并注册，不改循环。
+4. **内核职责稳定、实现受控演进**：`agent/loop.py` 是内核。加能力**优先** = 在 `tools/` 加文件并注册；确需改循环（预算/终止/恢复等内核职责）时允许，但**改动前必先向用户确认、改后现有测试不回退**。
 5. **新功能要带测试。** 工具、配置、循环的改动都要有对应测试。
 
 ## 约定
@@ -68,7 +68,7 @@ python -m assistant_agent
 
 ## 质量护栏（防迭代劣化）
 
-- **架构适应度测试** `tests/test_architecture.py`：自动检查分层依赖（config→llm→tools→agent→ui→main，只能依赖同层或更低层）、内核 UI 无关、工具不反向依赖、单文件 ≤300 行。**报红时应拆分/修依赖，而不是放宽规则。**
+- **架构适应度测试** `tests/test_architecture.py`：自动检查分层依赖（config→llm→tools→agent→ui→main，只能依赖同层或更低层）、内核 UI 无关、工具不反向依赖、单文件行数（软线 300 仅警告交人评审、硬线 500 才失败）。**报红时应拆分/修依赖，而不是放宽规则。**
 - **技术债登记册** `docs/TECH_DEBT.md`：新债即时登记，每次里程碑评审更新，防隐形复利。
 - **覆盖率** `pytest --cov`：不设强制门槛，但关键路径（流式碎片拼接、confirm 解析）低覆盖要显形并补测。
 

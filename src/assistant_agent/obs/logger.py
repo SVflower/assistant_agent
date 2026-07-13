@@ -49,17 +49,36 @@ def _truncate(value: str, max_chars: int) -> str:
     return value
 
 
+def _key_is_secret(key: str) -> bool:
+    return any(hint in key.lower() for hint in _SECRET_KEY_HINTS)
+
+
+def _sanitize_value(value: Any, max_chars: int) -> Any:
+    """递归脱敏 + 截断，覆盖嵌套结构（如 multi_edit.edits[].new_string）。
+
+    - dict：敏感键名整体遮蔽其值，其余递归。
+    - list/tuple：逐元素递归。
+    - str：遮蔽疑似密钥片段再截断。
+    - 其他标量：原样。
+    """
+    if isinstance(value, dict):
+        return {
+            k: (_REDACTED if _key_is_secret(str(k)) else _sanitize_value(v, max_chars))
+            for k, v in value.items()
+        }
+    if isinstance(value, (list, tuple)):
+        return [_sanitize_value(v, max_chars) for v in value]
+    if isinstance(value, str):
+        return _truncate(_redact_str(value), max_chars)
+    return value
+
+
 def _sanitize_args(args: dict[str, Any], max_chars: int) -> dict[str, Any]:
-    """对工具参数做脱敏 + 截断：敏感键名整体遮蔽，其余字符串值脱敏并截断。"""
-    clean: dict[str, Any] = {}
-    for key, val in args.items():
-        if any(hint in key.lower() for hint in _SECRET_KEY_HINTS):
-            clean[key] = _REDACTED
-        elif isinstance(val, str):
-            clean[key] = _truncate(_redact_str(val), max_chars)
-        else:
-            clean[key] = val
-    return clean
+    """对工具参数做递归脱敏 + 截断。顶层保持 dict 语义，深层交给 _sanitize_value。"""
+    return {
+        key: (_REDACTED if _key_is_secret(key) else _sanitize_value(val, max_chars))
+        for key, val in args.items()
+    }
 
 
 class NullLogger:
@@ -83,6 +102,8 @@ class NullLogger:
         duration_ms: int,
         status: str,
         output: str,
+        approval_wait_ms: int | None = None,
+        truncated: bool = False,
     ) -> None: ...
 
     def confirm(self, *, category: str, decision: str, remembered: bool) -> None: ...
@@ -149,6 +170,8 @@ class EventLogger(NullLogger):
         duration_ms: int,
         status: str,
         output: str,
+        approval_wait_ms: int | None = None,
+        truncated: bool = False,
     ) -> None:
         event: dict[str, Any] = {
             "type": "tool_call",
@@ -157,6 +180,12 @@ class EventLogger(NullLogger):
             "status": status,
             "output_len": len(output),
         }
+        # 仅在确实等过用户确认时才记录，避免给绝大多数工具调用增噪。
+        if approval_wait_ms is not None:
+            event["approval_wait_ms"] = approval_wait_ms
+        # 写入上下文的输出被截断时标记（output_len 仍是原始长度）。
+        if truncated:
+            event["truncated"] = True
         if self._log_tool_io:
             event["args"] = _sanitize_args(args, self._max_chars)
             event["output"] = _truncate(_redact_str(output), self._max_chars)

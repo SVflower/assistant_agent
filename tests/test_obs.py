@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import json
+import time
 from pathlib import Path
 
 from assistant_agent.obs import EventLogger, NullLogger
-from assistant_agent.tools.base import ToolContext
-from assistant_agent.tools.registry import build_default_registry
+from assistant_agent.tools.base import Tool, ToolContext, ToolResult
+from assistant_agent.tools.registry import ToolRegistry, build_default_registry
 
 
 def _read_events(log_dir: Path) -> list[dict]:
@@ -76,6 +77,41 @@ def test_redact_secret_value_in_string(tmp_path):
     assert "REDACTED" in dumped
 
 
+def test_redact_nested_secret_in_list_of_dicts(tmp_path):
+    """D8②：嵌套结构里的密钥也要脱敏（multi_edit.edits[].new_string 场景）。"""
+    logger = _logger(tmp_path)
+    logger.tool_call(
+        name="multi_edit",
+        args={
+            "path": "/a",
+            "edits": [
+                {"old_string": "x", "new_string": "TOKEN=ghp_abcdefghijklmnop1234"},
+            ],
+        },
+        duration_ms=1,
+        status="ok",
+        output="",
+    )
+    dumped = json.dumps(_read_events(tmp_path)[0]["args"], ensure_ascii=False)
+    assert "ghp_abcdefghijklmnop1234" not in dumped  # 嵌套密钥被遮蔽
+    assert "REDACTED" in dumped
+
+
+def test_redact_nested_secret_key_name(tmp_path):
+    """嵌套 dict 里的敏感键名同样整体遮蔽。"""
+    logger = _logger(tmp_path)
+    logger.tool_call(
+        name="t",
+        args={"config": {"api_token": "raw-secret-value", "host": "localhost"}},
+        duration_ms=1,
+        status="ok",
+        output="",
+    )
+    cfg = _read_events(tmp_path)[0]["args"]["config"]
+    assert cfg["api_token"] == "***REDACTED***"
+    assert cfg["host"] == "localhost"  # 非敏感键原样
+
+
 def test_truncate_payload(tmp_path):
     logger = _logger(tmp_path, max_payload_chars=10)
     logger.tool_call(name="t", args={}, duration_ms=1, status="ok", output="x" * 100)
@@ -86,9 +122,7 @@ def test_truncate_payload(tmp_path):
 
 def test_log_tool_io_false_omits_payload(tmp_path):
     logger = _logger(tmp_path, log_tool_io=False)
-    logger.tool_call(
-        name="t", args={"secret": "x"}, duration_ms=7, status="ok", output="body"
-    )
+    logger.tool_call(name="t", args={"secret": "x"}, duration_ms=7, status="ok", output="body")
     event = _read_events(tmp_path)[0]
     assert "args" not in event and "output" not in event
     assert event["duration_ms"] == 7 and event["status"] == "ok" and event["output_len"] == 4
@@ -161,10 +195,99 @@ def test_request_confirm_remembered_allow(tmp_path):
         called["n"] += 1
         return "deny"
 
-    ctx = ToolContext(
-        confirm=confirm, always_allowed={"run_shell"}, logger=_logger(tmp_path)
-    )
+    ctx = ToolContext(confirm=confirm, always_allowed={"run_shell"}, logger=_logger(tmp_path))
     assert ctx.request_confirm("run_shell", "msg") is True
     assert called["n"] == 0
     e = _read_events(tmp_path)[0]
     assert e["decision"] == "allow" and e["remembered"] is True
+
+
+# ---- D8① 确认等待时间与执行耗时分离 ----
+
+
+class _ConfirmingTool(Tool):
+    """测试用：run 里请求确认，确认回调会 sleep 模拟"等人"。"""
+
+    name = "confirming"
+    description = "test"
+
+    @property
+    def parameters(self) -> dict:
+        return {"type": "object", "properties": {}}
+
+    def run(self, args: dict, ctx: ToolContext) -> ToolResult:
+        ctx.request_confirm("run_shell", "确认？")
+        return ToolResult.ok("done")
+
+
+def _registry_with(tool: Tool) -> ToolRegistry:
+    reg = ToolRegistry()
+    reg.register(tool)
+    return reg
+
+
+def test_approval_wait_separated_from_duration(tmp_path):
+    """确认等待应从 duration_ms 剥离，并单列 approval_wait_ms。"""
+
+    def slow_confirm(_m: str) -> str:
+        time.sleep(0.05)  # 模拟等人 ~50ms
+        return "allow"
+
+    ctx = ToolContext(confirm=slow_confirm, logger=_logger(tmp_path / "logs"))
+    _registry_with(_ConfirmingTool()).execute("confirming", {}, ctx)
+
+    e = next(x for x in _read_events(tmp_path / "logs") if x["type"] == "tool_call")
+    assert e["approval_wait_ms"] >= 40  # 记录了等待（宽松下界，避免 flaky）
+    assert e["duration_ms"] < e["approval_wait_ms"]  # 执行耗时已剥离等待
+    # 用后即清，不残留到下次调用
+    assert ctx._last_approval_wait_ms is None
+
+
+def test_no_confirm_omits_approval_wait(tmp_path):
+    """普通工具（不请求确认）的事件不含 approval_wait_ms。"""
+    f = tmp_path / "n.txt"
+    f.write_text("hi", encoding="utf-8")
+    ctx = ToolContext(logger=_logger(tmp_path / "logs"))
+    build_default_registry().execute("read_file", {"path": str(f)}, ctx)
+    e = _read_events(tmp_path / "logs")[0]
+    assert "approval_wait_ms" not in e
+
+
+# ---- S5 工具单次输出截断 ----
+
+
+class _BigOutputTool(Tool):
+    name = "big"
+    description = "test"
+
+    @property
+    def parameters(self) -> dict:
+        return {"type": "object", "properties": {}}
+
+    def run(self, args: dict, ctx: ToolContext) -> ToolResult:
+        return ToolResult.ok("x" * 100)
+
+
+def test_output_truncated_when_over_limit(tmp_path):
+    """超限：返回给上下文的 output 被截断+标记，日志记原始长度并标 truncated。"""
+    ctx = ToolContext(logger=_logger(tmp_path / "logs"), max_tool_output_chars=10)
+    result = _registry_with(_BigOutputTool()).execute("big", {}, ctx)
+    assert result.output.startswith("x" * 10)
+    assert "已截断 90 字符" in result.output
+    e = _read_events(tmp_path / "logs")[0]
+    assert e["output_len"] == 100 and e["truncated"] is True
+
+
+def test_output_not_truncated_under_limit(tmp_path):
+    """未超限：output 原样，日志不含 truncated。"""
+    ctx = ToolContext(logger=_logger(tmp_path / "logs"), max_tool_output_chars=1000)
+    result = _registry_with(_BigOutputTool()).execute("big", {}, ctx)
+    assert result.output == "x" * 100
+    assert "truncated" not in _read_events(tmp_path / "logs")[0]
+
+
+def test_output_limit_zero_disables_truncation(tmp_path):
+    """默认 0：不截断（兼容裸 ToolContext）。"""
+    ctx = ToolContext(logger=_logger(tmp_path / "logs"))  # max_tool_output_chars 默认 0
+    result = _registry_with(_BigOutputTool()).execute("big", {}, ctx)
+    assert result.output == "x" * 100

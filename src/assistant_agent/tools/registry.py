@@ -50,19 +50,36 @@ class ToolRegistry:
         tool = self._tools.get(name)
         if tool is None:
             return ToolResult.error(f"未知工具：{name}。可用工具：{', '.join(self.names())}")
+        ctx._last_approval_wait_ms = None  # 清历史值，只认本次执行期间产生的等待
         start = time.perf_counter()
         try:
             result = tool.run(args, ctx)
         except Exception as exc:  # 工具实现的兜底，绝不让循环崩
             result = ToolResult.error(f"工具 {name} 执行异常：{exc}")
-        duration_ms = int((time.perf_counter() - start) * 1000)
+        elapsed_ms = int((time.perf_counter() - start) * 1000)
+        # 若本次执行中途等过用户确认，从总耗时里剥离，duration_ms 只反映实际执行。
+        approval_wait_ms = ctx._last_approval_wait_ms
+        ctx._last_approval_wait_ms = None  # 用后即清，绝不残留到下一次工具调用
+        duration_ms = elapsed_ms - approval_wait_ms if approval_wait_ms else elapsed_ms
+
+        # 单次输出截断：防单个大输出吞噬本地模型上下文。截断前先记原始长度到审计。
+        limit = ctx.max_tool_output_chars
+        truncated = limit > 0 and len(result.output) > limit
         ctx.logger.tool_call(
             name=name,
             args=args,
-            duration_ms=duration_ms,
+            duration_ms=max(duration_ms, 0),
             status="error" if result.is_error else "ok",
-            output=result.output,
+            output=result.output,  # 传原始输出，output_len 记原始长度
+            approval_wait_ms=approval_wait_ms,
+            truncated=truncated,
         )
+        if truncated:
+            dropped = len(result.output) - limit
+            result = ToolResult(
+                output=result.output[:limit] + f"\n…（已截断 {dropped} 字符，可缩小范围重试）",
+                is_error=result.is_error,
+            )
         return result
 
 

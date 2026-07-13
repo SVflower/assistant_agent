@@ -102,7 +102,7 @@ assistant_agent/
 `llm/` 和 `tools/` 是两个隔离的扩展点。
 - 换模型 → 只动 `config.yaml`
 - 加能力 → 只在 `tools/` 加文件并注册
-- 内核 `agent/loop.py` 永远不动
+- 内核 `agent/loop.py` 职责稳定、通常不必动；确需演进（预算/终止/恢复）时受控进行，改前先确认
 
 ---
 

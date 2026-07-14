@@ -97,6 +97,8 @@ def test_model_switch_by_name(tmp_path):
     ctx = _ctx(tmp_path)
     build_default_slash_registry().dispatch("/model local", ctx)
     assert ctx.config.active == "local"
+    assert ctx.session.provider == "local"
+    assert ctx.session.model == "openai/b"
     assert "已切换到 local" in ctx.console.text()
 
 

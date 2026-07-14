@@ -79,9 +79,7 @@ class ShellTool(Tool):
             return ToolResult.error("缺少参数 command")
 
         if ctx.confirm_dangerous_shell and is_dangerous(command):
-            allowed = ctx.request_confirm(
-                "run_shell", f"即将执行可能有风险的命令：\n  {command}"
-            )
+            allowed = ctx.request_confirm("run_shell", f"即将执行可能有风险的命令：\n  {command}")
             if not allowed:
                 return ToolResult.error(f"用户拒绝执行命令：{command}")
 

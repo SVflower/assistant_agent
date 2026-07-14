@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 from assistant_agent.agent.loop import AgentLoop
 from assistant_agent.config.schema import AppConfig
 from assistant_agent.llm.client import LLMClient
+from assistant_agent.obs import NullLogger
 from assistant_agent.session.store import Session, SessionStore
 from assistant_agent.ui.console import Console
 
@@ -29,6 +30,7 @@ class ChatContext:
     console: Console
     store: SessionStore
     session: Session
+    logger: NullLogger = field(default_factory=NullLogger)
     skills: list[tuple[str, str]] = field(default_factory=list)  # (name, description)
     # (server 名, 其工具原始名列表)；MCP 禁用/无 server 时为空。
     mcp_servers: list[tuple[str, list[str]]] = field(default_factory=list)
@@ -96,8 +98,18 @@ def _cmd_model(args: str, ctx: ChatContext) -> None:
     if target == ctx.config.active:
         ctx.console.info(f"已在使用 {target}，无需切换。")
         return
+    previous_provider = ctx.config.active
+    previous_model = ctx.config.active_provider.model
     ctx.config.active = target
     ctx.loop.set_client(LLMClient(ctx.config.active_provider))
+    ctx.session.provider = target
+    ctx.session.model = ctx.config.active_provider.model
+    ctx.logger.model_switch(
+        from_provider=previous_provider,
+        from_model=previous_model,
+        to_provider=target,
+        to_model=ctx.config.active_provider.model,
+    )
     ctx.console.info(f"已切换到 {target}（{ctx.config.active_provider.model}），对话上下文保留。")
 
 

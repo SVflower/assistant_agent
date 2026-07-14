@@ -26,7 +26,9 @@ def test_generate_cloud_uses_env_var_not_key():
 
 def test_generate_cloud_with_custom_base():
     cfg = generate_config(
-        "cloud", "openai/deepseek-v4", api_base="https://api.deepseek.com/v1",
+        "cloud",
+        "openai/deepseek-v4",
+        api_base="https://api.deepseek.com/v1",
         env_var="DEEPSEEK_API_KEY",
     )
     prov = cfg["providers"]["cloud"]

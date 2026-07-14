@@ -39,9 +39,7 @@ def test_ask_non_interactive_degrades(monkeypatch):
         called["n"] += 1
         return "x"
 
-    r = AskUserTool().run(
-        {"question": "q", "options": ["a", "b"]}, _ctx(should_not_call)
-    )
+    r = AskUserTool().run({"question": "q", "options": ["a", "b"]}, _ctx(should_not_call))
     assert not r.is_error
     assert r.output == NO_USER_AVAILABLE
     assert called["n"] == 0  # 非交互不调用 ask，不阻塞自动化

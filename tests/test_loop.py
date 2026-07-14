@@ -316,6 +316,73 @@ def test_set_client_preserves_history():
     assert any("第二个问题" in str(m.get("content")) for m in after)
 
 
+def test_oversized_task_stops_before_client_call():
+    config = AppConfig.model_validate(
+        {
+            "active": "test",
+            "providers": {"test": {"model": "openai/fake"}},
+            "agent": {"max_context_tokens": 100, "reserved_output_tokens": 0},
+        }
+    )
+    client = FakeStreamClient([_text_round("不应调用")])
+    loop = AgentLoop(config, client, ToolRegistry(), ToolContext(), system_prompt="SYS")
+
+    events = list(loop.run("x" * 1000))
+
+    assert events[-1].kind == "error"
+    assert "用户输入过长" in events[-1].text
+    assert client.calls == 0
+
+
+def test_set_client_updates_default_compactor_client():
+    config = AppConfig.model_validate(
+        {
+            "active": "test",
+            "providers": {"test": {"model": "openai/fake"}},
+            "agent": {"compaction": {"enabled": True}},
+        }
+    )
+    original = FakeStreamClient([_text_round("old")])
+    replacement = FakeStreamClient([_text_round("new")])
+    loop = AgentLoop(config, original, ToolRegistry(), ToolContext(), system_prompt="SYS")
+
+    loop.set_client(replacement)
+
+    assert loop._compactor is not None
+    assert loop._compactor._client is replacement
+
+
+def test_set_client_keeps_explicit_summary_provider(monkeypatch):
+    fixed_summary_client = FakeStreamClient([_text_round("summary")])
+    monkeypatch.setattr(
+        "assistant_agent.agent.loop.LLMClient", lambda _provider: fixed_summary_client
+    )
+    config = AppConfig.model_validate(
+        {
+            "active": "main",
+            "providers": {
+                "main": {"model": "openai/main"},
+                "summary": {"model": "openai/summary"},
+            },
+            "agent": {
+                "compaction": {"enabled": True, "summary_model": "summary"},
+            },
+        }
+    )
+    loop = AgentLoop(
+        config,
+        FakeStreamClient([_text_round("main")]),
+        ToolRegistry(),
+        ToolContext(),
+        system_prompt="SYS",
+    )
+
+    loop.set_client(FakeStreamClient([_text_round("replacement")]))
+
+    assert loop._compactor is not None
+    assert loop._compactor._client is fixed_summary_client
+
+
 def test_tool_call_budget_completes_batch_without_orphans():
     calls = [
         ToolCall(id=f"c{i}", name="list_dir", arguments={"path": f"missing-{i}"}) for i in range(3)

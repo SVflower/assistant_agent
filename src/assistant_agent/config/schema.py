@@ -38,6 +38,9 @@ class CompactionConfig(BaseModel):
     summary_model: str = Field(
         default="", description="生成摘要用的 provider 名；空=用当前对话模型。不在业务里硬写模型"
     )
+    summary_max_tokens: int = Field(
+        default=512, gt=0, description="摘要写入上下文前的保守 token 硬上限"
+    )
 
 
 class AgentConfig(BaseModel):
@@ -185,6 +188,12 @@ class AppConfig(BaseModel):
         if self.active not in self.providers:
             available = ", ".join(sorted(self.providers))
             raise ValueError(f"active='{self.active}' 不在 providers 中。可选：{available}")
+        summary_model = self.agent.compaction.summary_model
+        if summary_model and summary_model not in self.providers:
+            available = ", ".join(sorted(self.providers))
+            raise ValueError(
+                f"summary_model='{summary_model}' 不在 providers 中。可选：{available}"
+            )
         return self
 
     @property

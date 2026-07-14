@@ -13,6 +13,8 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from assistant_agent.llm.client import LLMClient
 
+from assistant_agent.agent.token_budget import truncate_text_to_tokens
+
 _SUMMARY_PROMPT = (
     "把以下对话历史压成简短要点，务必保留：关键决策、用户约束/偏好、已完成结论、"
     "未决待办。只输出要点本身，不要寒暄或解释。"
@@ -45,9 +47,16 @@ class CompactionResult:
 class Compactor:
     """把最旧若干完整用户轮摘要化。持有 client；摘要调用禁用工具、失败则返回 None。"""
 
-    def __init__(self, client: LLMClient, keep_recent_turns: int = 4) -> None:
+    def __init__(
+        self, client: LLMClient, keep_recent_turns: int = 4, summary_max_tokens: int = 512
+    ) -> None:
         self._client = client
         self._keep = keep_recent_turns
+        self._summary_max_tokens = summary_max_tokens
+
+    def set_client(self, client: LLMClient) -> None:
+        """更新摘要 client；仅由跟随主模型的 Loop 调用。"""
+        self._client = client
 
     def compact(
         self, tail: list[dict[str, Any]], base_covered: int, prev_summary: str = ""
@@ -96,7 +105,10 @@ class Compactor:
                     return "", {}
         except Exception:  # noqa: BLE001 - 摘要是尽力而为，任何异常都降级为硬截断
             return "", {}
-        return "".join(parts).strip(), usage
+        summary = truncate_text_to_tokens(
+            "".join(parts).strip(), self._summary_max_tokens, overhead=0
+        )
+        return summary, usage
 
 
 def _render(messages: list[dict[str, Any]]) -> str:

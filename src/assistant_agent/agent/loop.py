@@ -14,6 +14,7 @@ from typing import Any, Literal
 
 from assistant_agent.agent.compaction import Compactor
 from assistant_agent.agent.context import Conversation, estimate_tools_tokens
+from assistant_agent.agent.token_budget import ContextWindowError
 from assistant_agent.config.schema import AppConfig
 from assistant_agent.llm.client import LLMClient, ToolCall
 from assistant_agent.tools.base import ToolBudget, ToolContext
@@ -86,13 +87,18 @@ class AgentLoop:
         # 上下文行为逐字节等于硬截断现状。摘要用 summary_model（若配）或当前对话 client。
         self._compaction = config.agent.compaction
         self._compactor: Compactor | None = None
+        self._summary_follows_client = not bool(self._compaction.summary_model)
         if self._compaction.enabled:
             summary_client = client
             if self._compaction.summary_model:
                 prov = config.providers.get(self._compaction.summary_model)
                 if prov is not None:
                     summary_client = LLMClient(prov)
-            self._compactor = Compactor(summary_client, self._compaction.keep_recent_turns)
+            self._compactor = Compactor(
+                summary_client,
+                self._compaction.keep_recent_turns,
+                self._compaction.summary_max_tokens,
+            )
 
     def _interrupted(self) -> bool:
         return self._interrupt_check is not None and self._interrupt_check()
@@ -104,6 +110,8 @@ class AgentLoop:
         不改 run() 控制流。
         """
         self._client = client
+        if self._compactor is not None and self._summary_follows_client:
+            self._compactor.set_client(client)
 
     def context_report(self) -> dict[str, int]:
         """当前上下文预算分项（供 /context 展示真实占用，含 tools schema）。"""
@@ -166,7 +174,11 @@ class AgentLoop:
 
     def _run_task(self, task: str) -> Iterator[StepEvent]:
         """执行已安装任务预算的循环主体。"""
-        self._conversation.add_user(task)
+        try:
+            self._conversation.add_user(task)
+        except ContextWindowError as exc:
+            yield StepEvent(kind="error", text=str(exc), is_error=True)
+            return
         tool_schemas = self._registry.schemas()
 
         # 重复动作熔断：连续多轮完全相同的工具调用 → 判定卡死。
@@ -200,9 +212,14 @@ class AgentLoop:
             stream_error: str | None = None
             interrupted = False
 
+            try:
+                request_messages = self._conversation.messages()
+            except ContextWindowError as exc:
+                yield StepEvent(kind="error", text=str(exc), is_error=True)
+                return
+
             for event in self._client.complete_stream(
-                messages=self._conversation.messages(),
-                tools=tool_schemas,
+                messages=request_messages, tools=tool_schemas
             ):
                 if event.kind == "reasoning":
                     yield StepEvent(kind="reasoning", text=event.text)

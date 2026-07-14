@@ -25,18 +25,16 @@
 - **MCP（M7b/M7c）**：MCP client（stdio + HTTP 两种 transport）——外部 server 工具接入，命名空间 `mcp__<server>__<tool>`；同步桥（守护线程常驻 loop + run_coroutine_threadsafe）；每工具主动确认（category 按 server+tool 细分）；工具白/黑名单 + 每 server/全局数量上限防 schema 撑爆；HTTP 走 Streamable HTTP，session/协议头/重连交 SDK 代管、调用层不自动重放；`/mcp` 命令；`cli/setup.py` Runtime 统管生命周期（还清 D7）。
 - **上下文进化（M8a/M8b）**：M8a 统一预算口径——可用消息预算 = 窗口 − system − tools schema − reserved_output，`/context` 分项显示真实占用（还 D10）；M8b 摘要压缩替代硬截断——双历史（raw + checkpoint + tail）、按完整用户轮分组、checkpoint 随 Session 持久化（resume 不重复摘要）、摘要 token 独立计入 usage、摘要失败降级硬截断，默认关闭时上下文逐字节等于现状。
 
-**质量**：240 测试、覆盖率 ~66%、约 4500 行源码；架构适应度测试（依赖分层 + 行数分级软/硬）+ 技术债册 + DoD + 里程碑工作流全在。
+**质量**：258 测试、覆盖率 71%、4051 行 Python 源码；架构适应度测试（依赖分层 + 行数分级软/硬）+ 技术债册 + DoD + 里程碑工作流全在；CI 已加入 format/lint/mypy/coverage 与 Windows/Linux、Python 3.11/3.13 矩阵。
 
 **边界（明确未做）**：子 Agent 编排、真沙箱、Web GUI、rewind/recap、非交互 init、PyPI 分发。
 
-**下一阶段**：第三阶段“可信执行与质量闭环”总规划已就绪，当前仍未实施；见
-[第三阶段规划](docs/phase3-trustworthy-agent-plan.md)。首个拟实施里程碑为 M9a（硬正确性与工程基线），
-涉及轻微内核修改，开工前需按项目规范再次确认。
+**下一阶段**：第三阶段“可信执行与质量闭环”已启动；M9a 硬正确性与工程基线完成，下一项为
+M9b 统一权限与信任边界。见 [第三阶段规划](docs/phase3-trustworthy-agent-plan.md)。
 
-**剩余技术债**：原有 D5/D6/D8/D9/D11/D12，加第二阶段后完整审计新增的 D13-D17。
-其中 D13（上下文硬线）、D14（权限边界）、D15（会话/Runtime 安全）为高优先，已纳入第三阶段
-M9a/M9b；D16（大文件/无界输出）、D17（模型切换状态）分别纳入 M10a/M9a。详见
-[技术债登记册](docs/TECH_DEBT.md)。D7、D10 已还清。
+**剩余技术债**：8 项（D5/D6/D8/D9/D11/D12/D14/D16）。M9a 已还清 D13（上下文硬线）、
+D15（会话/Runtime 安全）、D17（模型切换状态）；D14 纳入 M9b，D16 纳入 M10a。详见
+[技术债登记册](docs/TECH_DEBT.md)。
 
 ---
 
@@ -95,15 +93,15 @@ M9a/M9b；D16（大文件/无界输出）、D17（模型切换状态）分别纳
 > **M8 系列已收全（a/b）**：M8a 统一预算口径（还 D10），M8b 摘要压缩替代硬截断（双历史 +
 > checkpoint 持久化 + 按轮分组 + 降级兜底，默认关闭时逐字节等于现状）。第二阶段里程碑全部完成。
 
-### 第三阶段（规划就绪，尚未实施）
+### 第三阶段（实施中）
 
 > 总体目标：从“功能完整的单体 Agent”进入“边界明确、失败可恢复、行为可评测”的可信执行阶段。
 > 唯一总规划见 [第三阶段规划](docs/phase3-trustworthy-agent-plan.md)。每个子里程碑开工前仍需细化方案；
-> M9a/M10b 涉及 `agent/loop.py`，必须单独确认后实施。
+> M10b 涉及 `agent/loop.py` 的实质改动，必须单独确认后实施。
 
 | 里程碑 | 主题 | 状态 |
 |--------|------|------|
-| M9a | 硬正确性与工程基线 | 计划就绪，待审阅 |
+| M9a | 硬正确性与工程基线 | ✅ · [方案](docs/archive/phase3/m9a-hard-correctness-plan.md) |
 | M9b | 统一权限与信任边界 | 总规划就绪，待细化 |
 | M9c | Agent 行为 Eval 与 CI 质量闭环 | 总规划就绪，待细化 |
 | M10a | 工具契约与大文件/大输出工程 | 总规划就绪，待细化 |

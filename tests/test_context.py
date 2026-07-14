@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import pytest
+
 from assistant_agent.agent.context import Conversation
+from assistant_agent.agent.token_budget import ContextWindowError
 
 
 def _conv(**kwargs) -> Conversation:
@@ -133,3 +136,51 @@ def test_default_overhead_zero_is_regression_safe():
     c.add_user("hi")
     r = c.budget_report()
     assert r["tools"] == 0 and r["reserved"] == 0
+
+
+def test_huge_latest_user_message_is_rejected_before_provider():
+    c = _conv(max_context_tokens=100)
+    with pytest.raises(ContextWindowError, match="用户输入过长"):
+        c.add_user("x" * 1000)
+
+
+def test_final_envelope_never_exceeds_window_with_huge_summary():
+    c = _conv(max_context_tokens=100)
+    c.add_user("recent")
+    c.set_checkpoint("巨" * 1000, covered_upto=0)
+    messages = c.messages()
+    report = c.budget_report()
+    assert report["used"] <= report["total"] == 100
+    assert any(message.get("content") == "recent" for message in messages)
+
+
+def test_huge_tool_result_keeps_complete_protocol_block():
+    c = _conv(max_context_tokens=120)
+    c.add_assistant(
+        None,
+        tool_calls=[
+            {"id": "c1", "type": "function", "function": {"name": "read", "arguments": "{}"}}
+        ],
+    )
+    c.add_tool_result("c1", "read", "x" * 1000)
+
+    body = c.messages()[1:]
+
+    assert [message["role"] for message in body] == ["assistant", "tool"]
+    assert len(body[1]["content"]) < 1000
+    assert c.budget_report()["used"] <= 120
+
+
+@pytest.mark.parametrize(
+    "checkpoint",
+    [
+        {"summary": "ok", "covered_upto": 2},
+        {"summary": 1, "covered_upto": 0},
+        {"summary": "ok", "covered_upto": "0"},
+    ],
+)
+def test_invalid_checkpoint_is_rejected(checkpoint):
+    c = _conv()
+    c.add_user("hi")
+    with pytest.raises(ValueError, match="checkpoint"):
+        c.load_checkpoint(checkpoint)

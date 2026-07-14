@@ -42,8 +42,8 @@ def env_setup_hint(var: str) -> str:
     """按平台给出设置环境变量的指引（只打印，不代改）。"""
     if sys.platform == "win32":
         return (
-            f"  PowerShell（持久）：setx {var} \"你的key\"（重开终端生效）\n"
-            f"  PowerShell（当前会话）：$env:{var}=\"你的key\""
+            f'  PowerShell（持久）：setx {var} "你的key"（重开终端生效）\n'
+            f'  PowerShell（当前会话）：$env:{var}="你的key"'
         )
     return f'  bash/zsh：export {var}="你的key"（可写入 ~/.bashrc 持久化）'
 
@@ -108,9 +108,7 @@ def write_config(path: Path, data: dict[str, Any]) -> Path | None:
     if path.exists():
         backup = path.with_name(f"{path.name}.bak-{datetime.now():%Y%m%d-%H%M%S}")
         backup.write_text(path.read_text(encoding="utf-8"), encoding="utf-8")
-    path.write_text(
-        yaml.safe_dump(data, allow_unicode=True, sort_keys=False), encoding="utf-8"
-    )
+    path.write_text(yaml.safe_dump(data, allow_unicode=True, sort_keys=False), encoding="utf-8")
     return backup
 
 
@@ -162,9 +160,10 @@ def run_init(console: Console, config_path: Path | None = None) -> int:
     api_base: str | None = None
     env_var: str | None = None
     if kind == "local":
-        api_base = console.input(
-            "本地端点 base_url [http://localhost:1234/v1]: "
-        ).strip() or "http://localhost:1234/v1"
+        api_base = (
+            console.input("本地端点 base_url [http://localhost:1234/v1]: ").strip()
+            or "http://localhost:1234/v1"
+        )
         model = console.input(
             "模型名（LM Studio 里加载的名字，会自动补 openai/ 前缀）[openai/local-model]: "
         ).strip()
@@ -175,19 +174,21 @@ def run_init(console: Console, config_path: Path | None = None) -> int:
         else:
             console.info(f"⚠ 端点检测：{detail}（可稍后启动服务后再试，不影响生成配置）")
     else:
-        default_model = (
-            "anthropic/claude-sonnet-4-6" if kind == "anthropic" else "openai/gpt-4o"
-        )
+        default_model = "anthropic/claude-sonnet-4-6" if kind == "anthropic" else "openai/gpt-4o"
         model = console.input(f"模型名 [{default_model}]: ").strip() or default_model
         if kind == "cloud":
-            api_base = console.input(
-                "自定义 API base_url（DeepSeek 等填，OpenAI 官方留空）: "
-            ).strip() or None
+            api_base = (
+                console.input("自定义 API base_url（DeepSeek 等填，OpenAI 官方留空）: ").strip()
+                or None
+            )
         # 只填变量名（不是 key 本身）。校验为合法标识符，防用户误粘 key（含 - 等会被拒）。
         while True:
-            env_var = console.input(
-                f"存放 API key 的环境变量名（只填名字，如 {_DEFAULT_ENV[kind]}，不要填 key）: "
-            ).strip() or _DEFAULT_ENV[kind]
+            env_var = (
+                console.input(
+                    f"存放 API key 的环境变量名（只填名字，如 {_DEFAULT_ENV[kind]}，不要填 key）: "
+                ).strip()
+                or _DEFAULT_ENV[kind]
+            )
             if env_var.isidentifier():
                 break
             console.error(

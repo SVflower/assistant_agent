@@ -81,6 +81,15 @@ def test_compact_merges_prev_summary():
     assert result.covered_upto == 18  # 10 + 8
 
 
+def test_compactor_caps_summary_length():
+    tail = [m for i in range(6) for m in _turn(f"t{i}")]
+    result = Compactor(
+        _SummaryClient("巨" * 1000), keep_recent_turns=2, summary_max_tokens=32
+    ).compact(tail, 0, "")
+    assert result is not None
+    assert len(result.summary) <= 32
+
+
 # ---- 双历史（Conversation + checkpoint）----
 def test_checkpoint_none_is_byte_identical():
     a = Conversation(system_prompt="S", max_context_tokens=8000)
@@ -133,12 +142,16 @@ class _TurnClient:
 
 
 def _loop(enabled: bool, threshold: float = 0.01) -> AgentLoop:
-    cfg = AppConfig.model_validate({
-        "active": "c", "providers": {"c": {"model": "openai/x"}},
-        "agent": {"max_context_tokens": 2000,
-                  "compaction": {"enabled": enabled, "threshold": threshold,
-                                 "keep_recent_turns": 1}},
-    })
+    cfg = AppConfig.model_validate(
+        {
+            "active": "c",
+            "providers": {"c": {"model": "openai/x"}},
+            "agent": {
+                "max_context_tokens": 8000,
+                "compaction": {"enabled": enabled, "threshold": threshold, "keep_recent_turns": 1},
+            },
+        }
+    )
     return AgentLoop(cfg, _TurnClient(), ToolRegistry(), ToolContext())
 
 
@@ -167,11 +180,16 @@ def test_loop_disabled_never_compacts():
 
 
 def test_loop_summary_failure_degrades_gracefully():
-    cfg = AppConfig.model_validate({
-        "active": "c", "providers": {"c": {"model": "openai/x"}},
-        "agent": {"max_context_tokens": 2000,
-                  "compaction": {"enabled": True, "threshold": 0.05, "keep_recent_turns": 1}},
-    })
+    cfg = AppConfig.model_validate(
+        {
+            "active": "c",
+            "providers": {"c": {"model": "openai/x"}},
+            "agent": {
+                "max_context_tokens": 8000,
+                "compaction": {"enabled": True, "threshold": 0.05, "keep_recent_turns": 1},
+            },
+        }
+    )
     loop = AgentLoop(cfg, _SummaryFailClient(), ToolRegistry(), ToolContext())
     _preload(loop, 10)
     events = list(loop.run("新问题"))  # 摘要失败但不崩

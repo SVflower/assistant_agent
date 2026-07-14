@@ -120,7 +120,9 @@ mcp:
 
 ```bash
 pytest                          # 跑测试
+pytest --cov                    # 覆盖率
 ruff format . && ruff check .   # 格式化 + lint
+python -m mypy src/assistant_agent
 ```
 
 ## 架构
@@ -140,8 +142,9 @@ ui/       终端输入输出（Rich 流式渲染）
 
 扩展点：换模型动 `config.yaml`；加能力优先在 `tools/` 加文件并在 `registry.py` 注册，或接 `skills/`（SKILL.md）与 `mcp/`（外部 server）——内核 `agent/loop.py` 通常不必动（确需演进时先确认）。
 
-第三阶段“可信执行与质量闭环”已完成规划但尚未实施：先修上下文/会话/生命周期硬正确性，
-再建设统一权限、行为级 eval、大文件工具契约与可恢复执行。详见
+第三阶段“可信执行与质量闭环”已启动，M9a 硬正确性与工程基线完成：模型请求有最终上下文硬封套，
+会话路径受限且原子保存，Runtime/MCP 失败会回滚，模型切换同步摘要器与会话元数据；下一项是 M9b
+统一权限与信任边界。当前 258 个测试、覆盖率 71%、4051 行 Python 源码。详见
 [第三阶段规划](docs/phase3-trustworthy-agent-plan.md)。
 
 详见 [DESIGN.md](DESIGN.md)。

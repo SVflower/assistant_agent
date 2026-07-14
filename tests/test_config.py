@@ -175,3 +175,17 @@ tools:
         )
     )
     assert config.tools.max_output_chars == 700
+
+
+def test_summary_model_must_reference_provider(tmp_path):
+    yaml_text = (
+        _VALID_YAML
+        + """
+agent:
+  compaction:
+    enabled: true
+    summary_model: missing
+"""
+    )
+    with pytest.raises(ConfigError, match="summary_model"):
+        load_config(_write(tmp_path, yaml_text))

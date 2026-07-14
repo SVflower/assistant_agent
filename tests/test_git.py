@@ -14,10 +14,9 @@ def _ctx() -> ToolContext:
 
 def _init_repo(tmp_path):
     """在 tmp_path 建一个带一次提交的 git 仓库。"""
+
     def run(*args):
-        subprocess.run(
-            ["git", *args], cwd=tmp_path, capture_output=True, stdin=subprocess.DEVNULL
-        )
+        subprocess.run(["git", *args], cwd=tmp_path, capture_output=True, stdin=subprocess.DEVNULL)
 
     run("init")
     run("config", "user.email", "t@t.com")

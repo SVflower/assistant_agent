@@ -92,6 +92,10 @@ class NullLogger:
 
     def session_end(self, *, reason: str = "") -> None: ...
 
+    def model_switch(
+        self, *, from_provider: str, from_model: str, to_provider: str, to_model: str
+    ) -> None: ...
+
     def task(self, text: str) -> None: ...
 
     def tool_call(
@@ -165,6 +169,19 @@ class EventLogger(NullLogger):
 
     def session_end(self, *, reason: str = "") -> None:
         self._write({"type": "session_end", "reason": reason})
+
+    def model_switch(
+        self, *, from_provider: str, from_model: str, to_provider: str, to_model: str
+    ) -> None:
+        self._write(
+            {
+                "type": "model_switch",
+                "from_provider": from_provider,
+                "from_model": from_model,
+                "to_provider": to_provider,
+                "to_model": to_model,
+            }
+        )
 
     def task(self, text: str) -> None:
         self._write({"type": "task", "text": _truncate(text, self._max_chars)})

@@ -55,4 +55,3 @@ def test_run_mode_assumes_instead_of_asking():
     assert "单次任务模式" in prompt
     # run 模式应指示"按假设执行"而非提问
     assert "假设" in prompt
-

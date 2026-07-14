@@ -33,9 +33,7 @@ def test_search_finds_matches(tmp_path):
 
 def test_search_glob_filter(tmp_path):
     _make_tree(tmp_path)
-    r = CodeSearchTool().run(
-        {"pattern": "hello", "path": str(tmp_path), "glob": "*.py"}, _ctx()
-    )
+    r = CodeSearchTool().run({"pattern": "hello", "path": str(tmp_path), "glob": "*.py"}, _ctx())
     # 只搜 .py，b.txt 的 "hello there" 不应出现
     assert "b.txt" not in r.output
 
@@ -63,9 +61,7 @@ def test_search_no_match(tmp_path):
 def test_search_max_results_truncates(tmp_path):
     big = tmp_path / "big.txt"
     big.write_text("\n".join("match" for _ in range(50)), encoding="utf-8")
-    r = CodeSearchTool().run(
-        {"pattern": "match", "path": str(tmp_path), "max_results": 5}, _ctx()
-    )
+    r = CodeSearchTool().run({"pattern": "match", "path": str(tmp_path), "max_results": 5}, _ctx())
     assert "已截断" in r.output
     # 5 条匹配 + 截断提示行
     assert len([ln for ln in r.output.splitlines() if ln.startswith("big.txt")]) == 5

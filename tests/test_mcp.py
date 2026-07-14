@@ -40,8 +40,14 @@ class _FakeCallResult:
 
 
 class _FakeSession:
-    def __init__(self, tools: list[_FakeTool], *, call_delay: float = 0.0,
-                 call_exc: Exception | None = None, call_result: Any = None) -> None:
+    def __init__(
+        self,
+        tools: list[_FakeTool],
+        *,
+        call_delay: float = 0.0,
+        call_exc: Exception | None = None,
+        call_result: Any = None,
+    ) -> None:
         self._tools = tools
         self._call_delay = call_delay
         self._call_exc = call_exc
@@ -89,9 +95,16 @@ def test_extract_content_is_error_flag():
 
 # ---- MCPTool.run 权限与错误通道 ----
 def _tool(caller, *, auto_approve=False, timeout=5.0, server="srv", raw="do"):
-    return MCPTool(server=server, registered_name=f"mcp__{server}__{raw}", raw_tool=raw,
-                   description="d", input_schema={"type": "object"}, caller=caller,
-                   timeout=timeout, auto_approve=auto_approve)
+    return MCPTool(
+        server=server,
+        registered_name=f"mcp__{server}__{raw}",
+        raw_tool=raw,
+        description="d",
+        input_schema={"type": "object"},
+        caller=caller,
+        timeout=timeout,
+        auto_approve=auto_approve,
+    )
 
 
 def test_run_requires_confirm_and_denies():
@@ -121,6 +134,7 @@ def test_run_auto_approve_skips_confirm():
 def test_run_protocol_exception_becomes_error():
     def boom(*_a):
         raise RuntimeError("conn reset")
+
     tool = _tool(boom, auto_approve=True)
     res = tool.run({}, ToolContext())
     assert res.is_error and "调用失败" in res.output
@@ -129,14 +143,17 @@ def test_run_protocol_exception_becomes_error():
 def test_run_timeout_becomes_error():
     def slow(*_a):
         raise TimeoutError()
+
     tool = _tool(slow, auto_approve=True)
     res = tool.run({}, ToolContext())
     assert res.is_error and "超时" in res.output
 
 
 def test_run_tool_iserror_feeds_back():
-    tool = _tool(lambda *a: _FakeCallResult([_FakeContent("text", "bad args")], is_error=True),
-                 auto_approve=True)
+    tool = _tool(
+        lambda *a: _FakeCallResult([_FakeContent("text", "bad args")], is_error=True),
+        auto_approve=True,
+    )
     res = tool.run({}, ToolContext())
     assert res.is_error and res.output == "bad args"  # 执行错误回喂模型
 
@@ -156,6 +173,7 @@ def test_interpolate_env(monkeypatch):
 def _mgr(servers: dict, **mcp_kw) -> MCPManager:
     cfg = MCPConfig(servers=servers, **mcp_kw)
     from assistant_agent.obs import NullLogger
+
     return MCPManager(cfg, NullLogger())
 
 
@@ -194,8 +212,9 @@ def test_discover_collision_gets_suffix():
 
 def test_sync_bridge_call_and_close():
     m = _mgr({"web": MCPServerConfig(command="x", timeout=5)})
-    session = _FakeSession([_FakeTool("do")],
-                           call_result=_FakeCallResult([_FakeContent("text", "done")]))
+    session = _FakeSession(
+        [_FakeTool("do")], call_result=_FakeCallResult([_FakeContent("text", "done")])
+    )
     _inject(m, "web", session)
     # 真实同步桥：起 loop 线程，把 call_tool 投进去
     result = m._call_tool("web", "do", {}, 5.0)
@@ -216,6 +235,37 @@ def test_sync_bridge_timeout_cancels():
 def test_start_disabled_returns_empty():
     m = _mgr({"web": MCPServerConfig(command="x")}, enabled=False)
     assert m.start() == []
+
+
+def test_connect_failure_closes_partial_stack(monkeypatch):
+    import mcp
+
+    record = {"closed": False}
+
+    class FailingSession:
+        def __init__(self, _read, _write):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_exc):
+            record["closed"] = True
+
+        async def initialize(self):
+            raise RuntimeError("initialize failed")
+
+    async def fake_open(_stack, _cfg):
+        return "r", "w"
+
+    monkeypatch.setattr(mcp, "ClientSession", FailingSession)
+    manager = _mgr({"s": MCPServerConfig(command="x")})
+    monkeypatch.setattr(manager, "_open_transport", fake_open)
+
+    with pytest.raises(RuntimeError, match="initialize failed"):
+        manager._submit(manager._connect_one("s", manager._config.servers["s"]), timeout=2)
+    assert record["closed"] is True
+    manager.close()
 
 
 # ---- M7c：HTTP transport 工厂分派 ----
@@ -255,9 +305,11 @@ def _patch_transports(monkeypatch, record: dict):
 
 def _run_open(m: MCPManager, cfg: MCPServerConfig) -> tuple:
     """在 manager 的 loop 线程里跑 _open_transport，返回 (read, write)。"""
+
     async def _go():
         async with AsyncExitStack() as stack:
             return await m._open_transport(stack, cfg)
+
     return m._submit(_go(), timeout=5)
 
 
@@ -284,8 +336,9 @@ def test_http_headers_interpolated(monkeypatch):
     monkeypatch.setenv("TOK", "secret123")
     record: dict = {}
     _patch_transports(monkeypatch, record)
-    cfg = MCPServerConfig(type="http", url="https://x/mcp",
-                          headers={"Authorization": "Bearer ${TOK}"})
+    cfg = MCPServerConfig(
+        type="http", url="https://x/mcp", headers={"Authorization": "Bearer ${TOK}"}
+    )
     m = _mgr({"h": cfg})
     _run_open(m, cfg)
     assert record["headers"]["Authorization"] == "Bearer secret123"  # ${VAR} 注入

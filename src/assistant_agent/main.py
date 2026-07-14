@@ -74,8 +74,12 @@ def run(
     """执行单个任务后退出。"""
     console = Console()
     with build_runtime(
-        config, console, interactive=False, interrupt_check=_interrupt.is_set,
-        provider=provider, max_iterations=max_iterations,
+        config,
+        console,
+        interactive=False,
+        interrupt_check=_interrupt.is_set,
+        provider=provider,
+        max_iterations=max_iterations,
     ) as rt:
         console.user_echo(task)
         rt.logger.task(task)
@@ -100,8 +104,12 @@ def chat(
     """
     console = Console()
     with build_runtime(
-        config, console, interactive=True, interrupt_check=_interrupt.is_set,
-        provider=provider, max_iterations=max_iterations,
+        config,
+        console,
+        interactive=True,
+        interrupt_check=_interrupt.is_set,
+        provider=provider,
+        max_iterations=max_iterations,
     ) as rt:
         store = SessionStore()
 
@@ -113,7 +121,12 @@ def chat(
                 raise typer.Exit(code=1) from exc
             rt.loop.load_history(session.messages)
             rt.loop.load_checkpoint(session.compaction_checkpoint)  # M8b：resume 不重复摘要
-            console.info(f"已恢复会话 {resume}（{len(session.messages)} 条消息），继续对话。")
+            session.provider = rt.config.active
+            session.model = rt.config.active_provider.model
+            console.info(
+                f"已恢复会话 {resume}（{len(session.messages)} 条消息），"
+                f"沿用当前配置模型 {session.model}。"
+            )
         else:
             session = store.new_session(
                 provider=rt.config.active, model=rt.config.active_provider.model
@@ -122,8 +135,14 @@ def chat(
 
         mcp_servers = rt.mcp.server_summary() if rt.mcp else []
         ctx = ChatContext(
-            rt.config, rt.loop, console, store, session,
-            skills=rt.skills_meta(), mcp_servers=mcp_servers,
+            rt.config,
+            rt.loop,
+            console,
+            store,
+            session,
+            rt.logger,
+            skills=rt.skills_meta(),
+            mcp_servers=mcp_servers,
         )
         registry = build_default_slash_registry()
 

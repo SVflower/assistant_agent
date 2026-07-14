@@ -48,9 +48,13 @@ def _start_mcp(cfg: MCPConfig, console: Console, registry: ToolRegistry) -> MCPM
     if not cfg.enabled or not cfg.servers:
         return None
     manager = MCPManager(cfg, NullLogger())
-    tools = manager.start()
-    for tool in tools:
-        registry.register(tool)
+    try:
+        tools = manager.start()
+        for tool in tools:
+            registry.register(tool)
+    except BaseException:
+        manager.close()
+        raise
     for warning in manager.warnings:
         console.error(f"（MCP）{warning}")
     if tools:
@@ -129,33 +133,43 @@ def build_runtime(
     system_prompt = build_system_prompt(interactive, skills=skill_meta or None)
 
     logger = create_logger(config.logging, new_session_id())
-    logger.session_start(
-        provider=config.active,
-        model=config.active_provider.model,
-        mode="chat" if interactive else "run",
-        cwd=str(Path.cwd()),
-    )
+    mcp: MCPManager | None = None
+    try:
+        logger.session_start(
+            provider=config.active,
+            model=config.active_provider.model,
+            mode="chat" if interactive else "run",
+            cwd=str(Path.cwd()),
+        )
 
-    # MCP（M7b）：连接 server、注册外部工具。禁用/无 server 时 None。
-    mcp = _start_mcp(config.mcp, console, registry)
+        # MCP（M7b）：连接 server、注册外部工具。禁用/无 server 时 None。
+        mcp = _start_mcp(config.mcp, console, registry)
 
-    tool_ctx = ToolContext(
-        confirm_dangerous_shell=config.tools.confirm_dangerous_shell,
-        shell_timeout=config.tools.shell_timeout,
-        confirm=console.confirm,
-        ask=console.ask_question,
-        logger=logger,
-        max_output_chars=config.tools.max_output_chars,
-    )
-    continue_check = console.confirm_continue if interactive else None
-    loop = AgentLoop(
-        config, client, registry, tool_ctx,
-        interactive=interactive,
-        interrupt_check=interrupt_check,
-        continue_check=continue_check,
-        system_prompt=system_prompt,
-    )
-    console.set_show_reasoning(config.ui.show_reasoning)
-    console.set_context_limit(config.agent.max_context_tokens)
-    console.banner(config.active, config.active_provider.model)
-    return Runtime(config=config, loop=loop, logger=logger, skill_store=skill_store, mcp=mcp)
+        tool_ctx = ToolContext(
+            confirm_dangerous_shell=config.tools.confirm_dangerous_shell,
+            shell_timeout=config.tools.shell_timeout,
+            confirm=console.confirm,
+            ask=console.ask_question,
+            logger=logger,
+            max_output_chars=config.tools.max_output_chars,
+        )
+        continue_check = console.confirm_continue if interactive else None
+        loop = AgentLoop(
+            config,
+            client,
+            registry,
+            tool_ctx,
+            interactive=interactive,
+            interrupt_check=interrupt_check,
+            continue_check=continue_check,
+            system_prompt=system_prompt,
+        )
+        console.set_show_reasoning(config.ui.show_reasoning)
+        console.set_context_limit(config.agent.max_context_tokens)
+        console.banner(config.active, config.active_provider.model)
+        return Runtime(config=config, loop=loop, logger=logger, skill_store=skill_store, mcp=mcp)
+    except BaseException:
+        if mcp is not None:
+            mcp.close()
+        logger.session_end(reason="runtime_init_failed")
+        raise

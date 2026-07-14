@@ -76,10 +76,9 @@ class Console:
 
         start = time.monotonic()
         spinner = Spinner("dots", text="连接模型…")
-        live: Live | None = Live(
-            spinner, console=self._console, refresh_per_second=12, transient=True
-        )
-        live.start()
+        initial_live = Live(spinner, console=self._console, refresh_per_second=12, transient=True)
+        initial_live.start()
+        live: Live | None = initial_live
         live_active = True
         self._active_live = live
         streaming_text = False  # 是否正在打印正文（正文期间不开 spinner）
@@ -105,9 +104,7 @@ class Console:
                 return
             spinner.update(text=f"{text}（{format_elapsed(time.monotonic() - start)}）")
             if not live_active:
-                live = Live(
-                    spinner, console=self._console, refresh_per_second=12, transient=True
-                )
+                live = Live(spinner, console=self._console, refresh_per_second=12, transient=True)
                 live.start()
                 live_active = True
             self._active_live = live

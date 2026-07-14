@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import os
+
+import pytest
+
 from assistant_agent.session.store import Session, SessionStore, new_session_id
 
 
@@ -99,7 +103,34 @@ def test_list_skips_corrupt_files(tmp_path):
 
 def test_session_from_dict_roundtrip():
     s = Session(
-        id="x", created_at="a", updated_at="b", provider="p", model="m",
+        id="x",
+        created_at="a",
+        updated_at="b",
+        provider="p",
+        model="m",
         messages=[{"role": "user", "content": "hi"}],
     )
     assert Session.from_dict(s.to_dict()) == s
+
+
+@pytest.mark.parametrize("session_id", ["../outside", "..\\outside", "/tmp/outside", "a/b"])
+def test_session_id_cannot_escape_store(tmp_path, session_id):
+    store = _store(tmp_path)
+    with pytest.raises(ValueError, match="会话 ID"):
+        store._path(session_id)
+
+
+def test_atomic_save_failure_preserves_old_file(tmp_path, monkeypatch):
+    store = _store(tmp_path)
+    session = store.new_session()
+    store.save(session, [{"role": "user", "content": "old"}])
+
+    def fail_replace(_source, _target):
+        raise OSError("disk failure")
+
+    monkeypatch.setattr(os, "replace", fail_replace)
+    with pytest.raises(OSError, match="disk failure"):
+        store.save(session, [{"role": "user", "content": "new"}])
+
+    assert store.load(session.id).messages[0]["content"] == "old"
+    assert not list((tmp_path / "sessions").glob("*.tmp"))

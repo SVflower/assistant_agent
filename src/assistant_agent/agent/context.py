@@ -11,20 +11,18 @@ from __future__ import annotations
 from typing import Any
 
 from assistant_agent.agent.prompts import build_system_prompt
+from assistant_agent.agent.token_budget import (
+    DEFAULT_ESTIMATOR,
+    ContextWindowError,
+    TokenEstimator,
+    estimate_message_tokens,
+    truncate_text_to_tokens,
+)
 
 
 def _estimate_message_tokens(message: dict[str, Any]) -> int:
-    """估算单条消息的 token 数（保守、快速、无重依赖）。
-
-    用字符数近似（约 1 token/字符）。理由：
-    - 我们的提示词/内容多含中文，CJK 约 1~2 token/字符——按 1 token/字符是安全下界偏保守；
-    - 对英文会高估（英文约 4 字符/token），但高估只会多丢历史、绝不会撑爆窗口——截断场景宁可保守；
-    - 不在热路径引入 litellm.token_counter：避免每轮的模型查找开销与偶发慢/失败。
-    """
-    text = str(message.get("content") or "")
-    for call in message.get("tool_calls") or []:
-        text += str(call.get("function", {}).get("arguments", ""))
-    return len(text) + 4  # +4 约等于每条消息的角色/分隔开销
+    """向后兼容的默认估算入口。"""
+    return estimate_message_tokens(message)
 
 
 def estimate_tools_tokens(schemas: list[dict[str, Any]]) -> int:
@@ -34,11 +32,9 @@ def estimate_tools_tokens(schemas: list[dict[str, Any]]) -> int:
     MCP 接入大量工具后会显著偏低。序列化成紧凑 JSON 后按字符数近似（与消息同口径）。
     空列表返回 0——保证"无工具"时预算与旧口径一致。
     """
-    if not schemas:
-        return 0
-    import json
+    from assistant_agent.agent.token_budget import estimate_tools_tokens as estimate
 
-    return len(json.dumps(schemas, ensure_ascii=False, separators=(",", ":")))
+    return estimate(schemas)
 
 
 class Conversation:
@@ -55,6 +51,7 @@ class Conversation:
         interactive: bool = True,
         tools_tokens: int = 0,
         reserved_output_tokens: int = 0,
+        estimator: TokenEstimator = DEFAULT_ESTIMATOR,
     ) -> None:
         prompt = system_prompt if system_prompt is not None else build_system_prompt(interactive)
         self._system: dict[str, Any] = {"role": "system", "content": prompt}
@@ -65,12 +62,23 @@ class Conversation:
         # 两者默认 0 → 预算口径与 M8a 前逐字节一致（回归保护）。
         self._tools_tokens = tools_tokens
         self._reserved_output_tokens = reserved_output_tokens
+        self._estimator = estimator
         # M8b：摘要 checkpoint。None（默认）时下方全部逻辑等于 M8b 前——不压缩、硬截断。
         # {"summary": 摘要文本, "covered_upto": 已覆盖到的 _messages 游标}
         self._checkpoint: dict[str, Any] | None = None
+        fixed = self._fixed_tokens()
+        if fixed + 5 > self._max_tokens:
+            raise ContextWindowError(
+                "上下文窗口过小：system、tools schema 与 reserved_output 已无消息空间"
+            )
 
     def add_user(self, content: str) -> None:
-        self._messages.append({"role": "user", "content": content})
+        message = {"role": "user", "content": content}
+        if self._message_tokens(message) > self._message_budget():
+            raise ContextWindowError(
+                f"用户输入过长，无法放入 {self._max_tokens} token 的上下文窗口；请缩短输入"
+            )
+        self._messages.append(message)
 
     def add_assistant(
         self,
@@ -99,12 +107,40 @@ class Conversation:
         有 checkpoint：[system, 摘要消息, *截断后的尾段]，摘要顶替已覆盖的旧历史。
         """
         if self._checkpoint is None:
-            return [self._system, *self._truncated(self._messages)]
-        summary_msg = self._summary_message()
-        tail = self._messages[self._checkpoint["covered_upto"] :]
-        # 摘要消息也占预算，从尾段可用预算里扣掉。
-        extra = _estimate_message_tokens(summary_msg)
-        return [self._system, summary_msg, *self._truncated(tail, extra_overhead=extra)]
+            result = [self._system, *self._truncated(self._messages)]
+        else:
+            summary_msg: dict[str, Any] | None = self._summary_message()
+            tail = self._messages[self._checkpoint["covered_upto"] :]
+            # 最新用户输入优先于摘要。摘要过长时先裁摘要，必要时本轮省略摘要，
+            # 不能让合法的新任务被 checkpoint 挤出请求。
+            if summary_msg is not None and tail and tail[-1].get("role") == "user":
+                summary_budget = self._message_budget() - self._message_tokens(tail[-1])
+                if self._message_tokens(summary_msg) > summary_budget:
+                    summary_msg = self._fit_message(summary_msg, summary_budget)
+            if summary_msg is None:
+                result = [self._system, *self._truncated(tail)]
+                used = (
+                    self._tools_tokens
+                    + self._reserved_output_tokens
+                    + sum(self._message_tokens(message) for message in result)
+                )
+                if used > self._max_tokens:
+                    raise ContextWindowError(
+                        f"上下文封套超限：估算 {used} tokens，配置窗口 {self._max_tokens}"
+                    )
+                return result
+            extra = self._message_tokens(summary_msg)
+            result = [self._system, summary_msg, *self._truncated(tail, extra_overhead=extra)]
+        used = (
+            self._tools_tokens
+            + self._reserved_output_tokens
+            + sum(self._message_tokens(message) for message in result)
+        )
+        if used > self._max_tokens:
+            raise ContextWindowError(
+                f"上下文封套超限：估算 {used} tokens，配置窗口 {self._max_tokens}"
+            )
+        return result
 
     def _summary_message(self) -> dict[str, Any]:
         """把 checkpoint 摘要渲染成一条 user 消息（跨模型最兼容，不破坏 system-first）。"""
@@ -118,9 +154,9 @@ class Conversation:
         used=三者+messages，total=配置窗口。M8a 前 tools/reserved 恒为 0。
         """
         sent = self.messages()  # system (+summary?) + 截断后消息
-        system = _estimate_message_tokens(self._system)
+        system = self._message_tokens(self._system)
         body = sent[1:]
-        messages = sum(_estimate_message_tokens(m) for m in body)
+        messages = sum(self._message_tokens(m) for m in body)
         return {
             "total": self._max_tokens,
             "system": system,
@@ -136,16 +172,14 @@ class Conversation:
     def full_usage(self) -> int:
         """未截断历史 + 固定开销的总 token 估算（供压缩阈值判断，不受截断影响）。"""
         fixed = (
-            _estimate_message_tokens(self._system)
-            + self._tools_tokens
-            + self._reserved_output_tokens
+            self._message_tokens(self._system) + self._tools_tokens + self._reserved_output_tokens
         )
         if self._checkpoint is None:
             active = self._messages
         else:
-            fixed += _estimate_message_tokens(self._summary_message())
+            fixed += self._message_tokens(self._summary_message())
             active = self._messages[self._checkpoint["covered_upto"] :]
-        return fixed + sum(_estimate_message_tokens(m) for m in active)
+        return fixed + sum(self._message_tokens(m) for m in active)
 
     def budget(self) -> int:
         """当前上下文总预算（供 loop 算阈值）。"""
@@ -160,7 +194,13 @@ class Conversation:
 
     def set_checkpoint(self, summary: str, covered_upto: int) -> None:
         """写入/更新摘要 checkpoint（loop 压缩后调用）。"""
-        self._checkpoint = {"summary": summary, "covered_upto": covered_upto}
+        if not isinstance(covered_upto, int) or not 0 <= covered_upto <= len(self._messages):
+            raise ValueError("摘要 checkpoint 的 covered_upto 越界")
+        available = self._message_budget()
+        rendered_prefix = "[早前对话摘要，供你参考上下文]\n"
+        max_summary_tokens = max(0, available - len(rendered_prefix) - 4)
+        safe_summary = truncate_text_to_tokens(summary, max_summary_tokens, overhead=0)
+        self._checkpoint = {"summary": safe_summary, "covered_upto": covered_upto}
 
     def get_checkpoint(self) -> dict[str, Any] | None:
         """导出 checkpoint（供 Session 持久化）。"""
@@ -168,7 +208,18 @@ class Conversation:
 
     def load_checkpoint(self, checkpoint: dict[str, Any] | None) -> None:
         """载入 checkpoint（供 resume 恢复，避免重复摘要）。"""
-        self._checkpoint = dict(checkpoint) if checkpoint else None
+        if checkpoint is None:
+            self._checkpoint = None
+            return
+        if not isinstance(checkpoint, dict):
+            raise ValueError("摘要 checkpoint 必须是对象")
+        summary = checkpoint.get("summary")
+        covered_upto = checkpoint.get("covered_upto")
+        if not isinstance(summary, str):
+            raise ValueError("摘要 checkpoint 缺少字符串 summary")
+        if not isinstance(covered_upto, int):
+            raise ValueError("摘要 checkpoint 缺少整数 covered_upto")
+        self.set_checkpoint(summary, covered_upto)
 
     # ---- 序列化：供会话持久化（不含 system，system 运行时按当前环境重建）----
 
@@ -198,23 +249,94 @@ class Conversation:
         # 消息可用预算 = 总窗口 − system − tools schema − 预留回复 − 额外开销（后三者默认 0）。
         budget = (
             self._max_tokens
-            - _estimate_message_tokens(self._system)
+            - self._message_tokens(self._system)
             - self._tools_tokens
             - self._reserved_output_tokens
             - extra_overhead
         )
-        kept: list[dict[str, Any]] = []
+        blocks = self._message_blocks(candidates)
+        kept_blocks: list[list[dict[str, Any]]] = []
         used = 0
-        # 从最新往最旧遍历，能装下就保留
-        for msg in reversed(candidates):
-            cost = _estimate_message_tokens(msg)
-            if kept and used + cost > budget:
+        # 从最新往最旧按协议块遍历，assistant tool_calls 与其全部 tool 结果不可拆开。
+        for block in reversed(blocks):
+            cost = sum(self._message_tokens(msg) for msg in block)
+            if used + cost > budget:
+                if not kept_blocks:
+                    fitted = self._fit_block(block, budget)
+                    if fitted is not None:
+                        kept_blocks.append(fitted)
+                    elif block[0].get("tool_calls"):
+                        raise ContextWindowError(
+                            "工具调用参数过长，无法在上下文窗口内保留完整调用协议"
+                        )
                 break
-            kept.append(msg)
+            kept_blocks.append(block)
             used += cost
-        kept.reverse()
+        kept_blocks.reverse()
+        kept = [message for block in kept_blocks for message in block]
 
         # 丢弃开头孤立的 tool 消息（其对应的 assistant 调用可能被截掉）
         while kept and kept[0].get("role") == "tool":
             kept = kept[1:]
         return kept
+
+    def _message_tokens(self, message: dict[str, Any]) -> int:
+        return estimate_message_tokens(message, self._estimator)
+
+    def _fixed_tokens(self) -> int:
+        return (
+            self._message_tokens(self._system) + self._tools_tokens + self._reserved_output_tokens
+        )
+
+    def _message_budget(self) -> int:
+        return max(0, self._max_tokens - self._fixed_tokens())
+
+    def _fit_message(self, message: dict[str, Any], budget: int) -> dict[str, Any] | None:
+        """只裁剪非用户消息内容；工具调用参数不可安全裁剪，装不下则丢弃。"""
+        if budget < 4 or message.get("tool_calls"):
+            return None
+        fitted = dict(message)
+        fitted["content"] = truncate_text_to_tokens(str(message.get("content") or ""), budget)
+        return fitted if self._message_tokens(fitted) <= budget else None
+
+    @staticmethod
+    def _message_blocks(messages: list[dict[str, Any]]) -> list[list[dict[str, Any]]]:
+        """把 assistant tool_calls 与紧随其后的全部 tool 结果组成不可拆协议块。"""
+        blocks: list[list[dict[str, Any]]] = []
+        index = 0
+        while index < len(messages):
+            block = [messages[index]]
+            if messages[index].get("tool_calls"):
+                index += 1
+                while index < len(messages) and messages[index].get("role") == "tool":
+                    block.append(messages[index])
+                    index += 1
+                blocks.append(block)
+                continue
+            blocks.append(block)
+            index += 1
+        return blocks
+
+    def _fit_block(self, block: list[dict[str, Any]], budget: int) -> list[dict[str, Any]] | None:
+        """裁剪最新非用户块；工具批次保留调用与全部结果，只缩结果正文。"""
+        if not block or block[0].get("role") == "user":
+            return None
+        if not block[0].get("tool_calls"):
+            fitted = self._fit_message(block[0], budget)
+            return [fitted] if fitted is not None else None
+
+        fitted_block = [dict(message) for message in block]
+        tool_results = fitted_block[1:]
+        for message in tool_results:
+            message["content"] = ""
+        fixed = sum(self._message_tokens(message) for message in fitted_block)
+        if fixed > budget:
+            return None
+        remaining = budget - fixed
+        for index, message in enumerate(tool_results):
+            slots = len(tool_results) - index
+            share = remaining // slots
+            original = str(block[index + 1].get("content") or "")
+            message["content"] = truncate_text_to_tokens(original, share, overhead=0)
+            remaining -= len(message["content"])
+        return fitted_block

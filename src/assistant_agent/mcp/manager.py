@@ -128,17 +128,21 @@ class MCPManager:
         from mcp import ClientSession
 
         stack = AsyncExitStack()
-        read, write = await self._open_transport(stack, cfg)
-        session = await stack.enter_async_context(ClientSession(read, write))
-        await session.initialize()
-        return _Server(name=name, stack=stack, session=session)
+        try:
+            read, write = await self._open_transport(stack, cfg)
+            session = await stack.enter_async_context(ClientSession(read, write))
+            await session.initialize()
+            return _Server(name=name, stack=stack, session=session)
+        except BaseException:
+            await stack.aclose()
+            raise
 
     def start(self) -> list[MCPTool]:
         """连接所有启用的 server，发现工具，返回过滤/限量后的 MCPTool 列表。
 
         单个 server 失败只跳过它（warnings 记录），不影响其余 server 与内置工具。
         """
-        self.warnings: list[str] = []
+        self.warnings = []
         if not self._config.enabled or not self._config.servers:
             return []
         tools: list[MCPTool] = []

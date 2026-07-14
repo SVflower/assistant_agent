@@ -66,20 +66,21 @@
 | M4.9 | Slash 命令系统 | ✅ |
 | M5 | 上手体验（init 向导 + INSTALL 多平台）| ✅ |
 
-### 第二阶段（进行中）
+### 第二阶段（已完成 ✅）
 
 > 总体目标：从"功能完整的单体 agent"走向"**可观测、可扩展、可接生态**的平台"，每步小切口、优先不动内核。
 > 方向评估与路线见 [M6 归档方案](docs/archive/phase2/m6-observability-plan.md)（含第二阶段启动评审结论）。
+> M6→M8b 全部交付，各里程碑计划均已归档至 `docs/archive/phase2/`。下一阶段方向待定。
 
 | 里程碑 | 主题 | 状态 |
 |--------|------|------|
 | M6 | 结构化日志与工具审计（obs 层：JSONL 事件 + 权限决策留痕）| ✅ |
 | M6.5 | 运行时预算与工具协议完整性（单次/累计输出 + 工具调用总数）| ✅ |
 | M7a | Agent Skills 系统（SKILL.md 发现 + 渐进披露 + load_skill）| ✅ |
-| M7b | MCP client（stdio + 同步桥 + 命名空间 + 权限/过滤/Runtime）| ✅ · [方案](docs/m7b-mcp-plan.md) |
-| M8a | 上下文预算口径（计入 tools schema + reserved，还 D10）| ✅ · [方案](docs/m8a-context-budget-plan.md) |
-| M8b | 上下文进化（摘要压缩 + 双历史模型）| ✅ · [方案](docs/m8b-context-compaction-plan.md) |
-| M7c | MCP Streamable HTTP transport（重连不重放）| ✅ · [方案](docs/m7c-mcp-http-plan.md) |
+| M7b | MCP client（stdio + 同步桥 + 命名空间 + 权限/过滤/Runtime）| ✅ · [方案](docs/archive/phase2/m7b-mcp-plan.md) |
+| M8a | 上下文预算口径（计入 tools schema + reserved，还 D10）| ✅ · [方案](docs/archive/phase2/m8a-context-budget-plan.md) |
+| M8b | 上下文进化（摘要压缩 + 双历史模型）| ✅ · [方案](docs/archive/phase2/m8b-context-compaction-plan.md) |
+| M7c | MCP Streamable HTTP transport（重连不重放）| ✅ · [方案](docs/archive/phase2/m7c-mcp-http-plan.md) |
 
 > **M7 系列已收全（a/b/c）**：技能 + MCP（stdio + HTTP）。评审的 3 阻断 + 4 设计问题全部落地：
 > MCP 工具主动确认（category 按 server+tool）、工具过滤/schema 上限防撑爆、HTTP 重连不重放
@@ -382,7 +383,7 @@ Console 流式渲染（Live spinner 与正文时间错开）、show_reasoning �
 
 **解决**：能力全靠内置工具 + 静态提示词，无法复用"针对某类任务的做法手册"。Skill = 可复用指示书（SKILL.md 文件夹），模型按需加载、按其指示用现有工具完成任务。
 
-**已实现**（方案见 [计划文档](docs/m7a-skills-plan.md)，**内核仅轻碰**）：
+**已实现**（方案见 [计划文档](docs/archive/phase2/m7a-skills-plan.md)，**内核仅轻碰**）：
 - **新增 `skills/` 层（rank 2，叶子能力）**：`SkillStore` 扫描 `./.assistant_agent/skills/` 与 `~/.assistant_agent/skills/`，解析 SKILL.md frontmatter；坏文件跳过不崩、同名"项目覆盖个人"。
 - **渐进披露三级**：L1 启动只注入 name/description（几十 token/个）；L2 模型调 `load_skill(name)` 返回正文；L3 正文指向的脚本/参考文件由模型用现有 read_file/run_shell 读或跑（零新机制）。
 - **prompt 动态注入**：`build_system_prompt(interactive, skills)` 加"# 可用技能"节；复用 `Conversation` 已有的 `system_prompt` 接缝——`/clear`/`/model` 都不动 system，注入一次天然存活。

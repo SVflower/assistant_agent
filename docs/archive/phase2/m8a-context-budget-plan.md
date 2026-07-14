@@ -7,7 +7,7 @@
 
 ## 解决什么
 
-当前 token 近似只算 `system + messages`（[context.py:100](../src/assistant_agent/agent/context.py#L100)），
+当前 token 近似只算 `system + messages`（`src/assistant_agent/agent/context.py`，行号为归档时值），
 **不计工具 schema**（默认内置约 3454 字符，D10）。M7b 接入 MCP 后工具 schema 可能翻几倍。
 结果：`/context` 占用读数偏低、截断预算偏松，小窗口模型比配置预算更早溢出且无预警。
 

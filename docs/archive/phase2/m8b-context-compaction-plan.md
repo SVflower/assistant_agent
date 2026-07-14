@@ -8,7 +8,7 @@
 
 ## 解决什么
 
-当前上下文管理是**硬截断**（[context.py:104-115](../src/assistant_agent/agent/context.py#L104)）：token 预算装不下
+当前上下文管理是**硬截断**（`src/assistant_agent/agent/context.py`，行号为归档时值）：token 预算装不下
 最旧消息时直接丢弃，长任务里丢掉早期关键决策/约束/结论，模型"失忆"。
 
 M8b 用**摘要压缩**替代硬丢：历史逼近预算时，把最旧一段消息交给模型压成简短摘要，以摘要顶替原文，

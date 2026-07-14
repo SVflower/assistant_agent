@@ -90,4 +90,6 @@ python -m assistant_agent
 - 双后端实测通过：云端 DeepSeek + 本地 LM Studio，切换只改 `config.yaml`，业务代码零改动。
 - 240 个测试通过，ruff 全绿；约 4500 行源码。
 
-第二阶段里程碑（M6→M8b）已全部完成。剩余为信号驱动的低优先技术债（D5/D6/D8/D9/D11/D12，见 docs/TECH_DEBT.md）与未来方向（子 Agent 编排、检索式记忆等）。下一阶段方向待定。
+第二阶段里程碑（M6→M8b）已全部完成。第三阶段“可信执行与质量闭环”总规划已就绪但尚未实施，
+见 `docs/phase3-trustworthy-agent-plan.md`；审计新增 D13-D17 已登记进 `docs/TECH_DEBT.md`。
+首个拟实施里程碑为 M9a，涉及轻微内核修改，开工前必须再次确认。

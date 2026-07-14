@@ -140,4 +140,8 @@ ui/       终端输入输出（Rich 流式渲染）
 
 扩展点：换模型动 `config.yaml`；加能力优先在 `tools/` 加文件并在 `registry.py` 注册，或接 `skills/`（SKILL.md）与 `mcp/`（外部 server）——内核 `agent/loop.py` 通常不必动（确需演进时先确认）。
 
+第三阶段“可信执行与质量闭环”已完成规划但尚未实施：先修上下文/会话/生命周期硬正确性，
+再建设统一权限、行为级 eval、大文件工具契约与可恢复执行。详见
+[第三阶段规划](docs/phase3-trustworthy-agent-plan.md)。
+
 详见 [DESIGN.md](DESIGN.md)。

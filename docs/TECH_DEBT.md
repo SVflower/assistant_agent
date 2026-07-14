@@ -2,7 +2,8 @@
 
 > AI 迭代开发中，债务会隐形复利（LLM 在每个决策点埋入未言明的假设）。
 > 这里显式追踪，防止"上次说的债"下次忘。每次里程碑评审更新本表。
-> 最后更新：2026-07-14（M8b 摘要压缩完成；新登记 D11 行数软线 / D12 整段摘要局限。剩 D5/D6/D8/D9/D11/D12）
+> 最后更新：2026-07-14（第二阶段后完整审计；新增 D13-D17，第三阶段规划见
+> [可信执行与质量闭环](phase3-trustworthy-agent-plan.md)。）
 
 ## 状态说明
 - 🔴 高：影响正确性/安全，或脆弱的关键路径
@@ -21,6 +22,11 @@
 | D10 | ~~**上下文预算未计入工具 schema**~~ ✅ 已还清（M8a）| `agent/context.py`、`agent/loop.py` | ✅ | M8a 统一预算口径：可用消息预算 = 窗口 − system − tools schema − reserved_output。tools schema 由 loop（持 registry）估算注入 context（context 保持被动、不反依赖 registry）；reserved_output 默认 1024 保证回复空间；`/context` 分项显示真实占用。实测内置工具 schema 3208 token 现已计入（原完全不计）。**两开销默认归零时预算与旧行为逐字节一致（回归保护）** |
 | D11 | **loop.py 越过行数软线** | `agent/loop.py`(334)、`ui/console.py`(306) | 🟢 | M8b 压缩编排（`_maybe_compact` + Compactor 构造）使 loop.py 越软线 300；console.py 因 notice 渲染分支略越。均远低于硬线 500，仅警告 | 触发信号：loop.py 逼近 400 或再加大编排职责时——把压缩触发/续跑判断等编排拆到 `agent/orchestration.py` 或把 run 循环分段。现不拆（同 D7 判断：不为凑数切碎内聚代码）|
 | D12 | **摘要压缩为整段、无选择性/检索** | `agent/compaction.py` | 🟢 | M8b 先做整段摘要（最旧轮压成要点）。工具结果选择性压缩、语义检索式记忆（RAG/向量）、跨会话记忆均未做 | 信号驱动的未来方向：长会话里"早期某具体事实被摘要糊掉、后续又要精确引用"反复出现时，再考虑选择性保留或检索式记忆。当前整段摘要够用 |
+| D13 | **上下文预算不是最终硬保证** | `agent/context.py`、`agent/compaction.py` | 🔴 | 最新单条消息与摘要会被无条件放入请求；配置窗口 100 时已复现估算占用 1029/1046，仍可能触发 provider context-length 错误 | M9a：最终 ContextEnvelope 校验 + 单消息/摘要硬限制 + 模型感知估算回退，确保发送请求不突破配置窗口 |
+| D14 | **权限边界可被 Shell/区外读取绕过** | `tools/shell.py`、`tools/file_ops.py`、`agent/prompts.py` | 🔴 | Shell 仅靠危险正则；Python/PowerShell 等价写入、curl/pip 网络行为可免确认，区外读取也不受控；提示词却声称系统自动拦截 | M9b：Registry 强制 PermissionPolicy，统一 deny/ask/allow、读写/网络/进程 capability；提示词明确无真沙箱 |
+| D15 | **会话存储与 Runtime 失败清理不够安全** | `session/store.py`、`mcp/manager.py`、`cli/setup.py` | 🔴 | session id 可通过 `../` 逃出目录；会话覆盖写非原子；MCP initialize/Runtime 构造中途失败可能遗留 transport、线程或未闭合日志会话 | M9a：路径 confinement、原子替换、失败回滚与对应故障注入测试 |
+| D16 | **工具 I/O 不适合大文件与无界输出** | `tools/file_ops.py`、`tools/shell.py`、`tools/git.py` | 🟡 | read_file 无范围分页；截断后无法缩小范围重试；Shell/Git 先完整 capture 再截断，极端输出可先占满内存；文件写入非磁盘原子 | M10a：范围读取、artifact/分页、来源端限量、原子文件写、统一参数校验与结构化错误 |
+| D17 | **模型切换后的运行状态不一致** | `agent/loop.py`、`cli/commands.py`、`session/store.py` | 🟡 | `/model` 只更新主 client；默认 Compactor 继续使用旧 client，Session provider/model 元数据也不更新或恢复 | M9a：区分跟随当前模型与固定摘要 provider；同步 Session/日志语义并补回归测试 |
 
 ## 已还清（保留记录）
 - **任务级工具资源无边界** → M6.5 增加单次输出、累计输出、工具调用总数预算；多 tool-call 批次补齐结果后终止。✅ 2026-07-14

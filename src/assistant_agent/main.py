@@ -15,18 +15,12 @@ from pathlib import Path
 
 import typer
 
-from assistant_agent.agent.loop import AgentLoop, StepEvent
-from assistant_agent.agent.prompts import build_system_prompt
+from assistant_agent.agent.loop import StepEvent
 from assistant_agent.cli.commands import ChatContext, build_default_slash_registry
 from assistant_agent.cli.init import run_init
+from assistant_agent.cli.setup import build_runtime
 from assistant_agent.config.loader import ConfigError, load_config
-from assistant_agent.config.schema import AppConfig, SkillsConfig
-from assistant_agent.llm.client import LLMClient
-from assistant_agent.obs import NullLogger, create_logger
-from assistant_agent.session.store import SessionStore, new_session_id
-from assistant_agent.skills import LoadSkillTool, SkillStore
-from assistant_agent.tools.base import ToolContext
-from assistant_agent.tools.registry import build_default_registry
+from assistant_agent.session.store import SessionStore
 from assistant_agent.ui.console import Console
 
 app = typer.Typer(
@@ -66,106 +60,6 @@ def _run_streamed(console: Console, events: Iterator[StepEvent]) -> None:
         console.render_stream(events)
 
 
-def _build_client(config: AppConfig) -> LLMClient:
-    """按当前 active provider 构建 LLMClient。"""
-    return LLMClient(config.active_provider)
-
-
-def _discover_skills(cfg: SkillsConfig) -> SkillStore:
-    """按配置发现技能。禁用时返回空 store（不扫描、不注入）。
-
-    默认目录：./.assistant_agent/skills（项目级，优先）与 ~/.assistant_agent/skills（个人级）。
-    项目级排前，实现同名"项目覆盖个人"。
-    """
-    if not cfg.enabled:
-        return SkillStore({})
-    if cfg.dirs:
-        dirs = [Path(d).expanduser() for d in cfg.dirs]
-    else:
-        dirs = [
-            Path.cwd() / ".assistant_agent" / "skills",
-            Path.home() / ".assistant_agent" / "skills",
-        ]
-    return SkillStore.discover(dirs)
-
-
-def _setup(
-    config_path: Path | None,
-    console: Console,
-    interactive: bool,
-    provider: str | None = None,
-    max_iterations: int | None = None,
-) -> tuple[AppConfig, AgentLoop, NullLogger, SkillStore]:
-    """加载配置并装配循环。失败时打印错误并退出。
-
-    interactive：True 为 chat 多轮（允许澄清提问），False 为 run 单次（遇歧义自行假设）。
-    provider：非空则覆盖 config 的 active（临时指定后端，不改文件）；非法名报错列出可选。
-    max_iterations：非空则覆盖 config 的最大轮数。
-
-    返回事件日志器（logging.enabled=false 时为 NullLogger），供上层记 task/session_end。
-    """
-    try:
-        config = load_config(config_path)
-    except ConfigError as exc:
-        console.error(str(exc))
-        raise typer.Exit(code=1) from exc
-
-    if provider is not None:
-        if provider not in config.providers:
-            available = ", ".join(sorted(config.providers))
-            console.error(f"未知 provider：{provider}。可选：{available}")
-            raise typer.Exit(code=1)
-        config.active = provider
-
-    if max_iterations is not None:
-        config.agent.max_iterations = max_iterations
-
-    client = _build_client(config)
-    registry = build_default_registry()
-
-    # 技能发现（Level 1）：拿到元数据；有技能才注册 load_skill 工具并注入系统提示词。
-    skill_store = _discover_skills(config.skills)
-    skills = skill_store.list()
-    if skills:
-        registry.register(LoadSkillTool(skill_store))
-    skill_meta = [(m.name, m.description) for m in skills]
-    system_prompt = build_system_prompt(interactive, skills=skill_meta or None)
-
-    # 事件日志器：一次运行一个 session_id 归组事件。禁用时为 NullLogger（零副作用）。
-    logger = create_logger(config.logging, new_session_id())
-    logger.session_start(
-        provider=config.active,
-        model=config.active_provider.model,
-        mode="chat" if interactive else "run",
-        cwd=str(Path.cwd()),
-    )
-
-    tool_ctx = ToolContext(
-        confirm_dangerous_shell=config.tools.confirm_dangerous_shell,
-        shell_timeout=config.tools.shell_timeout,
-        confirm=console.confirm,
-        ask=console.ask_question,
-        logger=logger,
-        max_output_chars=config.tools.max_output_chars,
-    )
-    # 交互模式(chat)：用尽轮数时问用户是否继续；单次(run)：不问，优雅终止。
-    continue_check = console.confirm_continue if interactive else None
-    loop = AgentLoop(
-        config,
-        client,
-        registry,
-        tool_ctx,
-        interactive=interactive,
-        interrupt_check=_interrupt.is_set,
-        continue_check=continue_check,
-        system_prompt=system_prompt,
-    )
-    console.set_show_reasoning(config.ui.show_reasoning)
-    console.set_context_limit(config.agent.max_context_tokens)
-    console.banner(config.active, config.active_provider.model)
-    return config, loop, logger, skill_store
-
-
 @app.command()
 def run(
     task: str = typer.Argument(..., help="要执行的任务描述"),
@@ -179,13 +73,13 @@ def run(
 ) -> None:
     """执行单个任务后退出。"""
     console = Console()
-    _, loop, logger, _ = _setup(
-        config, console, interactive=False, provider=provider, max_iterations=max_iterations
-    )
-    console.user_echo(task)
-    logger.task(task)
-    _run_streamed(console, loop.run(task))
-    logger.session_end()
+    with build_runtime(
+        config, console, interactive=False, interrupt_check=_interrupt.is_set,
+        provider=provider, max_iterations=max_iterations,
+    ) as rt:
+        console.user_echo(task)
+        rt.logger.task(task)
+        _run_streamed(console, rt.loop.run(task))
 
 
 @app.command()
@@ -205,52 +99,55 @@ def chat(
     对话中输入 / 或 /help 查看所有命令（/model 切模型、/clear 新会话等）。
     """
     console = Console()
-    config_obj, loop, logger, skill_store = _setup(
-        config, console, interactive=True, provider=provider, max_iterations=max_iterations
-    )
-    store = SessionStore()
+    with build_runtime(
+        config, console, interactive=True, interrupt_check=_interrupt.is_set,
+        provider=provider, max_iterations=max_iterations,
+    ) as rt:
+        store = SessionStore()
 
-    if resume:
-        try:
-            session = store.load(resume)
-        except (FileNotFoundError, ValueError) as exc:
-            console.error(f"无法恢复会话：{exc}")
-            raise typer.Exit(code=1) from exc
-        loop.load_history(session.messages)
-        console.info(f"已恢复会话 {resume}（{len(session.messages)} 条消息），继续对话。")
-    else:
-        session = store.new_session(
-            provider=config_obj.active, model=config_obj.active_provider.model
+        if resume:
+            try:
+                session = store.load(resume)
+            except (FileNotFoundError, ValueError) as exc:
+                console.error(f"无法恢复会话：{exc}")
+                raise typer.Exit(code=1) from exc
+            rt.loop.load_history(session.messages)
+            console.info(f"已恢复会话 {resume}（{len(session.messages)} 条消息），继续对话。")
+        else:
+            session = store.new_session(
+                provider=rt.config.active, model=rt.config.active_provider.model
+            )
+            console.info(f"新会话 {session.id}。输入 / 查看命令，exit/quit 退出。")
+
+        mcp_servers = rt.mcp.server_summary() if rt.mcp else []
+        ctx = ChatContext(
+            rt.config, rt.loop, console, store, session,
+            skills=rt.skills_meta(), mcp_servers=mcp_servers,
         )
-        console.info(f"新会话 {session.id}。输入 / 查看命令，exit/quit 退出。")
+        registry = build_default_slash_registry()
 
-    skills_meta = [(m.name, m.description) for m in skill_store.list()]
-    ctx = ChatContext(config_obj, loop, console, store, session, skills=skills_meta)
-    registry = build_default_slash_registry()
-
-    while True:
-        try:
-            task = console.input("\n[bold green]你: [/bold green]").strip()
-        except (EOFError, KeyboardInterrupt):
-            break
-        if not task:
-            continue
-        if task.lower() in ("exit", "quit"):
-            break
-        if task.startswith("/"):
-            registry.dispatch(task, ctx)
-            if ctx.should_exit:
+        while True:
+            try:
+                task = console.input("\n[bold green]你: [/bold green]").strip()
+            except (EOFError, KeyboardInterrupt):
                 break
-            continue
-        logger.task(task)
-        _run_streamed(console, loop.run(task))
-        # 每轮结束自动保存（/clear 可能已换 session，用 ctx.session 为准）。
-        # 自动保存失败不应崩掉会话：只警告并继续。
-        try:
-            store.save(ctx.session, loop.export_history())
-        except Exception as exc:  # noqa: BLE001 - 自动保存兜底，任何异常都不该中断对话
-            console.error(f"（自动保存失败，已跳过：{exc}）")
-    logger.session_end()
+            if not task:
+                continue
+            if task.lower() in ("exit", "quit"):
+                break
+            if task.startswith("/"):
+                registry.dispatch(task, ctx)
+                if ctx.should_exit:
+                    break
+                continue
+            rt.logger.task(task)
+            _run_streamed(console, rt.loop.run(task))
+            # 每轮结束自动保存（/clear 可能已换 session，用 ctx.session 为准）。
+            # 自动保存失败不应崩掉会话：只警告并继续。
+            try:
+                store.save(ctx.session, rt.loop.export_history())
+            except Exception as exc:  # noqa: BLE001 - 自动保存兜底，任何异常都不该中断对话
+                console.error(f"（自动保存失败，已跳过：{exc}）")
     # 单一出口打印一次；带前导换行，Ctrl+C/D 中断后也能干净换行
     console.info("\n再见。")
 

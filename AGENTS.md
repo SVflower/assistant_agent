@@ -86,8 +86,8 @@ python -m assistant_agent
 
 **第一阶段（MVP→M5）全部完成**，第二阶段进行中。里程碑详情见 ROADMAP.md。
 - 第一阶段：配置/模型抽象/工具/ReAct 循环/CLI，加流式输出、会话持久化、工具集扩展（edit/multi_edit/code_search/git 只读）、模型切换、循环工程与写入安全、slash 命令、init 向导，全部落地。
-- **第二阶段 M6/M6.5/M7a 已完成**：结构化日志与工具审计；任务级工具调用/累计输出预算与批次协议完整终止；Agent Skills 系统（SKILL.md 发现 + 渐进披露 + load_skill）。
+- **第二阶段 M6/M6.5/M7a/M7b 已完成**：结构化日志与工具审计；任务级工具调用/累计输出预算与批次协议完整终止；Agent Skills 系统（SKILL.md 发现 + 渐进披露 + load_skill）；MCP client stdio（外部 server 工具接入 + 同步桥 + 命名空间 + 每工具确认 + 过滤/上限 + cli/setup.py Runtime，还清 D7）。
 - 双后端实测通过：云端 DeepSeek + 本地 LM Studio，切换只改 `config.yaml`，业务代码零改动。
 - 194 个测试通过，ruff 全绿。
 
-下一步（评审后顺序）：M7b（MCP stdio）→ M8a（上下文预算口径，还 D10）→ M8b（摘要压缩）→ M7c（HTTP，待稳定）。计划见 docs/m7b-mcp-plan.md、m8a-context-budget-plan.md、m8b-context-compaction-plan.md、m7c-mcp-http-plan.md 与 ROADMAP.md。
+下一步（评审后顺序）：~~M7b（MCP stdio）已完成~~ → M8a（上下文预算口径，还 D10）→ M8b（摘要压缩）→ M7c（HTTP，待稳定）。计划见 docs/m8a-context-budget-plan.md、m8b-context-compaction-plan.md、m7c-mcp-http-plan.md 与 ROADMAP.md。

@@ -30,6 +30,8 @@ class ChatContext:
     store: SessionStore
     session: Session
     skills: list[tuple[str, str]] = field(default_factory=list)  # (name, description)
+    # (server 名, 其工具原始名列表)；MCP 禁用/无 server 时为空。
+    mcp_servers: list[tuple[str, list[str]]] = field(default_factory=list)
     should_exit: bool = False
 
 
@@ -139,6 +141,17 @@ def _cmd_skills(args: str, ctx: ChatContext) -> None:
     ctx.console.info("\n".join(lines))
 
 
+def _cmd_mcp(args: str, ctx: ChatContext) -> None:
+    """列出已接入的 MCP server 及其工具。"""
+    if not ctx.mcp_servers:
+        ctx.console.info("未接入 MCP server。在配置 mcp.servers 下添加并 enabled=true 即可。")
+        return
+    lines = ["已接入的 MCP server（工具以 mcp__<server>__<tool> 注册）："]
+    for server, tools in ctx.mcp_servers:
+        lines.append(f"  {server}（{len(tools)} 个工具）: {', '.join(tools) or '(无)'}")
+    ctx.console.info("\n".join(lines))
+
+
 def _cmd_exit(args: str, ctx: ChatContext) -> None:
     """退出交互模式。"""
     ctx.should_exit = True
@@ -153,5 +166,6 @@ def build_default_slash_registry() -> SlashRegistry:
     reg.register(SlashCommand("clear", "开新会话（清空上下文）", _cmd_clear))
     reg.register(SlashCommand("context", "查看会话状态与用量", _cmd_context))
     reg.register(SlashCommand("skills", "列出已发现的技能", _cmd_skills))
+    reg.register(SlashCommand("mcp", "列出已接入的 MCP server 与工具", _cmd_mcp))
     reg.register(SlashCommand("exit", "退出（也可输入 exit/quit）", _cmd_exit))
     return reg

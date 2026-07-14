@@ -79,6 +79,20 @@ def test_exit_sets_flag(tmp_path):
     assert ctx.should_exit is True
 
 
+def test_mcp_empty(tmp_path):
+    ctx = _ctx(tmp_path)
+    build_default_slash_registry().dispatch("/mcp", ctx)
+    assert "未接入 MCP" in ctx.console.text()
+
+
+def test_mcp_lists_servers(tmp_path):
+    ctx = _ctx(tmp_path)
+    ctx.mcp_servers = [("web", ["nav", "click"]), ("db", ["query"])]
+    build_default_slash_registry().dispatch("/mcp", ctx)
+    out = ctx.console.text()
+    assert "web（2 个工具）" in out and "nav, click" in out and "db（1 个工具）" in out
+
+
 def test_model_switch_by_name(tmp_path):
     ctx = _ctx(tmp_path)
     build_default_slash_registry().dispatch("/model local", ctx)

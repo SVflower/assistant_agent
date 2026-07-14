@@ -84,6 +84,26 @@ description: 如何在本项目跑测试与 lint。当用户要验证改动或�
 2. `ruff check src tests`
 ```
 
+## MCP（外部工具接入）
+
+通过 [MCP](https://modelcontextprotocol.io) 协议接入外部工具生态（浏览器自动化、
+数据库、第三方 API）。在 config 的 `mcp.servers` 下配置本地 stdio server：
+
+```yaml
+mcp:
+  enabled: true
+  servers:
+    playwright:
+      command: npx
+      args: ["-y", "@playwright/mcp@latest"]
+      auto_approve: false   # 每次调用都需确认（安全默认）
+```
+
+其工具以 `mcp__<server>__<tool>` 注册，与内置工具同流（审计/预算/确认）。
+每个 MCP 工具默认逐次确认，"永久允许"按 server+tool 粒度记忆，不会一次放行全部。
+用 `include_tools`/`exclude_tools`、`max_tools`、`max_total_tools` 控制接入的工具集。
+对话中输入 `/mcp` 查看已接入的 server 与工具。仅支持本地 stdio；HTTP transport 见 ROADMAP M7c。
+
 ## 开发
 
 ```bash

@@ -91,6 +91,39 @@ class SkillsConfig(BaseModel):
     )
 
 
+class MCPServerConfig(BaseModel):
+    """单个 MCP server 连接设置（本期只支持 stdio）。"""
+
+    command: str = Field(..., description="启动 server 的命令，如 npx")
+    args: list[str] = Field(default_factory=list, description="命令参数")
+    env: dict[str, str] = Field(
+        default_factory=dict,
+        description="传给 server 的环境变量；值支持 ${VAR} 从进程环境插值，密钥不落配置",
+    )
+    enabled: bool = Field(default=True, description="是否启用该 server")
+    timeout: int = Field(default=30, ge=1, description="单次工具调用超时（秒）")
+    auto_approve: bool = Field(
+        default=False, description="为 true 时该 server 工具跳过危险确认（默认都需确认）"
+    )
+    max_tools: int = Field(default=40, ge=1, description="该 server 注册的工具数上限")
+    include_tools: list[str] = Field(
+        default_factory=list, description="工具白名单；空=全部（再受上限约束）"
+    )
+    exclude_tools: list[str] = Field(default_factory=list, description="工具黑名单")
+
+
+class MCPConfig(BaseModel):
+    """MCP client 设置。"""
+
+    enabled: bool = Field(default=True, description="是否连接 MCP server 并注册其工具")
+    max_total_tools: int = Field(
+        default=60, ge=1, description="全局 MCP 工具数上限，防 schema 撑爆上下文"
+    )
+    servers: dict[str, MCPServerConfig] = Field(
+        default_factory=dict, description="server 名 → 连接设置"
+    )
+
+
 class AppConfig(BaseModel):
     """顶层配置。"""
 
@@ -101,6 +134,7 @@ class AppConfig(BaseModel):
     ui: UIConfig = Field(default_factory=UIConfig)
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
     skills: SkillsConfig = Field(default_factory=SkillsConfig)
+    mcp: MCPConfig = Field(default_factory=MCPConfig)
 
     @model_validator(mode="after")
     def _active_must_exist(self) -> AppConfig:

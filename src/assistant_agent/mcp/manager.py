@@ -1,0 +1,221 @@
+"""MCPManager：连接 MCP server（stdio）、发现工具、同步桥、生命周期。
+
+同步/异步桥（最大的坎）：mcp SDK 是 asyncio，我们的 Tool.run() 是同步。
+方案：起一个守护线程跑常驻 event loop，连接/持有 ClientSession 都在该 loop 里；
+MCPTool.run() 用 run_coroutine_threadsafe 把协程投进去、同步等结果。
+"""
+
+from __future__ import annotations
+
+import asyncio
+import os
+import re
+import threading
+from concurrent.futures import Future
+from contextlib import AsyncExitStack
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Any
+
+from assistant_agent.mcp.tool import MCPTool
+
+if TYPE_CHECKING:
+    from assistant_agent.config.schema import MCPConfig, MCPServerConfig
+    from assistant_agent.obs import NullLogger
+
+_NAME_SANITIZE = re.compile(r"[^a-zA-Z0-9_]")
+
+
+def _sanitize(part: str) -> str:
+    """把 server/tool 名规范成 [a-zA-Z0-9_]，供拼装注册名。"""
+    return _NAME_SANITIZE.sub("_", part)
+
+
+def _interpolate_env(env: dict[str, str]) -> dict[str, str]:
+    """把 env 值里的 ${VAR} 从进程环境替换；缺失则留空串（密钥不落配置）。"""
+    out: dict[str, str] = {}
+    for key, value in env.items():
+        if value.startswith("${") and value.endswith("}"):
+            out[key] = os.environ.get(value[2:-1], "")
+        else:
+            out[key] = value
+    return out
+
+
+@dataclass
+class _Server:
+    """一个已连接 server 的运行态。"""
+
+    name: str
+    stack: AsyncExitStack
+    session: Any
+    tool_names: list[str] = field(default_factory=list)
+
+
+class MCPManager:
+    """管理所有 MCP server 的生命周期与工具桥接。
+
+    用法：m = MCPManager(config, logger); tools = m.start(); ... ; m.close()
+    start() 返回发现并通过过滤/上限的 MCPTool 列表，供 main 注册进 registry。
+    """
+
+    def __init__(self, config: MCPConfig, logger: NullLogger) -> None:
+        self._config = config
+        self._logger = logger
+        self._loop: asyncio.AbstractEventLoop | None = None
+        self._thread: threading.Thread | None = None
+        self._servers: dict[str, _Server] = {}
+        self.warnings: list[str] = []
+
+    # ---- 线程/loop ----
+
+    def _ensure_loop(self) -> asyncio.AbstractEventLoop:
+        """起守护线程跑常驻 event loop（幂等）。"""
+        if self._loop is not None:
+            return self._loop
+        ready = threading.Event()
+        loop_holder: dict[str, asyncio.AbstractEventLoop] = {}
+
+        def _run() -> None:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            loop_holder["loop"] = loop
+            ready.set()
+            loop.run_forever()
+
+        self._thread = threading.Thread(target=_run, name="mcp-loop", daemon=True)
+        self._thread.start()
+        ready.wait()
+        self._loop = loop_holder["loop"]
+        return self._loop
+
+    def _submit(self, coro: Any, timeout: float) -> Any:
+        """把协程投进 loop 线程并同步等结果。超时则取消并抛 TimeoutError。"""
+        loop = self._ensure_loop()
+        fut: Future = asyncio.run_coroutine_threadsafe(coro, loop)
+        try:
+            return fut.result(timeout=timeout)
+        except TimeoutError:
+            fut.cancel()  # 通知 loop 侧取消协程，防悬挂请求
+            raise
+
+    # ---- 连接与发现 ----
+
+    async def _connect_one(self, name: str, cfg: MCPServerConfig) -> _Server:
+        """在 loop 线程里连接一个 server 并 initialize，持有上下文到 close。"""
+        from mcp import ClientSession, StdioServerParameters
+        from mcp.client.stdio import stdio_client
+
+        stack = AsyncExitStack()
+        params = StdioServerParameters(
+            command=cfg.command, args=list(cfg.args), env=_interpolate_env(cfg.env) or None
+        )
+        read, write = await stack.enter_async_context(stdio_client(params))
+        session = await stack.enter_async_context(ClientSession(read, write))
+        await session.initialize()
+        return _Server(name=name, stack=stack, session=session)
+
+    def start(self) -> list[MCPTool]:
+        """连接所有启用的 server，发现工具，返回过滤/限量后的 MCPTool 列表。
+
+        单个 server 失败只跳过它（warnings 记录），不影响其余 server 与内置工具。
+        """
+        self.warnings: list[str] = []
+        if not self._config.enabled or not self._config.servers:
+            return []
+        tools: list[MCPTool] = []
+        used_names: set[str] = set()
+        for name, cfg in self._config.servers.items():
+            if not cfg.enabled:
+                continue
+            if len(tools) >= self._config.max_total_tools:
+                self.warnings.append(
+                    f"已达全局工具上限 {self._config.max_total_tools}，跳过 {name}"
+                )
+                break
+            try:
+                server = self._submit(self._connect_one(name, cfg), timeout=cfg.timeout)
+            except Exception as exc:  # 连接/握手失败 → 跳过该 server
+                self.warnings.append(f"MCP server {name} 连接失败，已跳过：{exc}")
+                continue
+            self._servers[name] = server
+            tools.extend(self._discover(name, cfg, server, used_names, budget=len(tools)))
+        return tools
+
+    def close(self) -> None:
+        """关闭所有 session/子进程并停 loop。幂等。"""
+        if self._loop is None:
+            return
+        for server in self._servers.values():
+            try:
+                self._submit(server.stack.aclose(), timeout=10)
+            except Exception:  # 关闭尽力而为，不抛
+                pass
+        self._servers.clear()
+        self._loop.call_soon_threadsafe(self._loop.stop)
+        if self._thread is not None:
+            self._thread.join(timeout=5)
+        self._loop = None
+        self._thread = None
+
+    def _discover(
+        self,
+        name: str,
+        cfg: MCPServerConfig,
+        server: _Server,
+        used_names: set[str],
+        budget: int,
+    ) -> list[MCPTool]:
+        """列工具，套白/黑名单 + 每 server/全局上限 + 名称规范化/碰撞，建 MCPTool。"""
+        try:
+            listed = self._submit(server.session.list_tools(), timeout=cfg.timeout)
+        except Exception as exc:
+            self.warnings.append(f"MCP server {name} 列工具失败，已跳过：{exc}")
+            return []
+        out: list[MCPTool] = []
+        server_slug = _sanitize(name)
+        include = set(cfg.include_tools)
+        exclude = set(cfg.exclude_tools)
+        for raw in getattr(listed, "tools", None) or []:
+            raw_name = raw.name
+            if include and raw_name not in include:
+                continue
+            if raw_name in exclude:
+                continue
+            if len(out) >= cfg.max_tools:
+                self.warnings.append(f"server {name} 达工具上限 {cfg.max_tools}，其余丢弃")
+                break
+            if budget + len(out) >= self._config.max_total_tools:
+                self.warnings.append(
+                    f"达全局工具上限 {self._config.max_total_tools}，{name} 部分工具丢弃"
+                )
+                break
+            registered = f"mcp__{server_slug}__{_sanitize(raw_name)}"
+            if registered in used_names:  # 规范化后碰撞 → 加序号，绝不静默覆盖
+                suffix = 2
+                while f"{registered}_{suffix}" in used_names:
+                    suffix += 1
+                registered = f"{registered}_{suffix}"
+            used_names.add(registered)
+            server.tool_names.append(raw_name)
+            out.append(
+                MCPTool(
+                    server=name,
+                    registered_name=registered,
+                    raw_tool=raw_name,
+                    description=raw.description or "",
+                    input_schema=raw.inputSchema or {"type": "object", "properties": {}},
+                    caller=self._call_tool,
+                    timeout=float(cfg.timeout),
+                    auto_approve=cfg.auto_approve,
+                )
+            )
+        return out
+
+    def _call_tool(self, server: str, raw_tool: str, args: dict[str, Any], timeout: float) -> Any:
+        """MCPTool.run 的同步桥入口：把 call_tool 投进 loop 线程等结果。"""
+        session = self._servers[server].session
+        return self._submit(session.call_tool(raw_tool, args), timeout=timeout)
+
+    def server_summary(self) -> list[tuple[str, list[str]]]:
+        """(server 名, 其原始工具名列表) 列表，供 /mcp 展示。"""
+        return [(name, list(s.tool_names)) for name, s in self._servers.items()]

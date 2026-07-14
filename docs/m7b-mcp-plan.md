@@ -1,7 +1,9 @@
 # M7b — MCP client（stdio 最小可用）
 
-> **状态：评审已修订（v2）**。首版评审提出 3 阻断（权限确认、schema 撑爆、超时清理）+ 设计问题，
-> 均已并入。开工前置：权限策略、工具过滤/上限、名称规范化、Runtime 生命周期已写入本稿。
+> **状态：✅ 已交付**。评审 3 阻断（权限确认、schema 撑爆、超时清理）+ 设计问题全部并入并实现。
+> 实测：真实 stdio 冒烟通过（`@modelcontextprotocol/server-everything`，13 工具，echo 调用确认放行）。
+> 214 测试绿、ruff/架构测试通过；D7 随本期还清（wiring 抽到 cli/setup.py，main.py 329→222）。
+> 首版评审提出 3 阻断 + 设计问题，开工前置：权限策略、工具过滤/上限、名称规范化、Runtime 生命周期。
 > 里程碑正式计划。前置调研见本会话对 MCP 2025-06-18 规范、官方 python-sdk、
 > Claude Code/Codex/Cursor 配置约定的调查。承接 M7a 搭好的动态注入足场。
 

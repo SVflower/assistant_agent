@@ -1,0 +1,10 @@
+"""MCP client 层：连接外部 MCP server（stdio），把其工具适配成本地 Tool。
+
+对外只暴露 MCPManager（生命周期 + 同步桥）与 MCPTool（Tool 适配器）。
+本层只依赖 tools/base 与官方 mcp 包，不依赖 agent/ui/cli/config。
+"""
+
+from assistant_agent.mcp.manager import MCPManager
+from assistant_agent.mcp.tool import MCPTool, extract_content
+
+__all__ = ["MCPManager", "MCPTool", "extract_content"]

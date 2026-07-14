@@ -73,3 +73,21 @@ skills:
   enabled: true
   # 技能目录；留空用默认：./.assistant_agent/skills 与 ~/.assistant_agent/skills
   dirs: []
+
+mcp:
+  # 是否连接 MCP server 并把其工具注册进来（工具名形如 mcp__<server>__<tool>）。
+  enabled: true
+  # 全局 MCP 工具数上限，防大量工具 schema 撑爆上下文。
+  max_total_tools: 60
+  # server 名 → 连接设置。默认无 server（下面是示例，需自备命令，取消注释启用）。
+  servers: {}
+  #   playwright:
+  #     command: npx                      # 启动命令（需已装 Node/npx）
+  #     args: ["-y", "@playwright/mcp@latest"]
+  #     env: {}                           # 值支持 ${VAR} 从环境插值，密钥不落配置
+  #     enabled: true
+  #     timeout: 30                       # 单次工具调用超时（秒）
+  #     auto_approve: false               # false=每次调用都需确认（安全默认）
+  #     max_tools: 40                     # 该 server 工具数上限
+  #     include_tools: []                 # 白名单；空=全部（再受上限约束）
+  #     exclude_tools: []                 # 黑名单

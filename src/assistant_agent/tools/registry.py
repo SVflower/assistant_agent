@@ -61,10 +61,12 @@ def _limit_result_output(result: ToolResult, ctx: ToolContext) -> tuple[ToolResu
     if remaining is not None:
         limits.append(remaining)
     effective_limit = min(limits) if limits else None
-    truncated = effective_limit is not None and len(original_output) > effective_limit
-    returned_output = (
-        _truncate_output(original_output, effective_limit) if truncated else original_output
-    )
+    if effective_limit is not None and len(original_output) > effective_limit:
+        returned_output = _truncate_output(original_output, effective_limit)
+        truncated = True
+    else:
+        returned_output = original_output
+        truncated = False
 
     budget_exhausted = result.budget_exhausted
     if (

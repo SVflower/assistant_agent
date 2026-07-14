@@ -175,6 +175,12 @@ class Console:
                     self._console.print()
                     self._console.print(f"[yellow]⏹ {event.text}[/yellow]")
                     self._at_line_start = True
+                elif event.kind == "notice":
+                    stop_live()
+                    streaming_text = False
+                    self._console.print()
+                    self._console.print(f"[dim]{event.text}[/dim]")
+                    self._at_line_start = True
         finally:
             stop_live()
 

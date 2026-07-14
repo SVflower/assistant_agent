@@ -12,6 +12,7 @@ from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from typing import Any, Literal
 
+from assistant_agent.agent.compaction import Compactor
 from assistant_agent.agent.context import Conversation, estimate_tools_tokens
 from assistant_agent.config.schema import AppConfig
 from assistant_agent.llm.client import LLMClient, ToolCall
@@ -30,6 +31,7 @@ EventKind = Literal[
     "final",
     "error",
     "interrupted",
+    "notice",  # M8b：非错误提示（如"已压缩早前对话"）
 ]
 
 
@@ -80,6 +82,17 @@ class AgentLoop:
             tools_tokens=tools_tokens,
             reserved_output_tokens=config.agent.reserved_output_tokens,
         )
+        # M8b：摘要压缩。默认关闭——关闭时 _compactor 为 None，run 循环完全不触碰压缩路径，
+        # 上下文行为逐字节等于硬截断现状。摘要用 summary_model（若配）或当前对话 client。
+        self._compaction = config.agent.compaction
+        self._compactor: Compactor | None = None
+        if self._compaction.enabled:
+            summary_client = client
+            if self._compaction.summary_model:
+                prov = config.providers.get(self._compaction.summary_model)
+                if prov is not None:
+                    summary_client = LLMClient(prov)
+            self._compactor = Compactor(summary_client, self._compaction.keep_recent_turns)
 
     def _interrupted(self) -> bool:
         return self._interrupt_check is not None and self._interrupt_check()
@@ -103,6 +116,37 @@ class AgentLoop:
     def load_history(self, messages: list[dict[str, Any]]) -> None:
         """载入对话历史（供恢复会话）。"""
         self._conversation.load_history(messages)
+
+    def export_checkpoint(self) -> dict[str, Any] | None:
+        """导出摘要 checkpoint（供 Session 持久化，resume 不重复摘要）。"""
+        return self._conversation.get_checkpoint()
+
+    def load_checkpoint(self, checkpoint: dict[str, Any] | None) -> None:
+        """载入摘要 checkpoint（供恢复会话）。"""
+        self._conversation.load_checkpoint(checkpoint)
+
+    def _maybe_compact(self) -> Iterator[StepEvent]:
+        """轮次开始时按阈值触发压缩。关闭或未超阈值时无副作用。
+
+        压缩失败/无可压 → 不改 checkpoint，交由既有硬截断兜底（会话不中断）。
+        摘要 token 独立计入全局 usage，不进 M6.5 工具预算。
+        """
+        if self._compactor is None:
+            return
+        used = self._conversation.full_usage()
+        if used <= self._conversation.budget() * self._compaction.threshold:
+            return
+        tail, base, prev = self._conversation.tail_after_checkpoint()
+        result = self._compactor.compact(tail, base, prev)
+        if result is None:
+            return  # 无可压或摘要失败 → 降级硬截断
+        self._conversation.set_checkpoint(result.summary, result.covered_upto)
+        if result.usage:
+            yield StepEvent(kind="usage", usage=result.usage)
+        yield StepEvent(
+            kind="notice",
+            text="（已把早前对话压缩为摘要，节省上下文；完整历史仍存档）",
+        )
 
     def run(self, task: str) -> Iterator[StepEvent]:
         """执行一个任务，逐步 yield 事件（流式）。
@@ -148,6 +192,8 @@ class AgentLoop:
                     )
                     return
             count += 1
+            # M8b：本轮发给模型前，历史超阈值则先压缩最旧一段（关闭时无副作用）。
+            yield from self._maybe_compact()
             # 累积本轮的正文与工具调用，供历史写回（中断时用已累积内容，保持"所见即所存"）。
             content_parts: list[str] = []
             tool_calls: list[ToolCall] = []

@@ -112,6 +112,7 @@ def chat(
                 console.error(f"无法恢复会话：{exc}")
                 raise typer.Exit(code=1) from exc
             rt.loop.load_history(session.messages)
+            rt.loop.load_checkpoint(session.compaction_checkpoint)  # M8b：resume 不重复摘要
             console.info(f"已恢复会话 {resume}（{len(session.messages)} 条消息），继续对话。")
         else:
             session = store.new_session(
@@ -145,6 +146,7 @@ def chat(
             # 每轮结束自动保存（/clear 可能已换 session，用 ctx.session 为准）。
             # 自动保存失败不应崩掉会话：只警告并继续。
             try:
+                ctx.session.compaction_checkpoint = rt.loop.export_checkpoint()  # M8b
                 store.save(ctx.session, rt.loop.export_history())
             except Exception as exc:  # noqa: BLE001 - 自动保存兜底，任何异常都不该中断对话
                 console.error(f"（自动保存失败，已跳过：{exc}）")

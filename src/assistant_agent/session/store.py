@@ -30,6 +30,8 @@ class Session:
     provider: str = ""
     model: str = ""
     messages: list[dict[str, Any]] = field(default_factory=list)
+    # M8b：摘要 checkpoint（{summary, covered_upto}）；None=未压缩。持久化后 resume 不重复摘要。
+    compaction_checkpoint: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -39,6 +41,7 @@ class Session:
             "provider": self.provider,
             "model": self.model,
             "messages": self.messages,
+            "compaction_checkpoint": self.compaction_checkpoint,
         }
 
     @classmethod
@@ -50,6 +53,7 @@ class Session:
             provider=data.get("provider", ""),
             model=data.get("model", ""),
             messages=data.get("messages", []),
+            compaction_checkpoint=data.get("compaction_checkpoint"),
         )
 
     @property

@@ -86,8 +86,8 @@ python -m assistant_agent
 
 **第一阶段（MVP→M5）全部完成**，第二阶段进行中。里程碑详情见 ROADMAP.md。
 - 第一阶段：配置/模型抽象/工具/ReAct 循环/CLI，加流式输出、会话持久化、工具集扩展（edit/multi_edit/code_search/git 只读）、模型切换、循环工程与写入安全、slash 命令、init 向导，全部落地。
-- **第二阶段 M6/M6.5/M7a/M7b/M7c 已完成**：结构化日志与工具审计；任务级工具调用/累计输出预算与批次协议完整终止；Agent Skills 系统（SKILL.md 发现 + 渐进披露 + load_skill）；MCP client（stdio + HTTP 两种 transport）——外部 server 工具接入 + 同步桥 + 命名空间 + 每工具确认 + 过滤/上限 + HTTP 委托 SDK 管 session/重连不重放 + cli/setup.py Runtime，还清 D7。
+- **第二阶段 M6/M6.5/M7a/M7b/M7c/M8a/M8b 已完成**：结构化日志与工具审计；任务级工具调用/累计输出预算与批次协议完整终止；Agent Skills 系统（SKILL.md 发现 + 渐进披露 + load_skill）；MCP client（stdio + HTTP 两种 transport）——外部 server 工具接入 + 同步桥 + 命名空间 + 每工具确认 + 过滤/上限 + HTTP 委托 SDK 管 session/重连不重放 + cli/setup.py Runtime，还清 D7；上下文进化——M8a 预算口径计入 tools schema + reserved（还 D10），M8b 摘要压缩替代硬截断（双历史 + checkpoint 持久化 + 按轮分组 + 降级兜底，默认关闭时逐字节等于现状）。
 - 双后端实测通过：云端 DeepSeek + 本地 LM Studio，切换只改 `config.yaml`，业务代码零改动。
 - 194 个测试通过，ruff 全绿。
 
-下一步（评审后顺序）：~~M7 系列（a/b/c）已全部完成~~ → M8a（上下文预算口径，还 D10）→ M8b（摘要压缩）。计划见 docs/m8a-context-budget-plan.md、m8b-context-compaction-plan.md 与 ROADMAP.md。
+第二阶段里程碑（M6→M8b）已全部完成。剩余为信号驱动的低优先技术债（D5/D6/D8/D9/D11/D12，见 docs/TECH_DEBT.md）与未来方向（子 Agent 编排、检索式记忆等）。下一阶段方向待定。

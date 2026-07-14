@@ -2,7 +2,7 @@
 
 > AI 迭代开发中，债务会隐形复利（LLM 在每个决策点埋入未言明的假设）。
 > 这里显式追踪，防止"上次说的债"下次忘。每次里程碑评审更新本表。
-> 最后更新：2026-07-14（M8a 预算口径完成；D10 已还清——tools schema + reserved 计入预算。剩 D5/D6/D8/D9）
+> 最后更新：2026-07-14（M8b 摘要压缩完成；新登记 D11 行数软线 / D12 整段摘要局限。剩 D5/D6/D8/D9/D11/D12）
 
 ## 状态说明
 - 🔴 高：影响正确性/安全，或脆弱的关键路径
@@ -19,6 +19,8 @@
 | D8 | **日志按会话/模型维度的缺口（原 4 项剩 2）** | `main.py`、`obs/logger.py` | 🟡 | ①② 已还清（见下）；剩：③chat 里 `/clear` 换会话后日志 `session_id` 不变（日志按"进程运行"粒度、与 SessionStore 会话 id 不同名却像）；④`/model` 切模型后 `session_start` 的 model 已过时，tool_call 不带模型信息，无法从日志看出某调用用的哪个模型 | 触发信号：要按会话/模型维度聚合日志时——`/clear` 补一条 `session_start`、`/model` 记 `model_switch` 事件。现不做 |
 | D9 | **无行为级 eval 任务集** | （待建 `evals/`） | 🟡 | 单元测试验证组件，但无法持续比较"模型 A/B 是否完成任务、是否错误调用工具、是否越预算"。质量护栏方案评审时确认：光有 YAML 案例无 runner＝纸面契约，故推迟 | 触发信号：需对比模型 A/B 完成度、或回归"越权调用/越预算"行为时——建 YAML 案例（id/task/tools/expect/budget）+ fake-client runner，不接真实模型 CI。方案见 [归档计划](archive/phase2/quality-guardrails-final-plan.md) |
 | D10 | ~~**上下文预算未计入工具 schema**~~ ✅ 已还清（M8a）| `agent/context.py`、`agent/loop.py` | ✅ | M8a 统一预算口径：可用消息预算 = 窗口 − system − tools schema − reserved_output。tools schema 由 loop（持 registry）估算注入 context（context 保持被动、不反依赖 registry）；reserved_output 默认 1024 保证回复空间；`/context` 分项显示真实占用。实测内置工具 schema 3208 token 现已计入（原完全不计）。**两开销默认归零时预算与旧行为逐字节一致（回归保护）** |
+| D11 | **loop.py 越过行数软线** | `agent/loop.py`(334)、`ui/console.py`(306) | 🟢 | M8b 压缩编排（`_maybe_compact` + Compactor 构造）使 loop.py 越软线 300；console.py 因 notice 渲染分支略越。均远低于硬线 500，仅警告 | 触发信号：loop.py 逼近 400 或再加大编排职责时——把压缩触发/续跑判断等编排拆到 `agent/orchestration.py` 或把 run 循环分段。现不拆（同 D7 判断：不为凑数切碎内聚代码）|
+| D12 | **摘要压缩为整段、无选择性/检索** | `agent/compaction.py` | 🟢 | M8b 先做整段摘要（最旧轮压成要点）。工具结果选择性压缩、语义检索式记忆（RAG/向量）、跨会话记忆均未做 | 信号驱动的未来方向：长会话里"早期某具体事实被摘要糊掉、后续又要精确引用"反复出现时，再考虑选择性保留或检索式记忆。当前整段摘要够用 |
 
 ## 已还清（保留记录）
 - **任务级工具资源无边界** → M6.5 增加单次输出、累计输出、工具调用总数预算；多 tool-call 批次补齐结果后终止。✅ 2026-07-14

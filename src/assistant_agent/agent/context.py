@@ -65,6 +65,9 @@ class Conversation:
         # 两者默认 0 → 预算口径与 M8a 前逐字节一致（回归保护）。
         self._tools_tokens = tools_tokens
         self._reserved_output_tokens = reserved_output_tokens
+        # M8b：摘要 checkpoint。None（默认）时下方全部逻辑等于 M8b 前——不压缩、硬截断。
+        # {"summary": 摘要文本, "covered_upto": 已覆盖到的 _messages 游标}
+        self._checkpoint: dict[str, Any] | None = None
 
     def add_user(self, content: str) -> None:
         self._messages.append({"role": "user", "content": content})
@@ -90,8 +93,23 @@ class Conversation:
         )
 
     def messages(self) -> list[dict[str, Any]]:
-        """返回发给模型的完整消息列表（system + 截断后的历史）。"""
-        return [self._system, *self._truncated()]
+        """返回发给模型的消息列表。
+
+        无 checkpoint（默认）：[system, *截断后的历史]——与 M8b 前逐字节一致。
+        有 checkpoint：[system, 摘要消息, *截断后的尾段]，摘要顶替已覆盖的旧历史。
+        """
+        if self._checkpoint is None:
+            return [self._system, *self._truncated(self._messages)]
+        summary_msg = self._summary_message()
+        tail = self._messages[self._checkpoint["covered_upto"] :]
+        # 摘要消息也占预算，从尾段可用预算里扣掉。
+        extra = _estimate_message_tokens(summary_msg)
+        return [self._system, summary_msg, *self._truncated(tail, extra_overhead=extra)]
+
+    def _summary_message(self) -> dict[str, Any]:
+        """把 checkpoint 摘要渲染成一条 user 消息（跨模型最兼容，不破坏 system-first）。"""
+        text = self._checkpoint["summary"] if self._checkpoint else ""
+        return {"role": "user", "content": f"[早前对话摘要，供你参考上下文]\n{text}"}
 
     def budget_report(self) -> dict[str, int]:
         """当前上下文预算分项（供 /context 展示真实占用）。
@@ -99,8 +117,10 @@ class Conversation:
         system/tools/reserved 为固定开销，messages 为截断后实际保留的估算 token，
         used=三者+messages，total=配置窗口。M8a 前 tools/reserved 恒为 0。
         """
+        sent = self.messages()  # system (+summary?) + 截断后消息
         system = _estimate_message_tokens(self._system)
-        messages = sum(_estimate_message_tokens(m) for m in self._truncated())
+        body = sent[1:]
+        messages = sum(_estimate_message_tokens(m) for m in body)
         return {
             "total": self._max_tokens,
             "system": system,
@@ -108,7 +128,47 @@ class Conversation:
             "reserved": self._reserved_output_tokens,
             "messages": messages,
             "used": system + self._tools_tokens + self._reserved_output_tokens + messages,
+            "compacted": 1 if self._checkpoint else 0,
         }
+
+    # ---- M8b：摘要 checkpoint 存取 + 阈值判断 ----
+
+    def full_usage(self) -> int:
+        """未截断历史 + 固定开销的总 token 估算（供压缩阈值判断，不受截断影响）。"""
+        fixed = (
+            _estimate_message_tokens(self._system)
+            + self._tools_tokens
+            + self._reserved_output_tokens
+        )
+        if self._checkpoint is None:
+            active = self._messages
+        else:
+            fixed += _estimate_message_tokens(self._summary_message())
+            active = self._messages[self._checkpoint["covered_upto"] :]
+        return fixed + sum(_estimate_message_tokens(m) for m in active)
+
+    def budget(self) -> int:
+        """当前上下文总预算（供 loop 算阈值）。"""
+        return self._max_tokens
+
+    def tail_after_checkpoint(self) -> tuple[list[dict[str, Any]], int, str]:
+        """返回 (checkpoint 之后的未压缩消息, 起始游标, 已有摘要)，供 Compactor。"""
+        if self._checkpoint is None:
+            return list(self._messages), 0, ""
+        upto = self._checkpoint["covered_upto"]
+        return self._messages[upto:], upto, self._checkpoint["summary"]
+
+    def set_checkpoint(self, summary: str, covered_upto: int) -> None:
+        """写入/更新摘要 checkpoint（loop 压缩后调用）。"""
+        self._checkpoint = {"summary": summary, "covered_upto": covered_upto}
+
+    def get_checkpoint(self) -> dict[str, Any] | None:
+        """导出 checkpoint（供 Session 持久化）。"""
+        return dict(self._checkpoint) if self._checkpoint else None
+
+    def load_checkpoint(self, checkpoint: dict[str, Any] | None) -> None:
+        """载入 checkpoint（供 resume 恢复，避免重复摘要）。"""
+        self._checkpoint = dict(checkpoint) if checkpoint else None
 
     # ---- 序列化：供会话持久化（不含 system，system 运行时按当前环境重建）----
 
@@ -122,24 +182,26 @@ class Conversation:
 
     # ---- 截断（上下文工程）----
 
-    def _truncated(self) -> list[dict[str, Any]]:
+    def _truncated(
+        self, source: list[dict[str, Any]], extra_overhead: int = 0
+    ) -> list[dict[str, Any]]:
         """token 感知截断：在消息数硬上限内，保留能装进 token 预算的最近消息。
 
         - system 的 token 计入预算（它始终在最前）。
         - 从最新往旧累加，装不下就停——保留"尾部"最近上下文。
         - 不切断 assistant↔tool 配对：丢弃开头孤立的 tool 消息。
+        - extra_overhead：额外固定开销（如摘要消息 token），从预算里扣掉；默认 0。
         """
         # 先套用消息数硬上限（兜底，防极端条数）
-        candidates = self._messages[-self._max :] if len(self._messages) > self._max else list(
-            self._messages
-        )
+        candidates = source[-self._max :] if len(source) > self._max else list(source)
 
-        # 消息可用预算 = 总窗口 − system − tools schema − 预留回复（后两者默认 0）。
+        # 消息可用预算 = 总窗口 − system − tools schema − 预留回复 − 额外开销（后三者默认 0）。
         budget = (
             self._max_tokens
             - _estimate_message_tokens(self._system)
             - self._tools_tokens
             - self._reserved_output_tokens
+            - extra_overhead
         )
         kept: list[dict[str, Any]] = []
         used = 0

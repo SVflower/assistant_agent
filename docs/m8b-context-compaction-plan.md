@@ -1,8 +1,10 @@
 # M8b — 上下文进化（摘要压缩替代硬截断）
 
-> **状态：评审已修订（v2），M8a 之后开工**。评审并入：① 明确双历史游标模型；② 摘要 checkpoint 随
-> Session 持久化；③ 压缩边界按完整用户轮次；④ 摘要 token 独立计入 usage，不算 M6.5 工具预算。
-> 触及内核 `agent/context.py`，需谨慎——压缩关闭时逐字节等于现状。
+> **状态：✅ 已交付**。四条评审要点全部落地：① 双历史（raw + checkpoint{summary,covered_upto} + tail）；
+> ② checkpoint 随 Session 持久化，resume 不重复摘要；③ 压缩边界按完整用户轮（group_turns）；
+> ④ 摘要 token 经 StepEvent(usage) 独立上报，不进 M6.5。Compactor 持 client、loop 编排触发，
+> context 保持被动。**默认关闭，关闭时上下文逐字节等于硬截断**。摘要失败→降级硬截断，会话不断。
+> 实测真实模型压缩一段 6 轮历史，摘要正确保留关键约束（x0-x3 赋值）；240 测试绿。
 
 ## 解决什么
 

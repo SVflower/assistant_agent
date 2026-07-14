@@ -50,6 +50,13 @@ agent:
   max_context_tokens: 8000
   # 从预算里预留给模型回复的 token（可用消息预算=窗口−system−tools schema−此值）；0=不预留
   reserved_output_tokens: 1024
+  # 上下文摘要压缩（M8b）：历史逼近预算时把最旧对话压成摘要，替代硬丢，防长会话失忆。
+  # 默认关闭——关闭时上下文行为与硬截断逐字节一致。开启会多花摘要模型调用。
+  compaction:
+    enabled: false           # 开启摘要压缩
+    threshold: 0.8           # 未截断历史占预算超此比例时触发
+    keep_recent_turns: 4     # 绝不压缩的最近完整用户轮（保护窗）
+    summary_model: ""        # 摘要用的 provider 名；空=用当前对话模型
 
 tools:
   # 危险 shell 操作（删除/覆盖/移动等）执行前是否要求用户确认

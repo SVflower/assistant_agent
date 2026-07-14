@@ -116,6 +116,7 @@ def _cmd_clear(args: str, ctx: ChatContext) -> None:
         provider=ctx.config.active, model=ctx.config.active_provider.model
     )
     ctx.loop.load_history([])
+    ctx.loop.load_checkpoint(None)  # M8b：新会话清掉摘要 checkpoint
     ctx.console.info(f"已开新会话 {ctx.session.id}，上下文已清空。")
 
 
@@ -125,8 +126,9 @@ def _cmd_context(args: str, ctx: ChatContext) -> None:
     r = ctx.loop.context_report()
     total = r["total"] or 1  # 防除零
     pct = round(r["used"] * 100 / total)
+    compacted = "（早前对话已压缩为摘要）" if r.get("compacted") else ""
     ctx.console.info(
-        f"当前会话：{n} 条消息 · 模型 {ctx.config.active_provider.model}\n"
+        f"当前会话：{n} 条消息 · 模型 {ctx.config.active_provider.model}{compacted}\n"
         f"上下文占用 {r['used']}/{r['total']} tokens（约 {pct}%）：\n"
         f"  system {r['system']} · tools {r['tools']} · "
         f"messages {r['messages']} · reserved(预留回复) {r['reserved']}"

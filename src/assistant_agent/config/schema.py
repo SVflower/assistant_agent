@@ -23,6 +23,23 @@ class ProviderConfig(BaseModel):
     max_tokens: int = Field(default=4096, gt=0)
 
 
+class CompactionConfig(BaseModel):
+    """上下文摘要压缩（M8b）。默认关闭——关闭时上下文行为逐字节等于硬截断现状。"""
+
+    enabled: bool = Field(
+        default=False, description="开启后历史逼近预算时把最旧对话压成摘要（替代硬丢），防失忆"
+    )
+    threshold: float = Field(
+        default=0.8, gt=0, le=1, description="未截断历史占预算比例超过此值时触发压缩"
+    )
+    keep_recent_turns: int = Field(
+        default=4, gt=0, description="绝不压缩的最近完整用户轮数（保护窗）"
+    )
+    summary_model: str = Field(
+        default="", description="生成摘要用的 provider 名；空=用当前对话模型。不在业务里硬写模型"
+    )
+
+
 class AgentConfig(BaseModel):
     """Agent 循环行为。"""
 
@@ -50,6 +67,7 @@ class AgentConfig(BaseModel):
         ge=0,
         description="从上下文预算中预留给模型回复的 token；0=不预留（回退旧口径）",
     )
+    compaction: CompactionConfig = Field(default_factory=lambda: CompactionConfig())
 
 
 class ToolsConfig(BaseModel):

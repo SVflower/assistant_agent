@@ -27,6 +27,20 @@ def _estimate_message_tokens(message: dict[str, Any]) -> int:
     return len(text) + 4  # +4 约等于每条消息的角色/分隔开销
 
 
+def estimate_tools_tokens(schemas: list[dict[str, Any]]) -> int:
+    """估算工具 schema 发给模型占的 token（同字符/4→字符近似口径，保守）。
+
+    工具 schema 每轮随 messages 一起发给模型、占真实窗口。M8a 前预算不计它（D10），
+    MCP 接入大量工具后会显著偏低。序列化成紧凑 JSON 后按字符数近似（与消息同口径）。
+    空列表返回 0——保证"无工具"时预算与旧口径一致。
+    """
+    if not schemas:
+        return 0
+    import json
+
+    return len(json.dumps(schemas, ensure_ascii=False, separators=(",", ":")))
+
+
 class Conversation:
     """维护 OpenAI 格式的消息历史。
 
@@ -39,12 +53,18 @@ class Conversation:
         max_context_tokens: int = 8000,
         system_prompt: str | None = None,
         interactive: bool = True,
+        tools_tokens: int = 0,
+        reserved_output_tokens: int = 0,
     ) -> None:
         prompt = system_prompt if system_prompt is not None else build_system_prompt(interactive)
         self._system: dict[str, Any] = {"role": "system", "content": prompt}
         self._messages: list[dict[str, Any]] = []
         self._max = max_history_messages
         self._max_tokens = max_context_tokens
+        # M8a：工具 schema 与预留回复也占窗口，从消息预算里扣掉。
+        # 两者默认 0 → 预算口径与 M8a 前逐字节一致（回归保护）。
+        self._tools_tokens = tools_tokens
+        self._reserved_output_tokens = reserved_output_tokens
 
     def add_user(self, content: str) -> None:
         self._messages.append({"role": "user", "content": content})
@@ -73,6 +93,23 @@ class Conversation:
         """返回发给模型的完整消息列表（system + 截断后的历史）。"""
         return [self._system, *self._truncated()]
 
+    def budget_report(self) -> dict[str, int]:
+        """当前上下文预算分项（供 /context 展示真实占用）。
+
+        system/tools/reserved 为固定开销，messages 为截断后实际保留的估算 token，
+        used=三者+messages，total=配置窗口。M8a 前 tools/reserved 恒为 0。
+        """
+        system = _estimate_message_tokens(self._system)
+        messages = sum(_estimate_message_tokens(m) for m in self._truncated())
+        return {
+            "total": self._max_tokens,
+            "system": system,
+            "tools": self._tools_tokens,
+            "reserved": self._reserved_output_tokens,
+            "messages": messages,
+            "used": system + self._tools_tokens + self._reserved_output_tokens + messages,
+        }
+
     # ---- 序列化：供会话持久化（不含 system，system 运行时按当前环境重建）----
 
     def export_history(self) -> list[dict[str, Any]]:
@@ -97,7 +134,13 @@ class Conversation:
             self._messages
         )
 
-        budget = self._max_tokens - _estimate_message_tokens(self._system)
+        # 消息可用预算 = 总窗口 − system − tools schema − 预留回复（后两者默认 0）。
+        budget = (
+            self._max_tokens
+            - _estimate_message_tokens(self._system)
+            - self._tools_tokens
+            - self._reserved_output_tokens
+        )
         kept: list[dict[str, Any]] = []
         used = 0
         # 从最新往最旧遍历，能装下就保留

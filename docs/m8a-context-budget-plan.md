@@ -1,7 +1,9 @@
 # M8a — 上下文预算口径（还 D10）
 
-> **状态：评审新增里程碑**。评审指出 M7b 会把大量 MCP 工具 schema 注册进来，而当前预算不计 schema
-> （[D10](TECH_DEBT.md)），窗口小的本地模型会静默溢出。M8a 先统一口径，给 M7b 硬防护和 M8b 压缩铺路。
+> **状态：✅ 已交付**。可用消息预算 = 窗口 − system − tools schema − reserved_output。tools schema
+> 由 loop（持 registry）估算注入 context，context 保持被动不反依赖 registry（依赖方向定死）。
+> 两开销默认归零时预算逐字节等于旧行为（回归保护）。实测内置工具 3208 token 现已计入。
+> `/context` 分项显示 system/tools/messages/reserved。224 测试绿；D10 还清。
 
 ## 解决什么
 

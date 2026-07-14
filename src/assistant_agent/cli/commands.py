@@ -120,11 +120,16 @@ def _cmd_clear(args: str, ctx: ChatContext) -> None:
 
 
 def _cmd_context(args: str, ctx: ChatContext) -> None:
-    """查看当前会话状态：消息数、模型、上下文预算。"""
+    """查看当前会话状态：消息数、模型、上下文预算分项占用。"""
     n = len(ctx.loop.export_history())
+    r = ctx.loop.context_report()
+    total = r["total"] or 1  # 防除零
+    pct = round(r["used"] * 100 / total)
     ctx.console.info(
-        f"当前会话：{n} 条消息 · 模型 {ctx.config.active_provider.model} · "
-        f"上下文预算 {ctx.config.agent.max_context_tokens} tokens"
+        f"当前会话：{n} 条消息 · 模型 {ctx.config.active_provider.model}\n"
+        f"上下文占用 {r['used']}/{r['total']} tokens（约 {pct}%）：\n"
+        f"  system {r['system']} · tools {r['tools']} · "
+        f"messages {r['messages']} · reserved(预留回复) {r['reserved']}"
     )
 
 

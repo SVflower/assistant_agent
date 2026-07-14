@@ -2,7 +2,7 @@
 
 > AI 迭代开发中，债务会隐形复利（LLM 在每个决策点埋入未言明的假设）。
 > 这里显式追踪，防止"上次说的债"下次忘。每次里程碑评审更新本表。
-> 最后更新：2026-07-14（M7b MCP client 完成；D7 已还清——wiring 抽到 cli/setup.py。剩 D5/D6/D8/D9/D10）
+> 最后更新：2026-07-14（M8a 预算口径完成；D10 已还清——tools schema + reserved 计入预算。剩 D5/D6/D8/D9）
 
 ## 状态说明
 - 🔴 高：影响正确性/安全，或脆弱的关键路径
@@ -18,7 +18,7 @@
 | D7 | ~~**main.py 越过行数软线**~~ ✅ 已还清（M7b）| `main.py`(222)、`cli/setup.py` | ✅ | M7b 把 wiring（build_runtime + Runtime 上下文管理器）抽到 `cli/setup.py`，main.py 329→222，回落软线 300 以下。`_interrupt` 保留在 main（信号处理是 CLI 关注点），以 `interrupt_check` 参数注入。**剩 file_ops.py(278)** 仍近软线，触及"读/写/编辑"再分组 |
 | D8 | **日志按会话/模型维度的缺口（原 4 项剩 2）** | `main.py`、`obs/logger.py` | 🟡 | ①② 已还清（见下）；剩：③chat 里 `/clear` 换会话后日志 `session_id` 不变（日志按"进程运行"粒度、与 SessionStore 会话 id 不同名却像）；④`/model` 切模型后 `session_start` 的 model 已过时，tool_call 不带模型信息，无法从日志看出某调用用的哪个模型 | 触发信号：要按会话/模型维度聚合日志时——`/clear` 补一条 `session_start`、`/model` 记 `model_switch` 事件。现不做 |
 | D9 | **无行为级 eval 任务集** | （待建 `evals/`） | 🟡 | 单元测试验证组件，但无法持续比较"模型 A/B 是否完成任务、是否错误调用工具、是否越预算"。质量护栏方案评审时确认：光有 YAML 案例无 runner＝纸面契约，故推迟 | 触发信号：需对比模型 A/B 完成度、或回归"越权调用/越预算"行为时——建 YAML 案例（id/task/tools/expect/budget）+ fake-client runner，不接真实模型 CI。方案见 [归档计划](archive/phase2/quality-guardrails-final-plan.md) |
-| D10 | **上下文预算未计入工具 schema** | `agent/context.py`、`agent/loop.py` | 🟡 | 当前 token 近似只统计 system + messages；默认工具 schema 约 3454 字符未计入。M6.5 已用单次/累计输出预算降低风险，但窗口很小的本地模型仍可能比配置预算更早溢出 | M8 上下文进化时统一处理：模型感知 token 估算需计入工具 schema、system、消息和预留输出，不在 M6.5 临时重复一套估算 |
+| D10 | ~~**上下文预算未计入工具 schema**~~ ✅ 已还清（M8a）| `agent/context.py`、`agent/loop.py` | ✅ | M8a 统一预算口径：可用消息预算 = 窗口 − system − tools schema − reserved_output。tools schema 由 loop（持 registry）估算注入 context（context 保持被动、不反依赖 registry）；reserved_output 默认 1024 保证回复空间；`/context` 分项显示真实占用。实测内置工具 schema 3208 token 现已计入（原完全不计）。**两开销默认归零时预算与旧行为逐字节一致（回归保护）** |
 
 ## 已还清（保留记录）
 - **任务级工具资源无边界** → M6.5 增加单次输出、累计输出、工具调用总数预算；多 tool-call 批次补齐结果后终止。✅ 2026-07-14

@@ -45,6 +45,11 @@ class AgentConfig(BaseModel):
         ge=0,
         description="单任务写入上下文的工具结果累计字符上限；0=不限制",
     )
+    reserved_output_tokens: int = Field(
+        default=1024,
+        ge=0,
+        description="从上下文预算中预留给模型回复的 token；0=不预留（回退旧口径）",
+    )
 
 
 class ToolsConfig(BaseModel):

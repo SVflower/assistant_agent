@@ -74,3 +74,62 @@ def test_message_count_hard_cap():
     body = c.messages()[1:]
     # token 预算极大，但消息数硬上限 5 仍生效
     assert len(body) <= 5
+
+
+# ---- M8a：预算口径（tools schema + reserved_output）----
+def _schema(n_chars: int) -> dict:
+    """造一个序列化后约 n_chars 的假工具 schema。"""
+    return {"type": "function", "function": {"name": "t", "description": "d" * n_chars}}
+
+
+def test_estimate_tools_tokens_empty_is_zero():
+    from assistant_agent.agent.context import estimate_tools_tokens
+
+    assert estimate_tools_tokens([]) == 0  # 无工具→0，保证回归口径
+
+
+def test_estimate_tools_tokens_grows_with_schemas():
+    from assistant_agent.agent.context import estimate_tools_tokens
+
+    small = estimate_tools_tokens([_schema(10)])
+    big = estimate_tools_tokens([_schema(10), _schema(500)])
+    assert big > small > 0
+
+
+def test_tools_tokens_shrink_message_budget():
+    # 同样消息，注入 tools_tokens 后应更早截断（保留更少）
+    def build(tools_tokens: int) -> int:
+        c = _conv(max_context_tokens=200, tools_tokens=tools_tokens)
+        for _ in range(30):
+            c.add_user("z" * 10)
+        return len(c.messages()[1:])
+
+    base = build(0)
+    with_tools = build(120)
+    assert with_tools < base  # 工具占预算→消息保留更少
+
+
+def test_reserved_output_shrinks_budget():
+    def build(reserved: int) -> int:
+        c = _conv(max_context_tokens=200, reserved_output_tokens=reserved)
+        for _ in range(30):
+            c.add_user("z" * 10)
+        return len(c.messages()[1:])
+
+    assert build(120) < build(0)  # 预留回复→消息保留更少
+
+
+def test_budget_report_sums_and_defaults_zero():
+    c = _conv(max_context_tokens=8000, tools_tokens=300, reserved_output_tokens=1024)
+    c.add_user("hello")
+    r = c.budget_report()
+    assert r["total"] == 8000 and r["tools"] == 300 and r["reserved"] == 1024
+    assert r["used"] == r["system"] + r["tools"] + r["reserved"] + r["messages"]
+
+
+def test_default_overhead_zero_is_regression_safe():
+    # 不传 tools_tokens/reserved 时，budget_report 的 tools/reserved 为 0（口径等于旧行为）
+    c = _conv(max_context_tokens=8000)
+    c.add_user("hi")
+    r = c.budget_report()
+    assert r["tools"] == 0 and r["reserved"] == 0

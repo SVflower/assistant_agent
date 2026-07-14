@@ -12,7 +12,7 @@ from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from typing import Any, Literal
 
-from assistant_agent.agent.context import Conversation
+from assistant_agent.agent.context import Conversation, estimate_tools_tokens
 from assistant_agent.config.schema import AppConfig
 from assistant_agent.llm.client import LLMClient, ToolCall
 from assistant_agent.tools.base import ToolBudget, ToolContext
@@ -67,12 +67,18 @@ class AgentLoop:
         self._interrupt_check = interrupt_check
         # 用尽轮数时的续跑检查：给已用轮数，返回 True 表示再放一批。None=不续（run 模式）。
         self._continue_check = continue_check
+        # M8a：工具 schema 每轮随消息发给模型、占真实窗口。由 loop（编排层，持 registry）
+        # 算好 token 估算注入 context，让 context 保持被动、不反依赖 registry。
+        # 工具集在一次运行内固定，构造时算一次即可。
+        tools_tokens = estimate_tools_tokens(registry.schemas())
         # system_prompt：非空则用它（如注入技能元数据）；None 时 Conversation 自建。
         self._conversation = Conversation(
             max_history_messages=config.agent.max_history_messages,
             max_context_tokens=config.agent.max_context_tokens,
             interactive=interactive,
             system_prompt=system_prompt,
+            tools_tokens=tools_tokens,
+            reserved_output_tokens=config.agent.reserved_output_tokens,
         )
 
     def _interrupted(self) -> bool:
@@ -85,6 +91,10 @@ class AgentLoop:
         不改 run() 控制流。
         """
         self._client = client
+
+    def context_report(self) -> dict[str, int]:
+        """当前上下文预算分项（供 /context 展示真实占用，含 tools schema）。"""
+        return self._conversation.budget_report()
 
     def export_history(self) -> list[dict[str, Any]]:
         """导出对话历史（供会话持久化）。"""

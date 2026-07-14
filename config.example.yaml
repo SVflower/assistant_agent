@@ -48,6 +48,8 @@ agent:
   max_history_messages: 40
   # 上下文 token 预算；本地小模型应按实际窗口下调
   max_context_tokens: 8000
+  # 从预算里预留给模型回复的 token（可用消息预算=窗口−system−tools schema−此值）；0=不预留
+  reserved_output_tokens: 1024
 
 tools:
   # 危险 shell 操作（删除/覆盖/移动等）执行前是否要求用户确认

@@ -21,12 +21,13 @@
 - **健壮性**：对"笨模型"容错、Windows/Linux 终端适配、保存不崩、自动保存非致命。
 - **可观测（M6）**：结构化 JSONL 事件日志（工具调用/耗时/成败/授权决策留痕）+ 尽力脱敏 + 禁用零副作用。
 - **运行时预算（M6.5）**：任务级工具调用总数 + 单次/累计工具输出上限；预算耗尽时补齐当前批次结果再安全终止，不留悬空 tool call。
+- **技能（M7a）**：Agent Skills 系统——SKILL.md 发现 + 渐进披露（L1 元数据注入 / L2 load_skill 加载正文 / L3 现有工具读跑）；`.assistant_agent/skills/` 目录、`/skills` 命令；脚本走既有确认门。
 
-**质量**：179 测试、覆盖率 ~65%、约 3482 行源码；架构适应度测试（依赖分层 + 行数分级软/硬）+ 技术债册 + DoD + 里程碑工作流全在。
+**质量**：194 测试、覆盖率 ~66%、约 3731 行源码；架构适应度测试（依赖分层 + 行数分级软/硬）+ 技术债册 + DoD + 里程碑工作流全在。
 
-**边界（明确未做）**：子 Agent 编排、真沙箱、Web GUI、rewind/recap、MCP、skill、非交互 init、PyPI 分发。
+**边界（明确未做）**：子 Agent 编排、真沙箱、Web GUI、rewind/recap、MCP（M7b）、非交互 init、PyPI 分发。
 
-**剩余技术债**：D5（UI 层测试仍薄）、D6（provider/model 未分层，4+ 模型再重构）、D7（两文件近行数软线，膨胀再拆）、D8（/clear·/model 后日志元信息不更新）、D9（无行为级 eval 任务集）——均低优先、信号驱动。
+**剩余技术债**：D5（UI 层测试仍薄）、D6（provider/model 未分层，4+ 模型再重构）、D7（main.py 越软线 329，膨胀再拆）、D8（/clear·/model 后日志元信息不更新）、D9（无行为级 eval 任务集）、D10（上下文预算口径）——均低优先、信号驱动。
 
 ---
 
@@ -72,7 +73,9 @@
 |--------|------|------|
 | M6 | 结构化日志与工具审计（obs 层：JSONL 事件 + 权限决策留痕）| ✅ |
 | M6.5 | 运行时预算与工具协议完整性（单次/累计输出 + 工具调用总数）| ✅ |
-| M7 | 外部生态接入（skill / MCP client 最小可用）| 规划中 |
+| M7a | Agent Skills 系统（SKILL.md 发现 + 渐进披露 + load_skill）| ✅ |
+| M7b | MCP client（stdio + 同步桥 + 命名空间）| 规划中 |
+| M7c | MCP Streamable HTTP transport | 规划中 |
 | M8 | 上下文进化（摘要压缩替代硬截断）| 规划中 |
 
 ## 未来方向（P3，信号驱动，暂不做）
@@ -363,6 +366,27 @@ Console 流式渲染（Live spinner 与正文时间错开）、show_reasoning �
 **内核改动**：经用户确认，`agent/loop.py` 只增加任务预算生命周期和批次终止逻辑；流式接口、UI/provider 依赖、重复熔断和 continue_check 语义不变。
 
 **验收**：179 测试全绿，Ruff 全绿；关键路径覆盖配置迁移、调用/输出预算、跨轮累计、单轮多调用协议完整性、预算重置、预算审计和迭代续跑不重置预算。本地 LM Studio `/v1/models` 一度可用，但生成请求时服务退出并拒绝连接，因此真实模型三类冒烟未完成，已按外部环境阻塞如实记录。
+
+---
+
+## M7a — Agent Skills 系统（第二阶段·生态接入其一）— 已完成 ✅
+
+**解决**：能力全靠内置工具 + 静态提示词，无法复用"针对某类任务的做法手册"。Skill = 可复用指示书（SKILL.md 文件夹），模型按需加载、按其指示用现有工具完成任务。
+
+**已实现**（方案见 [计划文档](docs/m7a-skills-plan.md)，**内核仅轻碰**）：
+- **新增 `skills/` 层（rank 2，叶子能力）**：`SkillStore` 扫描 `./.assistant_agent/skills/` 与 `~/.assistant_agent/skills/`，解析 SKILL.md frontmatter；坏文件跳过不崩、同名"项目覆盖个人"。
+- **渐进披露三级**：L1 启动只注入 name/description（几十 token/个）；L2 模型调 `load_skill(name)` 返回正文；L3 正文指向的脚本/参考文件由模型用现有 read_file/run_shell 读或跑（零新机制）。
+- **prompt 动态注入**：`build_system_prompt(interactive, skills)` 加"# 可用技能"节；复用 `Conversation` 已有的 `system_prompt` 接缝——`/clear`/`/model` 都不动 system，注入一次天然存活。
+- **安全**：技能脚本经现有 shell 工具 → 自动走危险确认门；`load_skill` 只按已发现名查、不接受路径（杜绝穿越）；文档提示第三方技能需代码审查。
+- **配置 `SkillsConfig`**（enabled/dirs）；`/skills` slash 命令列出已发现技能。
+
+**内核改动**：`agent/loop.py` 仅给 `AgentLoop.__init__` 加 `system_prompt` 透传参数（转发给 Conversation 已有的同名参数），run() 控制流零改动，风险等同 M4.5 的 set_client。
+
+**验收**：194 测试全绿（+15：解析/发现/去重/加载/工具/注入/路径穿越/回归），ruff + 架构测试通过（skills 登记 rank 2）。端到端冒烟实测：真实 SKILL.md 发现 → 注入提示词 → load_skill 返回正文，三级跑通。
+
+**顺带**：D7 升级——技能接线把 main.py 推到 329 行、越软线 300（非阻断警告）；评审判断 wiring 组经 `_interrupt` 全局耦合、收尾期不硬拆，登记为 D7 专项（M7b 再加接线时抽 `cli/setup.py`）。
+
+**未做（留 M7b/M7c）**：MCP client、远程技能拉取、技能热重载。
 
 ## 延后（P3，不进近期路线）
 

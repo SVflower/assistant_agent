@@ -57,6 +57,7 @@ class AgentLoop:
         interactive: bool = True,
         interrupt_check: Callable[[], bool] | None = None,
         continue_check: Callable[[int], bool] | None = None,
+        system_prompt: str | None = None,
     ) -> None:
         self._config = config
         self._client = client
@@ -66,10 +67,12 @@ class AgentLoop:
         self._interrupt_check = interrupt_check
         # 用尽轮数时的续跑检查：给已用轮数，返回 True 表示再放一批。None=不续（run 模式）。
         self._continue_check = continue_check
+        # system_prompt：非空则用它（如注入技能元数据）；None 时 Conversation 自建。
         self._conversation = Conversation(
             max_history_messages=config.agent.max_history_messages,
             max_context_tokens=config.agent.max_context_tokens,
             interactive=interactive,
+            system_prompt=system_prompt,
         )
 
     def _interrupted(self) -> bool:

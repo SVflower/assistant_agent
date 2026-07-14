@@ -66,6 +66,24 @@ assistant-agent run "..." --config /path/to/config.yaml
 `agent.max_total_tool_output_chars` 限制累计工具结果，`tools.max_output_chars`
 限制单次工具结果。预算耗尽时 Agent 会补齐当前工具批次的结果并安全终止。
 
+## 技能（Skills）
+
+把某类任务的做法手册写成 `SKILL.md`，放到 `./.assistant_agent/skills/<名>/`
+（项目级）或 `~/.assistant_agent/skills/<名>/`（个人级），Agent 会自动发现。
+渐进披露：启动只注入技能的 name/description（省 token），模型判断相关时才
+`load_skill` 加载正文照做；正文可指向脚本/参考文件，用现有工具读或跑。
+对话中输入 `/skills` 查看已发现的技能。格式与 Claude Code 的 SKILL.md 兼容。
+
+```markdown
+---
+name: run-tests
+description: 如何在本项目跑测试与 lint。当用户要验证改动或跑测试时使用。
+---
+# 跑测试
+1. `pytest -q`
+2. `ruff check src tests`
+```
+
 ## 开发
 
 ```bash

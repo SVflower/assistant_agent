@@ -16,13 +16,15 @@ from pathlib import Path
 import typer
 
 from assistant_agent.agent.loop import AgentLoop, StepEvent
+from assistant_agent.agent.prompts import build_system_prompt
 from assistant_agent.cli.commands import ChatContext, build_default_slash_registry
 from assistant_agent.cli.init import run_init
 from assistant_agent.config.loader import ConfigError, load_config
-from assistant_agent.config.schema import AppConfig
+from assistant_agent.config.schema import AppConfig, SkillsConfig
 from assistant_agent.llm.client import LLMClient
 from assistant_agent.obs import NullLogger, create_logger
 from assistant_agent.session.store import SessionStore, new_session_id
+from assistant_agent.skills import LoadSkillTool, SkillStore
 from assistant_agent.tools.base import ToolContext
 from assistant_agent.tools.registry import build_default_registry
 from assistant_agent.ui.console import Console
@@ -69,13 +71,31 @@ def _build_client(config: AppConfig) -> LLMClient:
     return LLMClient(config.active_provider)
 
 
+def _discover_skills(cfg: SkillsConfig) -> SkillStore:
+    """按配置发现技能。禁用时返回空 store（不扫描、不注入）。
+
+    默认目录：./.assistant_agent/skills（项目级，优先）与 ~/.assistant_agent/skills（个人级）。
+    项目级排前，实现同名"项目覆盖个人"。
+    """
+    if not cfg.enabled:
+        return SkillStore({})
+    if cfg.dirs:
+        dirs = [Path(d).expanduser() for d in cfg.dirs]
+    else:
+        dirs = [
+            Path.cwd() / ".assistant_agent" / "skills",
+            Path.home() / ".assistant_agent" / "skills",
+        ]
+    return SkillStore.discover(dirs)
+
+
 def _setup(
     config_path: Path | None,
     console: Console,
     interactive: bool,
     provider: str | None = None,
     max_iterations: int | None = None,
-) -> tuple[AppConfig, AgentLoop, NullLogger]:
+) -> tuple[AppConfig, AgentLoop, NullLogger, SkillStore]:
     """加载配置并装配循环。失败时打印错误并退出。
 
     interactive：True 为 chat 多轮（允许澄清提问），False 为 run 单次（遇歧义自行假设）。
@@ -102,6 +122,14 @@ def _setup(
 
     client = _build_client(config)
     registry = build_default_registry()
+
+    # 技能发现（Level 1）：拿到元数据；有技能才注册 load_skill 工具并注入系统提示词。
+    skill_store = _discover_skills(config.skills)
+    skills = skill_store.list()
+    if skills:
+        registry.register(LoadSkillTool(skill_store))
+    skill_meta = [(m.name, m.description) for m in skills]
+    system_prompt = build_system_prompt(interactive, skills=skill_meta or None)
 
     # 事件日志器：一次运行一个 session_id 归组事件。禁用时为 NullLogger（零副作用）。
     logger = create_logger(config.logging, new_session_id())
@@ -130,11 +158,12 @@ def _setup(
         interactive=interactive,
         interrupt_check=_interrupt.is_set,
         continue_check=continue_check,
+        system_prompt=system_prompt,
     )
     console.set_show_reasoning(config.ui.show_reasoning)
     console.set_context_limit(config.agent.max_context_tokens)
     console.banner(config.active, config.active_provider.model)
-    return config, loop, logger
+    return config, loop, logger, skill_store
 
 
 @app.command()
@@ -150,7 +179,7 @@ def run(
 ) -> None:
     """执行单个任务后退出。"""
     console = Console()
-    _, loop, logger = _setup(
+    _, loop, logger, _ = _setup(
         config, console, interactive=False, provider=provider, max_iterations=max_iterations
     )
     console.user_echo(task)
@@ -176,7 +205,7 @@ def chat(
     对话中输入 / 或 /help 查看所有命令（/model 切模型、/clear 新会话等）。
     """
     console = Console()
-    config_obj, loop, logger = _setup(
+    config_obj, loop, logger, skill_store = _setup(
         config, console, interactive=True, provider=provider, max_iterations=max_iterations
     )
     store = SessionStore()
@@ -195,7 +224,8 @@ def chat(
         )
         console.info(f"新会话 {session.id}。输入 / 查看命令，exit/quit 退出。")
 
-    ctx = ChatContext(config_obj, loop, console, store, session)
+    skills_meta = [(m.name, m.description) for m in skill_store.list()]
+    ctx = ChatContext(config_obj, loop, console, store, session, skills=skills_meta)
     registry = build_default_slash_registry()
 
     while True:

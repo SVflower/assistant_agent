@@ -81,6 +81,16 @@ class LoggingConfig(BaseModel):
     )
 
 
+class SkillsConfig(BaseModel):
+    """技能（SKILL.md 指示书）发现设置。"""
+
+    enabled: bool = Field(default=True, description="是否发现并注入技能")
+    dirs: list[str] = Field(
+        default_factory=list,
+        description="技能目录；留空用默认（项目与个人的 .assistant_agent/skills）",
+    )
+
+
 class AppConfig(BaseModel):
     """顶层配置。"""
 
@@ -90,6 +100,7 @@ class AppConfig(BaseModel):
     tools: ToolsConfig = Field(default_factory=ToolsConfig)
     ui: UIConfig = Field(default_factory=UIConfig)
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
+    skills: SkillsConfig = Field(default_factory=SkillsConfig)
 
     @model_validator(mode="after")
     def _active_must_exist(self) -> AppConfig:

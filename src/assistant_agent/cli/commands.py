@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import sys
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from assistant_agent.agent.loop import AgentLoop
 from assistant_agent.config.schema import AppConfig
@@ -29,6 +29,7 @@ class ChatContext:
     console: Console
     store: SessionStore
     session: Session
+    skills: list[tuple[str, str]] = field(default_factory=list)  # (name, description)
     should_exit: bool = False
 
 
@@ -125,6 +126,19 @@ def _cmd_context(args: str, ctx: ChatContext) -> None:
     )
 
 
+def _cmd_skills(args: str, ctx: ChatContext) -> None:
+    """列出已发现的技能（name + description）。"""
+    if not ctx.skills:
+        ctx.console.info(
+            "未发现技能。把 SKILL.md 放到 ./.assistant_agent/skills/<名>/ 或 "
+            "~/.assistant_agent/skills/<名>/ 下即可。"
+        )
+        return
+    lines = ["已发现技能（模型会按需 load_skill 加载）："]
+    lines += [f"  {name:<16} {description}" for name, description in ctx.skills]
+    ctx.console.info("\n".join(lines))
+
+
 def _cmd_exit(args: str, ctx: ChatContext) -> None:
     """退出交互模式。"""
     ctx.should_exit = True
@@ -138,5 +152,6 @@ def build_default_slash_registry() -> SlashRegistry:
     reg.register(SlashCommand("sessions", "列出历史会话", _cmd_sessions))
     reg.register(SlashCommand("clear", "开新会话（清空上下文）", _cmd_clear))
     reg.register(SlashCommand("context", "查看会话状态与用量", _cmd_context))
+    reg.register(SlashCommand("skills", "列出已发现的技能", _cmd_skills))
     reg.register(SlashCommand("exit", "退出（也可输入 exit/quit）", _cmd_exit))
     return reg

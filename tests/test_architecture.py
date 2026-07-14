@@ -24,6 +24,7 @@ _LAYER_RANK = {
     "obs": 0,
     "llm": 1,
     "tools": 2,
+    "skills": 2,  # 叶子能力层：SKILL.md 发现 + load_skill 工具，只依赖 tools/base
     "agent": 3,
     "ui": 4,
     "cli": 5,  # slash 命令：编排 agent/ui/session，供 main 使用

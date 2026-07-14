@@ -86,8 +86,8 @@ python -m assistant_agent
 
 **第一阶段（MVP→M5）全部完成**，第二阶段进行中。里程碑详情见 ROADMAP.md。
 - 第一阶段：配置/模型抽象/工具/ReAct 循环/CLI，加流式输出、会话持久化、工具集扩展（edit/multi_edit/code_search/git 只读）、模型切换、循环工程与写入安全、slash 命令、init 向导，全部落地。
-- **第二阶段 M6/M6.5 已完成**：结构化日志与工具审计；任务级工具调用/累计输出预算与批次协议完整终止。
+- **第二阶段 M6/M6.5/M7a 已完成**：结构化日志与工具审计；任务级工具调用/累计输出预算与批次协议完整终止；Agent Skills 系统（SKILL.md 发现 + 渐进披露 + load_skill）。
 - 双后端实测通过：云端 DeepSeek + 本地 LM Studio，切换只改 `config.yaml`，业务代码零改动。
-- 179 个测试通过，ruff 全绿。
+- 194 个测试通过，ruff 全绿。
 
-下一步：M7（skill / MCP client 最小可用）或 M8（摘要压缩替代硬截断），见 ROADMAP.md。
+下一步：M7b（MCP client stdio 最小可用）或 M8（摘要压缩替代硬截断），见 ROADMAP.md。

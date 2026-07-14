@@ -66,3 +66,10 @@ logging:
   log_tool_io: true
   # 单个参数/输出载荷记录的最大字符数，超出截断
   max_payload_chars: 2000
+
+skills:
+  # 是否发现并注入技能（SKILL.md 指示书）。渐进披露：启动只注入 name/description，
+  # 模型按需 load_skill 加载正文。
+  enabled: true
+  # 技能目录；留空用默认：./.assistant_agent/skills 与 ~/.assistant_agent/skills
+  dirs: []

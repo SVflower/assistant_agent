@@ -112,10 +112,28 @@ def _runtime_context(interactive: bool = True) -> str:
     )
 
 
-def build_system_prompt(interactive: bool = True) -> str:
-    """完整系统提示词 = 基础提示词 + 运行环境说明（运行时动态生成）。
+def _skills_section(skills: list[tuple[str, str]]) -> str:
+    """渲染"可用技能"节（Level 1 元数据注入）。skills 为 (name, description) 列表。"""
+    lines = [
+        "\n\n# 可用技能",
+        "以下技能是针对特定任务的做法手册。当某条描述与当前任务相关时，",
+        "调用 load_skill(name) 加载它的完整指示，然后照做。",
+    ]
+    lines += [f"- {name}：{description}" for name, description in skills]
+    return "\n".join(lines)
+
+
+def build_system_prompt(
+    interactive: bool = True,
+    skills: list[tuple[str, str]] | None = None,
+) -> str:
+    """完整系统提示词 = 基础提示词 + 运行环境说明 + 可选技能节（运行时动态生成）。
 
     interactive：True 为 chat 多轮模式（允许澄清提问），False 为 run 单次模式
     （遇歧义自行假设执行）。
+    skills：(name, description) 列表；非空时追加"可用技能"节。None/空时不加。
     """
-    return SYSTEM_PROMPT + _runtime_context(interactive)
+    prompt = SYSTEM_PROMPT + _runtime_context(interactive)
+    if skills:
+        prompt += _skills_section(skills)
+    return prompt

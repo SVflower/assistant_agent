@@ -92,14 +92,23 @@ class SkillsConfig(BaseModel):
 
 
 class MCPServerConfig(BaseModel):
-    """单个 MCP server 连接设置（本期只支持 stdio）。"""
+    """单个 MCP server 连接设置（stdio 本地 / http 远程）。"""
 
-    command: str = Field(..., description="启动 server 的命令，如 npx")
-    args: list[str] = Field(default_factory=list, description="命令参数")
+    type: str = Field(default="stdio", description="传输方式：stdio（本地子进程）或 http（远程）")
+    # stdio 用
+    command: str = Field(default="", description="[stdio] 启动 server 的命令，如 npx")
+    args: list[str] = Field(default_factory=list, description="[stdio] 命令参数")
     env: dict[str, str] = Field(
         default_factory=dict,
-        description="传给 server 的环境变量；值支持 ${VAR} 从进程环境插值，密钥不落配置",
+        description="[stdio] 环境变量；值支持 ${VAR} 从进程环境插值，密钥不落配置",
     )
+    # http 用
+    url: str = Field(default="", description="[http] server 的 endpoint URL")
+    headers: dict[str, str] = Field(
+        default_factory=dict,
+        description="[http] 请求头；值支持 ${VAR} 从进程环境插值（如 Bearer ${TOKEN}）",
+    )
+    # 通用
     enabled: bool = Field(default=True, description="是否启用该 server")
     timeout: int = Field(default=30, ge=1, description="单次工具调用超时（秒）")
     auto_approve: bool = Field(
@@ -110,6 +119,18 @@ class MCPServerConfig(BaseModel):
         default_factory=list, description="工具白名单；空=全部（再受上限约束）"
     )
     exclude_tools: list[str] = Field(default_factory=list, description="工具黑名单")
+
+    @model_validator(mode="after")
+    def _check_transport(self) -> MCPServerConfig:
+        if self.type == "stdio":
+            if not self.command:
+                raise ValueError("stdio server 必须配 command")
+        elif self.type == "http":
+            if not self.url:
+                raise ValueError("http server 必须配 url")
+        else:
+            raise ValueError(f"未知 MCP transport type：{self.type}（支持 stdio/http）")
+        return self
 
 
 class MCPConfig(BaseModel):

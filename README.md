@@ -102,7 +102,19 @@ mcp:
 其工具以 `mcp__<server>__<tool>` 注册，与内置工具同流（审计/预算/确认）。
 每个 MCP 工具默认逐次确认，"永久允许"按 server+tool 粒度记忆，不会一次放行全部。
 用 `include_tools`/`exclude_tools`、`max_tools`、`max_total_tools` 控制接入的工具集。
-对话中输入 `/mcp` 查看已接入的 server 与工具。仅支持本地 stdio；HTTP transport 见 ROADMAP M7c。
+远程 server 用 `type: http` + `url`（Streamable HTTP），headers 支持 `${VAR}` 注入 token：
+
+```yaml
+mcp:
+  servers:
+    remote_api:
+      type: http
+      url: "https://mcp.example.com/mcp"
+      headers:
+        Authorization: "Bearer ${MCP_TOKEN}"   # 真值从环境取，不落配置
+```
+
+对话中输入 `/mcp` 查看已接入的 server 与工具。session/协议头/重连由 SDK 代管，调用不自动重放。
 
 ## 开发
 

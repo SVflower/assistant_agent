@@ -22,11 +22,11 @@
 - **可观测（M6）**：结构化 JSONL 事件日志（工具调用/耗时/成败/授权决策留痕）+ 尽力脱敏 + 禁用零副作用。
 - **运行时预算（M6.5）**：任务级工具调用总数 + 单次/累计工具输出上限；预算耗尽时补齐当前批次结果再安全终止，不留悬空 tool call。
 - **技能（M7a）**：Agent Skills 系统——SKILL.md 发现 + 渐进披露（L1 元数据注入 / L2 load_skill 加载正文 / L3 现有工具读跑）；`.assistant_agent/skills/` 目录、`/skills` 命令；脚本走既有确认门。
-- **MCP（M7b）**：MCP client（stdio）——外部 server 工具接入，命名空间 `mcp__<server>__<tool>`；同步桥（守护线程常驻 loop + run_coroutine_threadsafe）；每工具主动确认（category 按 server+tool 细分）；工具白/黑名单 + 每 server/全局数量上限防 schema 撑爆；`/mcp` 命令；`cli/setup.py` Runtime 统管生命周期（还清 D7）。
+- **MCP（M7b/M7c）**：MCP client（stdio + HTTP 两种 transport）——外部 server 工具接入，命名空间 `mcp__<server>__<tool>`；同步桥（守护线程常驻 loop + run_coroutine_threadsafe）；每工具主动确认（category 按 server+tool 细分）；工具白/黑名单 + 每 server/全局数量上限防 schema 撑爆；HTTP 走 Streamable HTTP，session/协议头/重连交 SDK 代管、调用层不自动重放；`/mcp` 命令；`cli/setup.py` Runtime 统管生命周期（还清 D7）。
 
-**质量**：212 测试、覆盖率 ~66%、约 4150 行源码；架构适应度测试（依赖分层 + 行数分级软/硬）+ 技术债册 + DoD + 里程碑工作流全在。
+**质量**：218 测试、覆盖率 ~66%、约 4200 行源码；架构适应度测试（依赖分层 + 行数分级软/硬）+ 技术债册 + DoD + 里程碑工作流全在。
 
-**边界（明确未做）**：子 Agent 编排、真沙箱、Web GUI、rewind/recap、MCP HTTP transport（M7c）、非交互 init、PyPI 分发。
+**边界（明确未做）**：子 Agent 编排、真沙箱、Web GUI、rewind/recap、非交互 init、PyPI 分发。
 
 **剩余技术债**：D5（UI 层测试仍薄）、D6（provider/model 未分层，4+ 模型再重构）、D8（/clear·/model 后日志元信息不更新）、D9（无行为级 eval 任务集）、D10（上下文预算口径，M8a 还）——均低优先、信号驱动。D7（main.py 越软线）已在 M7b 还清。
 
@@ -78,12 +78,13 @@
 | M7b | MCP client（stdio + 同步桥 + 命名空间 + 权限/过滤/Runtime）| ✅ · [方案](docs/m7b-mcp-plan.md) |
 | M8a | 上下文预算口径（计入 tools schema + reserved，还 D10）| 评审新增 · [方案](docs/m8a-context-budget-plan.md) |
 | M8b | 上下文进化（摘要压缩 + 双历史模型）| 评审已修订 · [方案](docs/m8b-context-compaction-plan.md) |
-| M7c | MCP Streamable HTTP transport（重连不重放）| 待稳定后细化 · [方案](docs/m7c-mcp-http-plan.md) |
+| M7c | MCP Streamable HTTP transport（重连不重放）| ✅ · [方案](docs/m7c-mcp-http-plan.md) |
 
-> **推荐顺序（评审结论）**：M7b（stdio，前置补齐权限/过滤/Runtime）→ M8a（预算口径）→ M8b（摘要压缩）
-> → M7c（等远程真实需求 + 稳定 SDK/规范，不必紧跟）。评审的 3 阻断 + 4 设计问题已并入各方案：
-> MCP 工具须主动确认（category 按 server+tool）、工具过滤/schema 上限防撑爆、HTTP 重连不重放、
-> M8 双历史模型 + 摘要 token 独立计、M7c 协议头交 SDK、M7b 直接还 D7。
+> **M7 系列已收全（a/b/c）**：技能 + MCP（stdio + HTTP）。评审的 3 阻断 + 4 设计问题全部落地：
+> MCP 工具主动确认（category 按 server+tool）、工具过滤/schema 上限防撑爆、HTTP 重连不重放
+> （委托 SDK 管 session/协议头，调用层不自动重试）、M7b 直接还 D7。
+> **下一步：M8a（上下文预算口径，还 D10）→ M8b（摘要压缩 + 双历史模型）**。
+> M8 相关评审结论（双历史模型、摘要 token 独立计入 usage 不混 M6.5）已并入各自方案。
 
 ## 未来方向（P3，信号驱动，暂不做）
 

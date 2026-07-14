@@ -23,6 +23,7 @@ if TYPE_CHECKING:
     from assistant_agent.obs import NullLogger
 
 _NAME_SANITIZE = re.compile(r"[^a-zA-Z0-9_]")
+_ENV_REF = re.compile(r"\$\{([^}]+)\}")
 
 
 def _sanitize(part: str) -> str:
@@ -31,14 +32,14 @@ def _sanitize(part: str) -> str:
 
 
 def _interpolate_env(env: dict[str, str]) -> dict[str, str]:
-    """把 env 值里的 ${VAR} 从进程环境替换；缺失则留空串（密钥不落配置）。"""
-    out: dict[str, str] = {}
-    for key, value in env.items():
-        if value.startswith("${") and value.endswith("}"):
-            out[key] = os.environ.get(value[2:-1], "")
-        else:
-            out[key] = value
-    return out
+    """把值里的 ${VAR} 从进程环境替换（可嵌在串中，如 'Bearer ${TOK}'）；缺失留空串。
+
+    密钥不落配置：配 ${TOKEN}，真值从环境取。
+    """
+    return {
+        key: _ENV_REF.sub(lambda mo: os.environ.get(mo.group(1), ""), value)
+        for key, value in env.items()
+    }
 
 
 @dataclass
@@ -100,16 +101,34 @@ class MCPManager:
 
     # ---- 连接与发现 ----
 
-    async def _connect_one(self, name: str, cfg: MCPServerConfig) -> _Server:
-        """在 loop 线程里连接一个 server 并 initialize，持有上下文到 close。"""
-        from mcp import ClientSession, StdioServerParameters
+    async def _open_transport(self, stack: AsyncExitStack, cfg: MCPServerConfig) -> tuple:
+        """按 type 分派 transport 工厂，返回 (read, write)。协议头/session 由 SDK 代管。
+
+        stdio：stdio_client → 2 元组。
+        http：streamablehttp_client → 3 元组（read, write, get_session_id），只取前两个。
+        """
+        if cfg.type == "http":
+            from mcp.client.streamable_http import streamablehttp_client
+
+            streams = await stack.enter_async_context(
+                streamablehttp_client(cfg.url, headers=_interpolate_env(cfg.headers) or None)
+            )
+            return streams[0], streams[1]  # 丢弃 get_session_id：session 归 SDK 管
+        from mcp import StdioServerParameters
         from mcp.client.stdio import stdio_client
 
-        stack = AsyncExitStack()
         params = StdioServerParameters(
             command=cfg.command, args=list(cfg.args), env=_interpolate_env(cfg.env) or None
         )
         read, write = await stack.enter_async_context(stdio_client(params))
+        return read, write
+
+    async def _connect_one(self, name: str, cfg: MCPServerConfig) -> _Server:
+        """在 loop 线程里连接一个 server 并 initialize，持有上下文到 close。"""
+        from mcp import ClientSession
+
+        stack = AsyncExitStack()
+        read, write = await self._open_transport(stack, cfg)
         session = await stack.enter_async_context(ClientSession(read, write))
         await session.initialize()
         return _Server(name=name, stack=stack, session=session)

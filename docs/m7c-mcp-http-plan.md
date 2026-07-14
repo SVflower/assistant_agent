@@ -1,9 +1,10 @@
 # M7c — MCP Streamable HTTP transport
 
-> **状态：评审已修订（v2），待稳定后细化冻结**。评审指出：① 重连不得重放已发送工具调用（幂等）；
-> ② 协议头/session-id 由 SDK 代管，不自己拼；③ 规范正转向 stateless（评审引 2026-07-28 RC），
-> client 握手可能变——**等稳定版 SDK v2 与规范定稿后再冻结详细方案**。本稿为方向骨架 + 硬约束。
-> 里程碑正式计划（方向性，M7b 完成后开工时细化）。承接 M7b 的 MCPManager 抽象。
+> **状态：✅ 已交付**。与 M7b 一并实现（transport 工厂分派 stdio/http）。三条硬约束全部落地：
+> ① 重连不重放——调用层无任何自动重试，途中断线→异常→ToolResult.error；② session-id/协议头/重连
+> 全部委托 SDK（`streamablehttp_client`），我方只透传 url/headers；③ 规范/SDK 怎么变归 SDK 管，
+> 代码面薄。实测：本地 `server-everything` streamableHttp 模式真实冒烟通过（13 工具、echo 调用、
+> headers `${VAR}` 注入验证）。218 测试绿。承接 M7b 的 MCPManager 抽象。
 
 ## 解决什么
 

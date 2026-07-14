@@ -1,4 +1,4 @@
-"""M7b MCP client 单测（第一层：进程内 fake session，不依赖 Node/网络）。"""
+"""M7b/M7c MCP client 单测（第一层：进程内 fake session，不依赖 Node/网络）。"""
 
 from __future__ import annotations
 
@@ -216,3 +216,91 @@ def test_sync_bridge_timeout_cancels():
 def test_start_disabled_returns_empty():
     m = _mgr({"web": MCPServerConfig(command="x")}, enabled=False)
     assert m.start() == []
+
+
+# ---- M7c：HTTP transport 工厂分派 ----
+class _FakeStreamCM:
+    """假 transport async context manager，yield 指定元组，记录被调用。"""
+
+    def __init__(self, record: dict, kind: str, streams: tuple) -> None:
+        self._record = record
+        self._kind = kind
+        self._streams = streams
+
+    async def __aenter__(self):
+        self._record["kind"] = self._kind
+        return self._streams
+
+    async def __aexit__(self, *_exc):
+        self._record["closed"] = True
+        return False
+
+
+def _patch_transports(monkeypatch, record: dict):
+    """把 stdio_client（2 元组）与 streamablehttp_client（3 元组）换成假 CM。"""
+    import mcp.client.stdio as stdio_mod
+    import mcp.client.streamable_http as http_mod
+
+    def fake_stdio(_params):
+        return _FakeStreamCM(record, "stdio", ("r", "w"))
+
+    def fake_http(url, headers=None):
+        record["url"] = url
+        record["headers"] = headers
+        return _FakeStreamCM(record, "http", ("r", "w", lambda: "sid"))
+
+    monkeypatch.setattr(stdio_mod, "stdio_client", fake_stdio)
+    monkeypatch.setattr(http_mod, "streamablehttp_client", fake_http)
+
+
+def _run_open(m: MCPManager, cfg: MCPServerConfig) -> tuple:
+    """在 manager 的 loop 线程里跑 _open_transport，返回 (read, write)。"""
+    async def _go():
+        async with AsyncExitStack() as stack:
+            return await m._open_transport(stack, cfg)
+    return m._submit(_go(), timeout=5)
+
+
+def test_http_transport_dispatch(monkeypatch):
+    record: dict = {}
+    _patch_transports(monkeypatch, record)
+    m = _mgr({"h": MCPServerConfig(type="http", url="https://x/mcp")})
+    rw = _run_open(m, m._config.servers["h"])
+    assert record["kind"] == "http"  # 走 http 工厂
+    assert rw == ("r", "w")  # 丢弃 get_session_id，只留 read/write
+    m.close()
+
+
+def test_stdio_transport_dispatch(monkeypatch):
+    record: dict = {}
+    _patch_transports(monkeypatch, record)
+    m = _mgr({"s": MCPServerConfig(type="stdio", command="npx")})
+    rw = _run_open(m, m._config.servers["s"])
+    assert record["kind"] == "stdio" and rw == ("r", "w")
+    m.close()
+
+
+def test_http_headers_interpolated(monkeypatch):
+    monkeypatch.setenv("TOK", "secret123")
+    record: dict = {}
+    _patch_transports(monkeypatch, record)
+    cfg = MCPServerConfig(type="http", url="https://x/mcp",
+                          headers={"Authorization": "Bearer ${TOK}"})
+    m = _mgr({"h": cfg})
+    _run_open(m, cfg)
+    assert record["headers"]["Authorization"] == "Bearer secret123"  # ${VAR} 注入
+    m.close()
+
+
+def test_http_reconnect_no_replay(monkeypatch):
+    """途中断线：call_tool 抛异常 → 转 error，绝不自动重发（副作用不重复）。"""
+    calls = {"n": 0}
+
+    def exploding(*_a):
+        calls["n"] += 1
+        raise ConnectionError("stream reset mid-call")
+
+    tool = _tool(exploding, auto_approve=True, server="h", raw="write_file")
+    res = tool.run({"path": "x"}, ToolContext())
+    assert res.is_error and "调用失败" in res.output
+    assert calls["n"] == 1  # 只调一次，绝无自动重试

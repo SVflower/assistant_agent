@@ -81,7 +81,8 @@ mcp:
   max_total_tools: 60
   # server 名 → 连接设置。默认无 server（下面是示例，需自备命令，取消注释启用）。
   servers: {}
-  #   playwright:
+  #   playwright:                         # —— stdio（本地子进程）——
+  #     type: stdio                       # 默认即 stdio，可省
   #     command: npx                      # 启动命令（需已装 Node/npx）
   #     args: ["-y", "@playwright/mcp@latest"]
   #     env: {}                           # 值支持 ${VAR} 从环境插值，密钥不落配置
@@ -91,3 +92,10 @@ mcp:
   #     max_tools: 40                     # 该 server 工具数上限
   #     include_tools: []                 # 白名单；空=全部（再受上限约束）
   #     exclude_tools: []                 # 黑名单
+  #   remote_api:                         # —— http（远程 Streamable HTTP）——
+  #     type: http
+  #     url: "https://mcp.example.com/mcp"
+  #     headers:                          # 值支持 ${VAR} 插值，token 从环境注入不落配置
+  #       Authorization: "Bearer ${MCP_TOKEN}"
+  #     auto_approve: false               # 远程工具尤其建议保持确认
+  #     timeout: 30                       # session/协议头/重连由 SDK 代管；调用不自动重放

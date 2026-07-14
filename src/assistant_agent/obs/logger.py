@@ -104,6 +104,13 @@ class NullLogger:
         output: str,
         approval_wait_ms: int | None = None,
         truncated: bool = False,
+        wall_duration_ms: int | None = None,
+        execution_duration_ms: int | None = None,
+        returned_output_len: int | None = None,
+    ) -> None: ...
+
+    def budget_exhausted(
+        self, *, reason: str, limit: int, used: int, skipped_calls: int
     ) -> None: ...
 
     def confirm(self, *, category: str, decision: str, remembered: bool) -> None: ...
@@ -172,13 +179,22 @@ class EventLogger(NullLogger):
         output: str,
         approval_wait_ms: int | None = None,
         truncated: bool = False,
+        wall_duration_ms: int | None = None,
+        execution_duration_ms: int | None = None,
+        returned_output_len: int | None = None,
     ) -> None:
+        execution_ms = duration_ms if execution_duration_ms is None else execution_duration_ms
         event: dict[str, Any] = {
             "type": "tool_call",
             "tool": name,
-            "duration_ms": duration_ms,
+            "duration_ms": execution_ms,
+            "execution_duration_ms": execution_ms,
+            "wall_duration_ms": wall_duration_ms if wall_duration_ms is not None else duration_ms,
             "status": status,
             "output_len": len(output),
+            "returned_output_len": (
+                len(output) if returned_output_len is None else returned_output_len
+            ),
         }
         # 仅在确实等过用户确认时才记录，避免给绝大多数工具调用增噪。
         if approval_wait_ms is not None:
@@ -190,6 +206,17 @@ class EventLogger(NullLogger):
             event["args"] = _sanitize_args(args, self._max_chars)
             event["output"] = _truncate(_redact_str(output), self._max_chars)
         self._write(event)
+
+    def budget_exhausted(self, *, reason: str, limit: int, used: int, skipped_calls: int) -> None:
+        self._write(
+            {
+                "type": "budget_exhausted",
+                "reason": reason,
+                "limit": limit,
+                "used": used,
+                "skipped_calls": skipped_calls,
+            }
+        )
 
     def confirm(self, *, category: str, decision: str, remembered: bool) -> None:
         self._write(

@@ -6,7 +6,7 @@ import time
 from typing import Any
 
 from assistant_agent.tools.ask import AskUserTool
-from assistant_agent.tools.base import Tool, ToolContext, ToolResult
+from assistant_agent.tools.base import Tool, ToolBudget, ToolContext, ToolResult
 from assistant_agent.tools.file_ops import (
     EditFileTool,
     ListDirTool,
@@ -17,6 +17,76 @@ from assistant_agent.tools.file_ops import (
 from assistant_agent.tools.git import GitTool
 from assistant_agent.tools.search import CodeSearchTool
 from assistant_agent.tools.shell import ShellTool
+
+_TRUNCATION_SUFFIX = "\n…（输出已截断，可缩小范围重试）"
+
+
+def _truncate_output(output: str, limit: int) -> str:
+    """把输出限制在 limit 内，且截断标记本身也计入限制。"""
+    if limit <= 0:
+        return ""
+    if len(output) <= limit:
+        return output
+    if limit <= len(_TRUNCATION_SUFFIX):
+        return _TRUNCATION_SUFFIX[:limit]
+    return output[: limit - len(_TRUNCATION_SUFFIX)] + _TRUNCATION_SUFFIX
+
+
+def _budget_error(reason: str, budget: ToolBudget) -> ToolResult:
+    if reason == "max_tool_calls":
+        message = (
+            "未执行工具：任务工具调用预算已耗尽"
+            f"（{budget.used_calls}/{budget.max_calls}）。"
+            "请缩小任务范围或提高 agent.max_tool_calls。"
+        )
+    else:
+        message = (
+            "未执行工具：任务累计工具输出预算已耗尽"
+            f"（{budget.used_output_chars}/{budget.max_total_output_chars} 字符）。"
+            "请缩小任务范围或提高 agent.max_total_tool_output_chars。"
+        )
+    return ToolResult(
+        output=message,
+        is_error=True,
+        budget_exhausted=reason,
+        executed=False,
+    )
+
+
+def _limit_result_output(result: ToolResult, ctx: ToolContext) -> tuple[ToolResult, str, bool]:
+    """应用单次/累计输出限制，并返回（新结果、原始输出、是否截断）。"""
+    original_output = result.output
+    limits = [limit for limit in (ctx.max_output_chars,) if limit > 0]
+    remaining = ctx.budget.remaining_output_chars() if ctx.budget is not None else None
+    if remaining is not None:
+        limits.append(remaining)
+    effective_limit = min(limits) if limits else None
+    truncated = effective_limit is not None and len(original_output) > effective_limit
+    returned_output = (
+        _truncate_output(original_output, effective_limit) if truncated else original_output
+    )
+
+    budget_exhausted = result.budget_exhausted
+    if (
+        truncated
+        and remaining is not None
+        and effective_limit == remaining
+        and len(original_output) > remaining
+    ):
+        budget_exhausted = "max_total_tool_output_chars"
+    if ctx.budget is not None:
+        ctx.budget.consume_output(len(returned_output))
+
+    return (
+        ToolResult(
+            output=returned_output,
+            is_error=result.is_error,
+            budget_exhausted=budget_exhausted,
+            executed=result.executed,
+        ),
+        original_output,
+        truncated,
+    )
 
 
 class ToolRegistry:
@@ -47,39 +117,40 @@ class ToolRegistry:
 
         执行前后计时，把工具调用作为结构化事件写入 ctx.logger（默认 NullLogger 无副作用）。
         """
+        if ctx.budget is not None:
+            exhausted = ctx.budget.try_consume_call()
+            if exhausted is not None:
+                return _budget_error(exhausted, ctx.budget)
+
         tool = self._tools.get(name)
         if tool is None:
-            return ToolResult.error(f"未知工具：{name}。可用工具：{', '.join(self.names())}")
-        ctx._last_approval_wait_ms = None  # 清历史值，只认本次执行期间产生的等待
+            result = ToolResult.error(f"未知工具：{name}。可用工具：{', '.join(self.names())}")
+            limited, _, _ = _limit_result_output(result, ctx)
+            return limited
+        ctx.reset_approval_wait()
         start = time.perf_counter()
         try:
             result = tool.run(args, ctx)
         except Exception as exc:  # 工具实现的兜底，绝不让循环崩
             result = ToolResult.error(f"工具 {name} 执行异常：{exc}")
-        elapsed_ms = int((time.perf_counter() - start) * 1000)
-        # 若本次执行中途等过用户确认，从总耗时里剥离，duration_ms 只反映实际执行。
-        approval_wait_ms = ctx._last_approval_wait_ms
-        ctx._last_approval_wait_ms = None  # 用后即清，绝不残留到下一次工具调用
-        duration_ms = elapsed_ms - approval_wait_ms if approval_wait_ms else elapsed_ms
+        wall_duration_ms = int((time.perf_counter() - start) * 1000)
+        approval_wait_ms = ctx.consume_approval_wait()
+        execution_duration_ms = max(wall_duration_ms - approval_wait_ms, 0)
 
-        # 单次输出截断：防单个大输出吞噬本地模型上下文。截断前先记原始长度到审计。
-        limit = ctx.max_tool_output_chars
-        truncated = limit > 0 and len(result.output) > limit
+        result, original_output, truncated = _limit_result_output(result, ctx)
+
         ctx.logger.tool_call(
             name=name,
             args=args,
-            duration_ms=max(duration_ms, 0),
+            duration_ms=execution_duration_ms,
             status="error" if result.is_error else "ok",
-            output=result.output,  # 传原始输出，output_len 记原始长度
-            approval_wait_ms=approval_wait_ms,
+            output=original_output,
+            approval_wait_ms=approval_wait_ms or None,
             truncated=truncated,
+            wall_duration_ms=wall_duration_ms,
+            execution_duration_ms=execution_duration_ms,
+            returned_output_len=len(result.output),
         )
-        if truncated:
-            dropped = len(result.output) - limit
-            result = ToolResult(
-                output=result.output[:limit] + f"\n…（已截断 {dropped} 字符，可缩小范围重试）",
-                is_error=result.is_error,
-            )
         return result
 
 

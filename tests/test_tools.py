@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import os
+import shlex
+
 from assistant_agent.tools.base import ToolContext, ToolResult
 from assistant_agent.tools.file_ops import (
     EditFileTool,
@@ -16,6 +19,12 @@ from assistant_agent.tools.shell import ShellTool, _decode, is_dangerous
 
 def _ctx(**kwargs) -> ToolContext:
     return ToolContext(**kwargs)
+
+
+def _delete_command(path) -> str:
+    if os.name == "nt":
+        return f'del /Q "{path}"'
+    return f"rm -f {shlex.quote(str(path))}"
 
 
 # ---- file_ops ----
@@ -238,7 +247,7 @@ def test_shell_dangerous_allowed_when_confirmed(tmp_path):
     target = tmp_path / "to_delete.txt"
     target.write_text("x", encoding="utf-8")
     result = ShellTool().run(
-        {"command": f"rm {target}"},
+        {"command": _delete_command(target)},
         _ctx(confirm_dangerous_shell=True, confirm=lambda _msg: "allow"),
     )
     assert not result.is_error
@@ -258,8 +267,8 @@ def test_shell_always_allow_skips_second_prompt(tmp_path):
     f2 = tmp_path / "b.txt"
     f1.write_text("x", encoding="utf-8")
     f2.write_text("x", encoding="utf-8")
-    ShellTool().run({"command": f"rm {f1}"}, ctx)
-    ShellTool().run({"command": f"rm {f2}"}, ctx)
+    ShellTool().run({"command": _delete_command(f1)}, ctx)
+    ShellTool().run({"command": _delete_command(f2)}, ctx)
     # 只在第一次询问过，第二次因 always 记忆而跳过
     assert calls["n"] == 1
     assert not f1.exists()
@@ -271,10 +280,11 @@ def test_shell_confirm_disabled_runs_dangerous(tmp_path):
     target = tmp_path / "del.txt"
     target.write_text("x", encoding="utf-8")
     result = ShellTool().run(
-        {"command": f"rm {target}"},
+        {"command": _delete_command(target)},
         _ctx(confirm_dangerous_shell=False),
     )
     assert not result.is_error
+    assert not target.exists()
 
 
 def test_shell_interactive_command_does_not_hang():

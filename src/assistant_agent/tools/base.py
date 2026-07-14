@@ -22,6 +22,37 @@ NO_USER_AVAILABLE = "当前非交互环境，无用户应答；请基于最合�
 
 
 @dataclass
+class ToolBudget:
+    """一次 Agent 任务的工具资源预算。0 表示对应输出上限不启用。"""
+
+    max_calls: int
+    max_total_output_chars: int = 0
+    used_calls: int = 0
+    used_output_chars: int = 0
+
+    def try_consume_call(self) -> str | None:
+        """消费一次调用额度；不可执行时返回稳定的耗尽原因。"""
+        if self.used_calls >= self.max_calls:
+            return "max_tool_calls"
+        if (
+            self.max_total_output_chars > 0
+            and self.used_output_chars >= self.max_total_output_chars
+        ):
+            return "max_total_tool_output_chars"
+        self.used_calls += 1
+        return None
+
+    def remaining_output_chars(self) -> int | None:
+        """返回累计输出剩余额度；None 表示不限制。"""
+        if self.max_total_output_chars == 0:
+            return None
+        return max(self.max_total_output_chars - self.used_output_chars, 0)
+
+    def consume_output(self, chars: int) -> None:
+        self.used_output_chars += max(chars, 0)
+
+
+@dataclass
 class ToolContext:
     """工具执行时可用的运行时上下文。
 
@@ -43,18 +74,27 @@ class ToolContext:
     workspace_root: Path = field(default_factory=lambda: Path.cwd().resolve())
     # 事件日志器（可观测/审计）。默认 NullLogger（零副作用）；main 注入真正的 EventLogger。
     logger: NullLogger = field(default_factory=NullLogger)
-    # 单个工具输出写入上下文的最大字符数（0=不截断）。防单个大输出吞噬本地模型上下文。
-    max_tool_output_chars: int = 0
-    # 一次性字段：上次 request_confirm 等待用户应答的墙钟毫秒（无确认时为 None）。
-    # registry.execute 读取后立即清零，用于把"等人时间"从工具执行耗时里剥离。
-    _last_approval_wait_ms: int | None = None
+    # 单个工具输出写入上下文的最大字符数（0=不截断）。
+    max_output_chars: int = 0
+    # 当前任务预算；由 AgentLoop 在每次 run() 开始时安装，结束时恢复。
+    budget: ToolBudget | None = None
+    # 当前工具执行内确认回调的累计等待时间。
+    _approval_wait_ms: int = 0
+
+    def reset_approval_wait(self) -> None:
+        self._approval_wait_ms = 0
+
+    def consume_approval_wait(self) -> int:
+        value = self._approval_wait_ms
+        self._approval_wait_ms = 0
+        return value
 
     def request_confirm(self, category: str, message: str) -> bool:
         """请求某类危险操作的确认，返回是否放行。
 
         统一处理"永远允许"记忆：某类别一旦被选为 always，本会话内同类不再询问。
         工具只需调用本方法，不直接接触多选逻辑。授权决策写入审计日志。
-        测量确认回调墙钟耗时到 _last_approval_wait_ms，供 registry 从执行耗时中剥离。
+        确认回调墙钟耗时会累加，供 registry 从完整耗时中剥离。
         """
         if category in self.always_allowed:
             # 命中永久允许：未真正询问用户，不计等待时间。
@@ -62,7 +102,7 @@ class ToolContext:
             return True
         start = time.perf_counter()
         choice = self.confirm(message)
-        self._last_approval_wait_ms = int((time.perf_counter() - start) * 1000)
+        self._approval_wait_ms += int((time.perf_counter() - start) * 1000)
         if choice == "always":
             self.always_allowed.add(category)
             self.logger.confirm(category=category, decision="always", remembered=False)
@@ -77,6 +117,8 @@ class ToolResult:
 
     output: str
     is_error: bool = False
+    budget_exhausted: str | None = None
+    executed: bool = True
 
     @classmethod
     def ok(cls, output: str) -> ToolResult:

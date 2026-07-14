@@ -72,8 +72,6 @@ python -m assistant_agent
 - **技术债登记册** `docs/TECH_DEBT.md`：新债即时登记，每次里程碑评审更新，防隐形复利。
 - **覆盖率** `pytest --cov`：不设强制门槛，但关键路径（流式碎片拼接、confirm 解析）低覆盖要显形并补测。
 
-> **进行中的护栏/运行时改造以 [docs/quality-guardrails-final-plan.md](docs/quality-guardrails-final-plan.md) 为唯一执行依据**（它已合并 Codex 原案与评审结论，取代 `docs/quality-guardrails-plan.md`）。Claude 与 Codex 都读这一份，避免各按旧稿动手冲突。
-
 ## 里程碑完成定义（DoD）
 
 每个里程碑退出前必须全部满足：
@@ -87,8 +85,8 @@ python -m assistant_agent
 
 **第一阶段（MVP→M5）全部完成**，第二阶段进行中。里程碑详情见 ROADMAP.md。
 - 第一阶段：配置/模型抽象/工具/ReAct 循环/CLI，加流式输出、会话持久化、工具集扩展（edit/multi_edit/code_search/git 只读）、模型切换、循环工程与写入安全、slash 命令、init 向导，全部落地。
-- **第二阶段 M6 已完成**：结构化日志与工具审计（新增 `obs/` 层，JSONL 事件 + 权限决策留痕，内核未动）。
+- **第二阶段 M6/M6.5 已完成**：结构化日志与工具审计；任务级工具调用/累计输出预算与批次协议完整终止。
 - 双后端实测通过：云端 DeepSeek + 本地 LM Studio，切换只改 `config.yaml`，业务代码零改动。
-- 155 个测试通过，ruff 全绿。
+- 179 个测试通过，ruff 全绿。
 
 下一步：M7（skill / MCP client 最小可用）或 M8（摘要压缩替代硬截断），见 ROADMAP.md。

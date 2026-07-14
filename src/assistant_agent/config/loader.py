@@ -42,6 +42,25 @@ def _expand_env_recursive(obj: object) -> object:
     return obj
 
 
+def _migrate_legacy_fields(raw: dict[object, object]) -> dict[object, object]:
+    """迁移仍在本地配置中的旧字段，不把兼容字段留进公共 schema。"""
+    migrated = dict(raw)
+    agent_raw = migrated.get("agent")
+    tools_raw = migrated.get("tools")
+    agent = dict(agent_raw) if isinstance(agent_raw, dict) else {}
+    tools = dict(tools_raw) if isinstance(tools_raw, dict) else {}
+
+    legacy_output_limit = agent.pop("max_tool_output_chars", None)
+    if legacy_output_limit is not None and "max_output_chars" not in tools:
+        tools["max_output_chars"] = legacy_output_limit
+
+    if isinstance(agent_raw, dict) or agent:
+        migrated["agent"] = agent
+    if isinstance(tools_raw, dict) or tools:
+        migrated["tools"] = tools
+    return migrated
+
+
 def find_config_file(start: Path | None = None) -> Path | None:
     """从指定目录（默认 cwd）向上查找 config.yaml。"""
     current = (start or Path.cwd()).resolve()
@@ -81,7 +100,7 @@ def load_config(path: str | Path | None = None) -> AppConfig:
     if not isinstance(raw, dict):
         raise ConfigError(f"配置根节点必须是映射（{config_path}）。")
 
-    expanded = _expand_env_recursive(raw)
+    expanded = _expand_env_recursive(_migrate_legacy_fields(raw))
 
     try:
         return AppConfig.model_validate(expanded)

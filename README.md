@@ -62,6 +62,10 @@ assistant-agent run "..." --config /path/to/config.yaml
 
 会话存于项目下 `./.assistant_agent/sessions/`（已 gitignore）。
 
+运行时边界由配置控制：`agent.max_tool_calls` 限制单任务工具调用总数，
+`agent.max_total_tool_output_chars` 限制累计工具结果，`tools.max_output_chars`
+限制单次工具结果。预算耗尽时 Agent 会补齐当前工具批次的结果并安全终止。
+
 ## 开发
 
 ```bash

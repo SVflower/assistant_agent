@@ -108,32 +108,70 @@ logging:
     assert config.logging.max_payload_chars == 100
 
 
-def test_max_tool_output_chars_default(tmp_path):
-    """未配置时用默认 8000。"""
+def test_runtime_budget_defaults(tmp_path):
     config = load_config(_write(tmp_path, _VALID_YAML))
-    assert config.agent.max_tool_output_chars == 8000
+    assert config.tools.max_output_chars == 4000
+    assert config.agent.max_tool_calls == 50
+    assert config.agent.max_total_tool_output_chars == 50_000
 
 
-def test_max_tool_output_chars_override(tmp_path):
+def test_runtime_budget_override(tmp_path):
     yaml_text = (
         _VALID_YAML
         + """
 agent:
-  max_tool_output_chars: 500
+  max_tool_calls: 7
+  max_total_tool_output_chars: 9000
+tools:
+  max_output_chars: 500
 """
     )
     config = load_config(_write(tmp_path, yaml_text))
-    assert config.agent.max_tool_output_chars == 500
+    assert config.tools.max_output_chars == 500
+    assert config.agent.max_tool_calls == 7
+    assert config.agent.max_total_tool_output_chars == 9000
 
 
-def test_max_tool_output_chars_rejects_negative(tmp_path):
-    """下界 ge=0：负值应被拒（load_config 把校验错包装为 ConfigError）。"""
+def test_runtime_budget_rejects_invalid_values(tmp_path):
     yaml_text = (
         _VALID_YAML
         + """
 agent:
-  max_tool_output_chars: -1
+  max_tool_calls: 0
+tools:
+  max_output_chars: -1
 """
     )
     with pytest.raises(ConfigError):
         load_config(_write(tmp_path, yaml_text))
+
+
+def test_legacy_tool_output_limit_migrates(tmp_path):
+    config = load_config(
+        _write(
+            tmp_path,
+            _VALID_YAML
+            + """
+agent:
+  max_tool_output_chars: 600
+""",
+        )
+    )
+    assert config.tools.max_output_chars == 600
+    assert not hasattr(config.agent, "max_tool_output_chars")
+
+
+def test_new_tool_output_limit_wins_over_legacy(tmp_path):
+    config = load_config(
+        _write(
+            tmp_path,
+            _VALID_YAML
+            + """
+agent:
+  max_tool_output_chars: 600
+tools:
+  max_output_chars: 700
+""",
+        )
+    )
+    assert config.tools.max_output_chars == 700

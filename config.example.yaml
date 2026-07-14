@@ -38,16 +38,24 @@ providers:
     max_tokens: 4096
 
 agent:
-  # 单个任务最多允许多少轮工具调用，防止跑飞
+  # 单个任务最多允许多少轮模型调用，防止跑飞
   max_iterations: 25
+  # 单任务最多执行多少个工具调用（跨轮累计）
+  max_tool_calls: 50
+  # 单任务写入上下文的工具结果累计字符上限；0=不限制
+  max_total_tool_output_chars: 50000
   # 上下文里保留的最大消息数（超过则做长度感知截断）
   max_history_messages: 40
+  # 上下文 token 预算；本地小模型应按实际窗口下调
+  max_context_tokens: 8000
 
 tools:
   # 危险 shell 操作（删除/覆盖/移动等）执行前是否要求用户确认
   confirm_dangerous_shell: true
   # shell 命令超时（秒）
   shell_timeout: 60
+  # 单个工具结果返回 UI/上下文的最大字符数；0=不截断
+  max_output_chars: 4000
 
 logging:
   # 结构化事件日志与工具审计。日志只落本地，随 .assistant_agent/ gitignore 不入库。

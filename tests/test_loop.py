@@ -7,8 +7,9 @@ from collections.abc import Iterator
 from assistant_agent.agent.loop import AgentLoop
 from assistant_agent.config.schema import AppConfig
 from assistant_agent.llm.client import StreamEvent, ToolCall
-from assistant_agent.tools.base import ToolContext
-from assistant_agent.tools.registry import build_default_registry
+from assistant_agent.obs import NullLogger
+from assistant_agent.tools.base import Tool, ToolContext, ToolResult
+from assistant_agent.tools.registry import ToolRegistry, build_default_registry
 
 
 class FakeStreamClient:
@@ -27,6 +28,21 @@ class FakeStreamClient:
         yield from events
 
 
+class _SpyLogger(NullLogger):
+    def __init__(self) -> None:
+        self.budget_events: list[dict] = []
+
+    def budget_exhausted(self, *, reason: str, limit: int, used: int, skipped_calls: int) -> None:
+        self.budget_events.append(
+            {
+                "reason": reason,
+                "limit": limit,
+                "used": used,
+                "skipped_calls": skipped_calls,
+            }
+        )
+
+
 def _text_round(text: str) -> list[StreamEvent]:
     """一轮纯文本回复（拆成两个 content 增量，验证拼接）。"""
     mid = len(text) // 2
@@ -41,12 +57,25 @@ def _tool_round(call: ToolCall) -> list[StreamEvent]:
     return [StreamEvent(kind="tool_calls", tool_calls=[call])]
 
 
-def _config(max_iterations: int = 25) -> AppConfig:
+def _tools_round(*calls: ToolCall) -> list[StreamEvent]:
+    return [StreamEvent(kind="tool_calls", tool_calls=list(calls))]
+
+
+def _config(
+    max_iterations: int = 25,
+    *,
+    max_tool_calls: int = 50,
+    max_total_tool_output_chars: int = 50_000,
+) -> AppConfig:
     return AppConfig.model_validate(
         {
             "active": "test",
             "providers": {"test": {"model": "openai/fake"}},
-            "agent": {"max_iterations": max_iterations},
+            "agent": {
+                "max_iterations": max_iterations,
+                "max_tool_calls": max_tool_calls,
+                "max_total_tool_output_chars": max_total_tool_output_chars,
+            },
         }
     )
 
@@ -287,3 +316,158 @@ def test_set_client_preserves_history():
     assert any("第二个问题" in str(m.get("content")) for m in after)
 
 
+def test_tool_call_budget_completes_batch_without_orphans():
+    calls = [
+        ToolCall(id=f"c{i}", name="list_dir", arguments={"path": f"missing-{i}"}) for i in range(3)
+    ]
+    client = FakeStreamClient([_tools_round(*calls)])
+    loop = _loop(client, _config(max_tool_calls=2))
+
+    events = list(loop.run("批量调用"))
+
+    results = [event for event in events if event.kind == "tool_result"]
+    assert len(results) == 3
+    assert results[-1].is_error
+    assert "工具调用预算已耗尽" in results[-1].text
+    assert events[-1].kind == "error"
+    assert client.calls == 1
+
+    history = loop.export_history()
+    assistant_calls = next(message["tool_calls"] for message in history if "tool_calls" in message)
+    tool_messages = [message for message in history if message["role"] == "tool"]
+    assert len(assistant_calls) == len(tool_messages) == 3
+    assert {call["id"] for call in assistant_calls} == {
+        message["tool_call_id"] for message in tool_messages
+    }
+
+
+def test_tool_call_budget_emits_audit_event():
+    calls = [
+        ToolCall(id=f"c{i}", name="list_dir", arguments={"path": f"missing-{i}"}) for i in range(3)
+    ]
+    logger = _SpyLogger()
+    loop = AgentLoop(
+        _config(max_tool_calls=1),
+        FakeStreamClient([_tools_round(*calls)]),
+        build_default_registry(),
+        ToolContext(logger=logger),
+    )
+
+    list(loop.run("批量调用"))
+
+    assert logger.budget_events == [
+        {"reason": "max_tool_calls", "limit": 1, "used": 1, "skipped_calls": 2}
+    ]
+
+
+def test_tool_call_budget_accumulates_across_rounds():
+    rounds = [
+        _tool_round(ToolCall(id=f"c{i}", name="list_dir", arguments={"path": f"d{i}"}))
+        for i in range(3)
+    ]
+    client = FakeStreamClient(rounds)
+    events = list(_loop(client, _config(max_tool_calls=2)).run("跨轮调用"))
+
+    assert events[-1].kind == "error"
+    assert "工具调用预算已耗尽" in [e.text for e in events if e.kind == "tool_result"][-1]
+    assert client.calls == 3
+
+
+class _FixedOutputTool(Tool):
+    name = "fixed_output"
+    description = "test"
+
+    @property
+    def parameters(self) -> dict:
+        return {"type": "object", "properties": {}}
+
+    def run(self, args: dict, ctx: ToolContext) -> ToolResult:
+        return ToolResult.ok("x" * 100)
+
+
+def test_total_output_budget_truncates_then_stops():
+    registry = ToolRegistry()
+    registry.register(_FixedOutputTool())
+    client = FakeStreamClient([_tool_round(ToolCall(id="c1", name="fixed_output", arguments={}))])
+    ctx = ToolContext(max_output_chars=1000)
+    loop = AgentLoop(
+        _config(max_total_tool_output_chars=40),
+        client,
+        registry,
+        ctx,
+    )
+
+    events = list(loop.run("大输出"))
+
+    result = next(event for event in events if event.kind == "tool_result")
+    assert len(result.text) == 40
+    assert "输出已截断" in result.text
+    assert events[-1].kind == "error"
+    assert client.calls == 1
+    assert ctx.budget is None
+
+
+def test_total_output_budget_completes_remaining_batch_results():
+    registry = ToolRegistry()
+    registry.register(_FixedOutputTool())
+    client = FakeStreamClient(
+        [
+            _tools_round(
+                ToolCall(id="c1", name="fixed_output", arguments={}),
+                ToolCall(id="c2", name="fixed_output", arguments={}),
+            )
+        ]
+    )
+    loop = AgentLoop(
+        _config(max_total_tool_output_chars=40),
+        client,
+        registry,
+        ToolContext(max_output_chars=1000),
+    )
+
+    events = list(loop.run("批量大输出"))
+
+    results = [event for event in events if event.kind == "tool_result"]
+    assert len(results) == 2
+    assert len(results[0].text) == 40
+    assert "累计工具输出预算已耗尽" in results[1].text
+    history = loop.export_history()
+    assert len([message for message in history if message["role"] == "tool"]) == 2
+
+
+def test_budget_resets_for_each_run():
+    rounds = [
+        _tool_round(ToolCall(id="c1", name="list_dir", arguments={"path": "a"})),
+        _text_round("第一轮完成"),
+        _tool_round(ToolCall(id="c2", name="list_dir", arguments={"path": "b"})),
+        _text_round("第二轮完成"),
+    ]
+    client = FakeStreamClient(rounds)
+    loop = _loop(client, _config(max_tool_calls=1))
+
+    first = list(loop.run("任务一"))
+    second = list(loop.run("任务二"))
+
+    assert first[-1].kind == "final"
+    assert second[-1].kind == "final"
+    assert client.calls == 4
+
+
+def test_continue_iterations_does_not_reset_tool_budget():
+    rounds = [
+        _tool_round(ToolCall(id="c1", name="list_dir", arguments={"path": "a"})),
+        _tool_round(ToolCall(id="c2", name="list_dir", arguments={"path": "b"})),
+    ]
+    client = FakeStreamClient(rounds)
+    loop = AgentLoop(
+        _config(max_iterations=1, max_tool_calls=1),
+        client,
+        build_default_registry(),
+        ToolContext(),
+        continue_check=lambda _used: True,
+    )
+
+    events = list(loop.run("继续但不扩工具预算"))
+
+    assert events[-1].kind == "error"
+    assert client.calls == 2

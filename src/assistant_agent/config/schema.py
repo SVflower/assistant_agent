@@ -35,10 +35,15 @@ class AgentConfig(BaseModel):
         gt=0,
         description="上下文 token 预算；超出则丢弃最旧消息。本地小模型窗口小，务必按需下调",
     )
-    max_tool_output_chars: int = Field(
-        default=8000,
+    max_tool_calls: int = Field(
+        default=50,
+        gt=0,
+        description="单任务最多允许执行的工具调用数，限制单轮批量调用和跨轮累计",
+    )
+    max_total_tool_output_chars: int = Field(
+        default=50_000,
         ge=0,
-        description="单个工具输出写入上下文的最大字符数，超出截断+标记；0=不截断。本地小模型按需下调",
+        description="单任务写入上下文的工具结果累计字符上限；0=不限制",
     )
 
 
@@ -47,6 +52,11 @@ class ToolsConfig(BaseModel):
 
     confirm_dangerous_shell: bool = Field(default=True, description="危险 shell 操作前是否要求确认")
     shell_timeout: int = Field(default=60, gt=0, description="shell 命令超时（秒）")
+    max_output_chars: int = Field(
+        default=4000,
+        ge=0,
+        description="单个工具结果返回 UI/上下文的最大字符数；0=不截断",
+    )
 
 
 class UIConfig(BaseModel):

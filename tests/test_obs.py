@@ -7,7 +7,7 @@ import time
 from pathlib import Path
 
 from assistant_agent.obs import EventLogger, NullLogger
-from assistant_agent.tools.base import Tool, ToolContext, ToolResult
+from assistant_agent.tools.base import Tool, ToolBudget, ToolContext, ToolResult
 from assistant_agent.tools.registry import ToolRegistry, build_default_registry
 
 
@@ -38,6 +38,9 @@ def test_event_logger_writes_jsonl(tmp_path):
     assert start["type"] == "session_start" and start["provider"] == "p"
     assert call["type"] == "tool_call" and call["tool"] == "read_file"
     assert call["duration_ms"] == 5 and call["status"] == "ok" and call["output_len"] == 2
+    assert call["wall_duration_ms"] == 5
+    assert call["execution_duration_ms"] == 5
+    assert call["returned_output_len"] == 2
 
 
 def test_null_logger_writes_nothing(tmp_path):
@@ -239,8 +242,35 @@ def test_approval_wait_separated_from_duration(tmp_path):
     e = next(x for x in _read_events(tmp_path / "logs") if x["type"] == "tool_call")
     assert e["approval_wait_ms"] >= 40  # 记录了等待（宽松下界，避免 flaky）
     assert e["duration_ms"] < e["approval_wait_ms"]  # 执行耗时已剥离等待
+    assert e["wall_duration_ms"] >= e["approval_wait_ms"]
+    assert e["execution_duration_ms"] == e["duration_ms"]
     # 用后即清，不残留到下次调用
-    assert ctx._last_approval_wait_ms is None
+    assert ctx.consume_approval_wait() == 0
+
+
+class _DoubleConfirmingTool(Tool):
+    name = "double_confirming"
+    description = "test"
+
+    @property
+    def parameters(self) -> dict:
+        return {"type": "object", "properties": {}}
+
+    def run(self, args: dict, ctx: ToolContext) -> ToolResult:
+        ctx.request_confirm("first", "确认 1？")
+        ctx.request_confirm("second", "确认 2？")
+        return ToolResult.ok("done")
+
+
+def test_approval_wait_accumulates_multiple_confirms(tmp_path):
+    def slow_confirm(_m: str) -> str:
+        time.sleep(0.03)
+        return "allow"
+
+    ctx = ToolContext(confirm=slow_confirm, logger=_logger(tmp_path / "logs"))
+    _registry_with(_DoubleConfirmingTool()).execute("double_confirming", {}, ctx)
+    event = next(e for e in _read_events(tmp_path / "logs") if e["type"] == "tool_call")
+    assert event["approval_wait_ms"] >= 50
 
 
 def test_no_confirm_omits_approval_wait(tmp_path):
@@ -270,17 +300,18 @@ class _BigOutputTool(Tool):
 
 def test_output_truncated_when_over_limit(tmp_path):
     """超限：返回给上下文的 output 被截断+标记，日志记原始长度并标 truncated。"""
-    ctx = ToolContext(logger=_logger(tmp_path / "logs"), max_tool_output_chars=10)
+    ctx = ToolContext(logger=_logger(tmp_path / "logs"), max_output_chars=40)
     result = _registry_with(_BigOutputTool()).execute("big", {}, ctx)
-    assert result.output.startswith("x" * 10)
-    assert "已截断 90 字符" in result.output
+    assert len(result.output) == 40
+    assert "输出已截断" in result.output
     e = _read_events(tmp_path / "logs")[0]
     assert e["output_len"] == 100 and e["truncated"] is True
+    assert e["returned_output_len"] == 40
 
 
 def test_output_not_truncated_under_limit(tmp_path):
     """未超限：output 原样，日志不含 truncated。"""
-    ctx = ToolContext(logger=_logger(tmp_path / "logs"), max_tool_output_chars=1000)
+    ctx = ToolContext(logger=_logger(tmp_path / "logs"), max_output_chars=1000)
     result = _registry_with(_BigOutputTool()).execute("big", {}, ctx)
     assert result.output == "x" * 100
     assert "truncated" not in _read_events(tmp_path / "logs")[0]
@@ -288,6 +319,60 @@ def test_output_not_truncated_under_limit(tmp_path):
 
 def test_output_limit_zero_disables_truncation(tmp_path):
     """默认 0：不截断（兼容裸 ToolContext）。"""
-    ctx = ToolContext(logger=_logger(tmp_path / "logs"))  # max_tool_output_chars 默认 0
+    ctx = ToolContext(logger=_logger(tmp_path / "logs"))  # max_output_chars 默认 0
     result = _registry_with(_BigOutputTool()).execute("big", {}, ctx)
     assert result.output == "x" * 100
+
+
+def test_registry_call_budget_blocks_execution(tmp_path):
+    budget = ToolBudget(max_calls=1, max_total_output_chars=1000)
+    ctx = ToolContext(logger=_logger(tmp_path / "logs"), budget=budget)
+    registry = _registry_with(_BigOutputTool())
+
+    assert not registry.execute("big", {}, ctx).is_error
+    blocked = registry.execute("big", {}, ctx)
+
+    assert blocked.is_error
+    assert blocked.budget_exhausted == "max_tool_calls"
+    assert budget.used_calls == 1
+
+
+def test_registry_total_output_budget_truncates_and_exhausts(tmp_path):
+    budget = ToolBudget(max_calls=3, max_total_output_chars=40)
+    ctx = ToolContext(logger=_logger(tmp_path / "logs"), max_output_chars=100, budget=budget)
+    result = _registry_with(_BigOutputTool()).execute("big", {}, ctx)
+
+    assert len(result.output) == 40
+    assert result.budget_exhausted == "max_total_tool_output_chars"
+    assert budget.used_output_chars == 40
+
+
+def test_unknown_tool_consumes_call_budget(tmp_path):
+    budget = ToolBudget(max_calls=1)
+    ctx = ToolContext(logger=_logger(tmp_path / "logs"), budget=budget)
+    result = build_default_registry().execute("missing", {}, ctx)
+
+    assert result.is_error
+    assert budget.used_calls == 1
+    assert budget.used_output_chars == len(result.output)
+
+
+def test_budget_exhausted_event(tmp_path):
+    logger = _logger(tmp_path)
+    logger.budget_exhausted(
+        reason="max_tool_calls",
+        limit=5,
+        used=5,
+        skipped_calls=2,
+    )
+
+    event = _read_events(tmp_path)[0]
+    assert event == {
+        "ts": event["ts"],
+        "session_id": "sid-test",
+        "type": "budget_exhausted",
+        "reason": "max_tool_calls",
+        "limit": 5,
+        "used": 5,
+        "skipped_calls": 2,
+    }

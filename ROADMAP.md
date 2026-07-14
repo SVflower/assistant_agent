@@ -64,11 +64,12 @@
 ### 第二阶段（进行中）
 
 > 总体目标：从"功能完整的单体 agent"走向"**可观测、可扩展、可接生态**的平台"，每步小切口、优先不动内核。
-> 方向评估与路线见 [docs/m6-observability-plan.md](docs/m6-observability-plan.md)（含第二阶段启动评审结论）。
+> 方向评估与路线见 [M6 归档方案](docs/archive/phase2/m6-observability-plan.md)（含第二阶段启动评审结论）。
 
 | 里程碑 | 主题 | 状态 |
 |--------|------|------|
 | M6 | 结构化日志与工具审计（obs 层：JSONL 事件 + 权限决策留痕）| ✅ |
+| M6.5 | 运行时预算与工具协议完整性（单次/累计输出 + 工具调用总数）| ✅ |
 | M7 | 外部生态接入（skill / MCP client 最小可用）| 规划中 |
 | M8 | 上下文进化（摘要压缩替代硬截断）| 规划中 |
 
@@ -323,7 +324,7 @@ Console 流式渲染（Live spinner 与正文时间错开）、show_reasoning �
 
 **解决**：agent 每一步（调什么工具、参数、耗时、成败、危险操作的授权决策）跑完不留痕——不可观测、不可审计，也挡住后续多 Agent/沙箱/生态接入的调试。还清第一阶段"无结构化日志"债。
 
-**已实现**（方案见 docs/m6-observability-plan.md，**内核未动**）：
+**已实现**（方案见 [归档文档](docs/archive/phase2/m6-observability-plan.md)，**内核未动**）：
 - **新增 `obs/` 层（rank 0）**：`EventLogger`（JSONL 按天分卷）+ `NullLogger`（禁用时零副作用）+ `create_logger` 工厂 + 脱敏截断。登记进架构测试 `_LAYER_RANK`，护栏强制"obs 不依赖上层"。
 - **两个落点（皆在内核外）**：`ToolRegistry.execute` 计时 + `tool_call` 事件；`ToolContext.request_confirm` 记 `confirm` 审计（allow/always/deny + 是否命中永久允许记忆）。
 - **会话生命周期**：`main._setup` 构建注入 logger 并记 `session_start`；run/chat 记 `task` 与 `session_end`。
@@ -342,6 +343,24 @@ Console 流式渲染（Live spinner 与正文时间错开）、show_reasoning �
 **顺带**：D7（main.py 逼近 300 行）——本期曾触线 305，以"logger 构建外移到 obs.create_logger"化解回 298。复盘另发现 4 项观测缺口登记为 D8（duration 含确认等待、脱敏不递归、/clear 与 /model 后日志元信息不更新），均非阻断、留信号驱动。债册已更新。
 
 **未做（留后续）**：`/audit` 命令、把 final/error/interrupted 循环结果落日志、日志自动清理、记录完整 LLM prompt/response。
+
+---
+
+## M6.5 — 运行时预算与工具协议完整性 — 已完成 ✅
+
+**解决**：`max_iterations` 只限制模型轮数，无法限制单轮批量工具调用；工具结果也只有单次截断，缺少任务累计边界。预算在批次中途耗尽时，还必须保证每个 assistant tool call 都有对应 result。
+
+**已实现**（方案见 [归档文档](docs/archive/phase2/m6_5-runtime-budget-plan.md)）：
+- `tools.max_output_chars`：单个工具结果上限，旧 `agent.max_tool_output_chars` 自动迁移。
+- `agent.max_tool_calls`：单任务工具调用总数；`agent.max_total_tool_output_chars`：累计工具结果字符预算。
+- `ToolBudget` 状态放在 `ToolContext`，Registry 保持无任务状态；每次 `AgentLoop.run()` 安装独立预算并在结束时恢复。
+- 单轮多工具调用超预算时，未执行调用仍得到明确错误 result；整批补齐后统一终止，不留下悬空 tool call。
+- 审计补齐完整墙钟耗时、确认等待、近似执行耗时、原始/返回输出长度和 `budget_exhausted` 事件。
+- 修复 Windows 测试使用 Unix `rm` 的跨平台基线问题。
+
+**内核改动**：经用户确认，`agent/loop.py` 只增加任务预算生命周期和批次终止逻辑；流式接口、UI/provider 依赖、重复熔断和 continue_check 语义不变。
+
+**验收**：179 测试全绿，Ruff 全绿；关键路径覆盖配置迁移、调用/输出预算、跨轮累计、单轮多调用协议完整性、预算重置、预算审计和迭代续跑不重置预算。本地 LM Studio `/v1/models` 一度可用，但生成请求时服务退出并拒绝连接，因此真实模型三类冒烟未完成，已按外部环境阻塞如实记录。
 
 ## 延后（P3，不进近期路线）
 

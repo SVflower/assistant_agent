@@ -15,7 +15,7 @@ from typing import Any, Literal
 from assistant_agent.agent.context import Conversation
 from assistant_agent.config.schema import AppConfig
 from assistant_agent.llm.client import LLMClient, ToolCall
-from assistant_agent.tools.base import ToolContext
+from assistant_agent.tools.base import ToolBudget, ToolContext
 from assistant_agent.tools.registry import ToolRegistry
 
 # 连续多少轮完全相同的工具调用判定为卡死并熔断。
@@ -97,6 +97,18 @@ class AgentLoop:
         循环终止条件：模型不再请求工具（任务完成）、达到最大轮数、或发生错误。
         每一轮通过 complete_stream 消费增量：思考、正文、工具调用、用量。
         """
+        previous_budget = self._tool_ctx.budget
+        self._tool_ctx.budget = ToolBudget(
+            max_calls=self._config.agent.max_tool_calls,
+            max_total_output_chars=self._config.agent.max_total_tool_output_chars,
+        )
+        try:
+            yield from self._run_task(task)
+        finally:
+            self._tool_ctx.budget = previous_budget
+
+    def _run_task(self, task: str) -> Iterator[StepEvent]:
+        """执行已安装任务预算的循环主体。"""
         self._conversation.add_user(task)
         tool_schemas = self._registry.schemas()
 
@@ -216,6 +228,8 @@ class AgentLoop:
             self._conversation.add_assistant(content or None, tool_calls=raw_tool_calls)
 
             # 依次执行每个工具调用，结果写回历史。
+            exhausted_reason: str | None = None
+            skipped_calls = 0
             for call in tool_calls:
                 yield StepEvent(
                     kind="tool_call",
@@ -223,6 +237,10 @@ class AgentLoop:
                     tool_args=call.arguments,
                 )
                 result = self._registry.execute(call.name, call.arguments, self._tool_ctx)
+                if result.budget_exhausted is not None:
+                    exhausted_reason = exhausted_reason or result.budget_exhausted
+                if not result.executed:
+                    skipped_calls += 1
                 self._conversation.add_tool_result(call.id, call.name, result.output)
                 yield StepEvent(
                     kind="tool_result",
@@ -230,3 +248,28 @@ class AgentLoop:
                     text=result.output,
                     is_error=result.is_error,
                 )
+
+            if exhausted_reason is not None:
+                task_budget = self._tool_ctx.budget
+                if task_budget is not None:
+                    if exhausted_reason == "max_tool_calls":
+                        limit = task_budget.max_calls
+                        used = task_budget.used_calls
+                    else:
+                        limit = task_budget.max_total_output_chars
+                        used = task_budget.used_output_chars
+                    self._tool_ctx.logger.budget_exhausted(
+                        reason=exhausted_reason,
+                        limit=limit,
+                        used=used,
+                        skipped_calls=skipped_calls,
+                    )
+                yield StepEvent(
+                    kind="error",
+                    text=(
+                        "任务工具预算已耗尽，已停止后续执行。"
+                        "请缩小任务范围，或在配置中提高对应的 agent 预算。"
+                    ),
+                    is_error=True,
+                )
+                return

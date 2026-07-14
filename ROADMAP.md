@@ -74,9 +74,15 @@
 | M6 | 结构化日志与工具审计（obs 层：JSONL 事件 + 权限决策留痕）| ✅ |
 | M6.5 | 运行时预算与工具协议完整性（单次/累计输出 + 工具调用总数）| ✅ |
 | M7a | Agent Skills 系统（SKILL.md 发现 + 渐进披露 + load_skill）| ✅ |
-| M7b | MCP client（stdio + 同步桥 + 命名空间）| 规划中 |
-| M7c | MCP Streamable HTTP transport | 规划中 |
-| M8 | 上下文进化（摘要压缩替代硬截断）| 规划中 |
+| M7b | MCP client（stdio + 同步桥 + 命名空间 + 权限/过滤/Runtime）| 评审已修订 · [方案](docs/m7b-mcp-plan.md) |
+| M8a | 上下文预算口径（计入 tools schema + reserved，还 D10）| 评审新增 · [方案](docs/m8a-context-budget-plan.md) |
+| M8b | 上下文进化（摘要压缩 + 双历史模型）| 评审已修订 · [方案](docs/m8b-context-compaction-plan.md) |
+| M7c | MCP Streamable HTTP transport（重连不重放）| 待稳定后细化 · [方案](docs/m7c-mcp-http-plan.md) |
+
+> **推荐顺序（评审结论）**：M7b（stdio，前置补齐权限/过滤/Runtime）→ M8a（预算口径）→ M8b（摘要压缩）
+> → M7c（等远程真实需求 + 稳定 SDK/规范，不必紧跟）。评审的 3 阻断 + 4 设计问题已并入各方案：
+> MCP 工具须主动确认（category 按 server+tool）、工具过滤/schema 上限防撑爆、HTTP 重连不重放、
+> M8 双历史模型 + 摘要 token 独立计、M7c 协议头交 SDK、M7b 直接还 D7。
 
 ## 未来方向（P3，信号驱动，暂不做）
 

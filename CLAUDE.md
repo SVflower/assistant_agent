@@ -90,4 +90,4 @@ python -m assistant_agent
 - 双后端实测通过：云端 DeepSeek + 本地 LM Studio，切换只改 `config.yaml`，业务代码零改动。
 - 194 个测试通过，ruff 全绿。
 
-下一步：M7b（MCP client stdio 最小可用）或 M8（摘要压缩替代硬截断），见 ROADMAP.md。
+下一步（评审后顺序）：M7b（MCP stdio）→ M8a（上下文预算口径，还 D10）→ M8b（摘要压缩）→ M7c（HTTP，待稳定）。计划见 docs/m7b-mcp-plan.md、m8a-context-budget-plan.md、m8b-context-compaction-plan.md、m7c-mcp-http-plan.md 与 ROADMAP.md。

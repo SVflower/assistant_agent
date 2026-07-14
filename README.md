@@ -1,6 +1,6 @@
 # Assistant Agent
 
-一个跑在本地、**模型后端可自由切换**（云端 API / 本地 LM Studio / vLLM）的通用任务 Agent，编码能力优先。
+一个跑在本地、**模型后端可自由切换**（云端 OpenAI 兼容 / Anthropic，本地 LM Studio / Ollama / vLLM）的通用任务 Agent，编码能力优先。
 
 核心卖点：换模型只改 `config.yaml`，业务代码零改动。
 
@@ -127,14 +127,17 @@ ruff format . && ruff check .   # 格式化 + lint
 
 ```
 config/   配置加载与校验（Pydantic + YAML）
-cli/      CLI 层：slash 命令系统（/help /model 等）+ init 配置向导
+cli/      CLI 层：slash 命令系统（/help /model 等）+ init 配置向导 + Runtime 生命周期
 llm/      模型抽象层（封装 LiteLLM，统一云端/本地）
 tools/    工具系统（base/registry + 内置：读/写/局部编辑/多处编辑/列目录/shell/代码检索/git 只读/澄清）
-session/  会话持久化（JSON 存档，跨会话续接）
-agent/    ReAct 主循环 + 上下文管理 + 提示词
-ui/       终端输入输出（Rich）
+session/  会话持久化（JSON 存档，跨会话续接 + 摘要 checkpoint）
+skills/   Agent Skills（SKILL.md 发现 + 渐进披露 + load_skill）
+mcp/      MCP client（stdio + HTTP transport 接外部工具生态，同步桥 + 命名空间）
+obs/      结构化 JSONL 事件日志与工具审计（尽力脱敏，禁用零副作用）
+agent/    ReAct 主循环 + 上下文管理（token 感知截断 + 摘要压缩）+ 提示词
+ui/       终端输入输出（Rich 流式渲染）
 ```
 
-扩展点：换模型动 `config.yaml`；加能力优先在 `tools/` 加文件并在 `registry.py` 注册——内核 `agent/loop.py` 通常不必动（确需演进时先确认）。
+扩展点：换模型动 `config.yaml`；加能力优先在 `tools/` 加文件并在 `registry.py` 注册，或接 `skills/`（SKILL.md）与 `mcp/`（外部 server）——内核 `agent/loop.py` 通常不必动（确需演进时先确认）。
 
 详见 [DESIGN.md](DESIGN.md)。

@@ -35,7 +35,7 @@ python -m assistant_agent --help   # 或模块方式
 |------|------|------|
 | Windows 原生（PowerShell / Windows Terminal） | ✅ 已验证 | 主要开发平台 |
 | Windows Git Bash / mintty | ✅ 已验证 | 交互菜单自动降级为编号输入（见下） |
-| WSL2（Ubuntu 26.04, Python 3.14） | ✅ 已验证 | 119 测试通过；原生 UTF-8，体验最顺 |
+| WSL2（Ubuntu 26.04, Python 3.14） | ✅ 已验证 | 全测试通过；原生 UTF-8，体验最顺 |
 | Linux（原生） | 未验证·高置信 | 依赖有 manylinux wheel；WSL2 已间接佐证 |
 | macOS（含 Apple Silicon） | 未验证·高置信 | arm64 wheel 齐全 |
 | Termux / Android ARM | 不支持（非目标） | 原生依赖 wheel 可能缺失，需现场编译；本项目不针对此平台 |

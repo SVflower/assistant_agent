@@ -103,7 +103,7 @@ D14（统一权限与信任边界）；D16 纳入 M10a。详见
 |--------|------|------|
 | M9a | 硬正确性与工程基线 | ✅ · [方案](docs/archive/phase3/m9a-hard-correctness-plan.md) |
 | M9b | 统一权限与信任边界 | ✅ · [方案](docs/archive/phase3/m9b-permission-boundary-plan.md) |
-| M9c | Agent 行为 Eval 与 CI 质量闭环 | 总规划就绪，待细化 |
+| M9c | Agent 行为 Eval 与 CI 质量闭环 | [详细方案待审阅](docs/m9c-agent-evals-plan.md) |
 | M10a | 工具契约与大文件/大输出工程 | 总规划就绪，待细化 |
 | M10b | 步骤级 Checkpoint 与可恢复执行 | 总规划就绪，待细化 |
 | M10c | 异步与可取消运行时 | 决策门，非阶段退出条件 |

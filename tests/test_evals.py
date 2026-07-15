@@ -10,7 +10,13 @@ from pydantic import ValidationError
 
 from evals import runner
 from evals.cli import main
-from evals.loader import EvalLoadError, confined_path, load_cases, safe_relative_path
+from evals.loader import (
+    EvalLoadError,
+    confined_path,
+    fixture_workspace,
+    load_cases,
+    safe_relative_path,
+)
 from evals.report import build_metadata, compare_reports, read_report, write_report
 from evals.runner import run_cases
 from evals.schema import (
@@ -90,6 +96,24 @@ def test_loader_rejects_duplicate_ids_and_path_escape(tmp_path):
             safe_relative_path(value)
 
 
+def test_generated_fixture_streams_numbered_lines_and_rejects_overlap(tmp_path):
+    case = _case(
+        fixture={"generated_files": {"large.txt": {"lines": 3, "template": "item-{line}\n"}}}
+    )
+    with fixture_workspace(case) as root:
+        assert (root / "large.txt").read_text(encoding="utf-8") == ("item-1\nitem-2\nitem-3\n")
+
+    duplicate = tmp_path / "duplicate.yaml"
+    duplicate.write_text(
+        "id: duplicate\ntitle: duplicate\ntask: x\n"
+        "fixture:\n  files: {same.txt: x}\n"
+        "  generated_files:\n    same.txt: {lines: 1}\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(EvalLoadError, match="重复声明"):
+        load_cases(duplicate)
+
+
 def test_confined_path_rejects_symlink_escape(tmp_path):
     outside = tmp_path / "outside"
     root = tmp_path / "root"
@@ -152,6 +176,31 @@ def test_trajectory_modes(tmp_path, mode, actual, expected, passes):
     )
     trajectory = next(check for check in checks if check.code == "trajectory")
     assert trajectory.passed is passes
+
+
+def test_trajectory_can_assert_tool_result(tmp_path):
+    case = _case(
+        expect={
+            "expected_calls": [
+                {
+                    "name": "read_file",
+                    "output_contains": ["wanted"],
+                    "output_not_contains": ["secret"],
+                    "is_error": False,
+                }
+            ]
+        }
+    )
+    calls = [TraceCall(name="read_file", arguments={}, output="wanted", is_error=False)]
+    checks = score_case(
+        case,
+        workspace=tmp_path,
+        outcome="success",
+        final="",
+        calls=calls,
+        permission_denials=0,
+    )
+    assert all(check.passed for check in checks)
 
 
 def test_file_scorer_checks_content(tmp_path):

@@ -201,6 +201,8 @@ def build_runtime(
             ask=console.ask_question,
             logger=logger,
             max_output_chars=config.tools.max_output_chars,
+            max_captured_output_chars=config.tools.max_captured_output_chars,
+            max_artifact_files=config.tools.max_artifact_files,
             permission_policy=_build_permission_policy(config),
             interactive=interactive,
         )

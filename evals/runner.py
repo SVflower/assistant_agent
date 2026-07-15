@@ -5,6 +5,9 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import shlex
+import subprocess
+import sys
 import time
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -72,6 +75,25 @@ def _working_directory(path: Path) -> Iterator[None]:
 def _sha(value: Any) -> str:
     payload = json.dumps(value, sort_keys=True, ensure_ascii=False, default=str)
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
+
+
+def _expand_runtime_tokens(case: EvalCase) -> EvalCase:
+    python = (
+        subprocess.list2cmdline([sys.executable])
+        if os.name == "nt"
+        else shlex.quote(sys.executable)
+    )
+
+    def expand(value: Any) -> Any:
+        if isinstance(value, str):
+            return value.replace("${PYTHON}", python)
+        if isinstance(value, list):
+            return [expand(item) for item in value]
+        if isinstance(value, dict):
+            return {key: expand(item) for key, item in value.items()}
+        return value
+
+    return EvalCase.model_validate(expand(case.model_dump()))
 
 
 def _policy(case: EvalCase, workspace: Path) -> PermissionPolicy:
@@ -176,6 +198,7 @@ def _run_one(
     skill_store: SkillStore | None,
     mcp_tools: list[MCPTool],
 ) -> CaseResult:
+    case = _expand_runtime_tokens(case)
     with fixture_workspace(case) as root, _working_directory(root):
         config = _config(case, base_config)
         if provider is not None:
@@ -205,6 +228,8 @@ def _run_one(
             confirm=confirmation,
             interactive=mode == "scripted",
             max_output_chars=config.tools.max_output_chars,
+            max_captured_output_chars=config.tools.max_captured_output_chars,
+            max_artifact_files=config.tools.max_artifact_files,
         )
         client = (
             ScriptedClient(case.script) if mode == "scripted" else LLMClient(config.active_provider)

@@ -4,7 +4,10 @@ from __future__ import annotations
 
 import copy
 import time
+from dataclasses import replace
 from typing import Any
+
+from jsonschema import Draft202012Validator
 
 from assistant_agent.tools.ask import AskUserTool
 from assistant_agent.tools.base import Tool, ToolBudget, ToolContext, ToolResult
@@ -18,6 +21,7 @@ from assistant_agent.tools.file_ops import (
 from assistant_agent.tools.git import GitTool
 from assistant_agent.tools.search import CodeSearchTool
 from assistant_agent.tools.shell import ShellTool
+from assistant_agent.tools.validation import build_validator, validate_arguments
 
 _TRUNCATION_SUFFIX = "\n…（输出已截断，可缩小范围重试）"
 
@@ -49,6 +53,8 @@ def _budget_error(reason: str, budget: ToolBudget) -> ToolResult:
     return ToolResult(
         output=message,
         is_error=True,
+        code="budget_exhausted",
+        retryable=True,
         budget_exhausted=reason,
         executed=False,
     )
@@ -81,12 +87,7 @@ def _limit_result_output(result: ToolResult, ctx: ToolContext) -> tuple[ToolResu
         ctx.budget.consume_output(len(returned_output))
 
     return (
-        ToolResult(
-            output=returned_output,
-            is_error=result.is_error,
-            budget_exhausted=budget_exhausted,
-            executed=result.executed,
-        ),
+        replace(result, output=returned_output, budget_exhausted=budget_exhausted),
         original_output,
         truncated,
     )
@@ -118,18 +119,40 @@ def _finish_denied(
     return limited
 
 
+def _finish_preflight_error(
+    name: str, args: dict[str, Any], result: ToolResult, ctx: ToolContext
+) -> ToolResult:
+    """记录未进入权限/副作用阶段的 schema 或工具查找错误。"""
+    limited, original_output, truncated = _limit_result_output(result, ctx)
+    ctx.logger.tool_call(
+        name=name,
+        args=args,
+        duration_ms=0,
+        status="error",
+        output=original_output,
+        truncated=truncated,
+        wall_duration_ms=0,
+        execution_duration_ms=0,
+        returned_output_len=len(limited.output),
+    )
+    return limited
+
+
 class ToolRegistry:
     """工具集合。负责注册、按名查找、生成给模型的 schema、执行调用。"""
 
     def __init__(self) -> None:
         self._tools: dict[str, Tool] = {}
+        self._validators: dict[str, Draft202012Validator] = {}
 
     def register(self, tool: Tool) -> None:
         if not tool.name:
             raise ValueError(f"工具缺少 name：{tool!r}")
         if tool.name in self._tools:
             raise ValueError(f"工具名重复：{tool.name}")
+        validator = build_validator(tool.name, tool.parameters)
         self._tools[tool.name] = tool
+        self._validators[tool.name] = validator
 
     def get(self, name: str) -> Tool | None:
         return self._tools.get(name)
@@ -148,9 +171,25 @@ class ToolRegistry:
         """
         tool = self._tools.get(name)
         if tool is None:
-            result = ToolResult.error(f"未知工具：{name}。可用工具：{', '.join(self.names())}")
+            result = ToolResult.error(
+                f"未知工具：{name}。可用工具：{', '.join(self.names())}",
+                code="unknown_tool",
+                retryable=True,
+                executed=False,
+            )
             limited, _, _ = _limit_result_output(result, ctx)
             return limited
+        validation_error = validate_arguments(self._validators[name], args)
+        if validation_error is not None:
+            message, metadata = validation_error
+            result = ToolResult.error(
+                message,
+                code="invalid_arguments",
+                retryable=True,
+                metadata=metadata,
+                executed=False,
+            )
+            return _finish_preflight_error(name, args, result, ctx)
         ctx.reset_approval_wait()
         start = time.perf_counter()
         try:
@@ -163,6 +202,7 @@ class ToolRegistry:
                     result = ToolResult(
                         output=f"[permission_denied] 权限拒绝：{reason}",
                         is_error=True,
+                        code="permission_denied",
                         executed=False,
                     )
                     return _finish_denied(name, args, result, ctx, start)
@@ -170,6 +210,7 @@ class ToolRegistry:
             result = ToolResult(
                 output=f"[permission_denied] 权限检查失败，已拒绝执行：{exc}",
                 is_error=True,
+                code="permission_check_failed",
                 executed=False,
             )
             return _finish_denied(name, args, result, ctx, start)
@@ -178,6 +219,7 @@ class ToolRegistry:
             result = ToolResult(
                 output="[permission_denied] 权限拒绝：工具动作未获授权",
                 is_error=True,
+                code="permission_denied",
                 executed=False,
             )
             return _finish_denied(name, args, result, ctx, start)
@@ -190,7 +232,7 @@ class ToolRegistry:
         try:
             result = tool.run(args, ctx)
         except Exception as exc:  # 工具实现的兜底，绝不让循环崩
-            result = ToolResult.error(f"工具 {name} 执行异常：{exc}")
+            result = ToolResult.error(f"工具 {name} 执行异常：{exc}", code="tool_exception")
         wall_duration_ms = int((time.perf_counter() - start) * 1000)
         approval_wait_ms = ctx.consume_approval_wait()
         execution_duration_ms = max(wall_duration_ms - approval_wait_ms, 0)

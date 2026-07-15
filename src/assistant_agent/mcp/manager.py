@@ -17,6 +17,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from assistant_agent.mcp.tool import MCPTool
+from assistant_agent.tools.validation import ToolSchemaError, build_validator
 
 if TYPE_CHECKING:
     from assistant_agent.config.schema import MCPConfig, MCPServerConfig
@@ -204,6 +205,12 @@ class MCPManager:
                 continue
             if raw_name in exclude:
                 continue
+            input_schema = raw.inputSchema or {"type": "object", "properties": {}}
+            try:
+                build_validator(f"mcp__{name}__{raw_name}", input_schema)
+            except ToolSchemaError as exc:
+                self.warnings.append(f"MCP 工具 {name}/{raw_name} schema 无效，已跳过：{exc}")
+                continue
             if len(out) >= cfg.max_tools:
                 self.warnings.append(f"server {name} 达工具上限 {cfg.max_tools}，其余丢弃")
                 break
@@ -226,10 +233,11 @@ class MCPManager:
                     registered_name=registered,
                     raw_tool=raw_name,
                     description=raw.description or "",
-                    input_schema=raw.inputSchema or {"type": "object", "properties": {}},
+                    input_schema=input_schema,
                     caller=self._call_tool,
                     timeout=float(cfg.timeout),
                     auto_approve=cfg.auto_approve,
+                    output_schema=getattr(raw, "outputSchema", None),
                 )
             )
         return out

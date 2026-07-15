@@ -10,6 +10,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 from collections.abc import Callable
 from typing import Any
@@ -25,8 +26,8 @@ Caller = Callable[[str, str, dict[str, Any], float], Any]
 _MAX_DESC = 1024
 
 
-def extract_content(result: Any) -> tuple[str, bool]:
-    """从 CallToolResult 形态对象提取 (文本, is_error)。纯函数，便于单测。
+def extract_result(result: Any) -> tuple[str, bool, Any | None]:
+    """提取模型文本、错误标志和 structuredContent。纯函数，便于单测。
 
     只拼 text 块；非 text 块给占位。isError 缺省视为 False。
     """
@@ -37,7 +38,17 @@ def extract_content(result: Any) -> tuple[str, bool]:
             parts.append(getattr(item, "text", ""))
         else:
             parts.append(f"[非文本内容：{getattr(item, 'type', '未知')}，已省略]")
+    structured = getattr(result, "structuredContent", None)
+    if structured is not None:
+        structured_text = json.dumps(structured, ensure_ascii=False, sort_keys=True, default=str)
+        parts.append(f"structuredContent:\n{structured_text}")
     text = "\n".join(parts) if parts else "(无内容)"
+    return text, is_error, structured
+
+
+def extract_content(result: Any) -> tuple[str, bool]:
+    """兼容入口：返回旧的 (文本, is_error) 二元组。"""
+    text, is_error, _structured = extract_result(result)
     return text, is_error
 
 
@@ -55,6 +66,7 @@ class MCPTool(Tool):
         caller: Caller,
         timeout: float,
         auto_approve: bool,
+        output_schema: dict[str, Any] | None = None,
     ) -> None:
         self._server = server
         self.name = registered_name
@@ -64,6 +76,7 @@ class MCPTool(Tool):
         self._caller = caller
         self._timeout = timeout
         self._auto_approve = auto_approve
+        self._output_schema = output_schema
 
     @property
     def parameters(self) -> dict[str, Any]:
@@ -74,12 +87,30 @@ class MCPTool(Tool):
         try:
             result = self._caller(self._server, self._raw_tool, args, self._timeout)
         except TimeoutError:
-            return ToolResult.error(f"MCP 工具 {self.name} 调用超时（>{self._timeout}s）")
+            return ToolResult.error(
+                f"MCP 工具 {self.name} 调用超时（>{self._timeout}s）",
+                code="timeout",
+                retryable=True,
+            )
         except Exception as exc:  # 协议/连接错误 = 我方通道
-            return ToolResult.error(f"MCP 工具 {self.name} 调用失败：{exc}")
-        text, is_error = extract_content(result)
+            return ToolResult.error(
+                f"MCP 工具 {self.name} 调用失败：{exc}",
+                code="mcp_transport_error",
+                retryable=True,
+            )
+        text, is_error, structured = extract_result(result)
+        metadata: dict[str, Any] = {}
+        if structured is not None:
+            metadata["structured_content"] = structured
+        if self._output_schema is not None:
+            payload = json.dumps(
+                self._output_schema, ensure_ascii=False, sort_keys=True, default=str
+            )
+            metadata["output_schema_hash"] = hashlib.sha256(payload.encode()).hexdigest()[:16]
         # 工具执行错误：isError=True，文本回喂模型让它换做法。
-        return ToolResult(output=text, is_error=is_error)
+        if is_error:
+            return ToolResult.error(text, code="mcp_tool_error", retryable=True, metadata=metadata)
+        return ToolResult.ok(text, metadata=metadata)
 
     def permission_requests(
         self, args: dict[str, Any], ctx: ToolContext

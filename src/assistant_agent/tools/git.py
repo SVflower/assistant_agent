@@ -9,12 +9,11 @@
 from __future__ import annotations
 
 import shlex
-import subprocess
 from typing import Any
 
 from assistant_agent.tools.base import Tool, ToolContext, ToolResult
 from assistant_agent.tools.permissions import PermissionRequest
-from assistant_agent.tools.shell import _decode
+from assistant_agent.tools.process import format_process_result, run_bounded_process
 from assistant_agent.tools.shell_policy import shell_permission_requests
 
 # 只读子命令白名单
@@ -68,28 +67,38 @@ class GitTool(Tool):
         # 关闭分页器，否则非交互环境可能卡住
         cmd = ["git", "--no-pager", subcommand, *extra]
         try:
-            completed = subprocess.run(
+            completed = run_bounded_process(
                 cmd,
-                capture_output=True,
-                stdin=subprocess.DEVNULL,
+                shell=False,
                 timeout=ctx.shell_timeout,
+                max_stream_chars=ctx.max_captured_output_chars,
             )
         except FileNotFoundError:
-            return ToolResult.error("未找到 git，可执行文件不在 PATH 中")
-        except subprocess.TimeoutExpired:
-            return ToolResult.error(f"git 命令超时（>{ctx.shell_timeout}s）")
+            return ToolResult.error(
+                "未找到 git，可执行文件不在 PATH 中",
+                code="process_start_failed",
+                retryable=True,
+            )
         except OSError as exc:
-            return ToolResult.error(f"无法执行 git：{exc}")
+            return ToolResult.error(
+                f"无法执行 git：{exc}", code="process_start_failed", retryable=True
+            )
 
-        stdout = _decode(completed.stdout)
-        stderr = _decode(completed.stderr)
-        parts: list[str] = [f"退出码：{completed.returncode}"]
-        if stdout:
-            parts.append(f"stdout:\n{stdout.rstrip()}")
-        if stderr:
-            parts.append(f"stderr:\n{stderr.rstrip()}")
+        if completed.timed_out:
+            return ToolResult.error(
+                f"git 命令超时（>{ctx.shell_timeout}s）",
+                code="timeout",
+                retryable=True,
+                metadata={"timed_out": True},
+            )
+        output, artifacts, metadata = format_process_result(
+            completed,
+            artifact_writer=ctx.write_artifact,
+            artifact_prefix="git-output",
+            inline_limit=ctx.max_output_chars,
+        )
         # 非零退出（如非 git 仓库）不当工具错误，交模型判断
-        return ToolResult.ok("\n".join(parts))
+        return ToolResult.ok(output, metadata=metadata, artifacts=artifacts)
 
     def permission_requests(
         self, args: dict[str, Any], ctx: ToolContext

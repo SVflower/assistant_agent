@@ -2,7 +2,7 @@
 
 > AI 迭代开发中，债务会隐形复利（LLM 在每个决策点埋入未言明的假设）。
 > 这里显式追踪，防止"上次说的债"下次忘。每次里程碑评审更新本表。
-> 最后更新：2026-07-15（M9c 完成；还清 D9，第三阶段规划见
+> 最后更新：2026-07-15（M10a 完成；还清 D16，新增 D18；第三阶段规划见
 > [可信执行与质量闭环](phase3-trustworthy-agent-plan.md)。）
 
 ## 状态说明
@@ -25,8 +25,9 @@
 | D13 | ~~**上下文预算不是最终硬保证**~~ ✅ 已还清（M9a） | `agent/token_budget.py`、`agent/context.py` | ✅ | 最终封套出口强制 `used <= window`；超大用户输入在 provider 调用前稳定拒绝，摘要受硬上限并为最新任务让位；估算器可替换且失败回退保守口径 | 258 测试基线覆盖超大消息、摘要、坏 checkpoint 与不调用 client |
 | D14 | ~~**权限边界可被 Shell/区外读取绕过**~~ ✅ 已还清（M9b） | `tools/permissions.py`、`tools/policy.py`、`tools/registry.py` | ✅ | Registry 在预算与 Tool.run 前强制统一门控；文件/进程/网络/MCP/Skill capability 独立决策；未知 Tool 默认 ask；Shell 仅证明极小只读集合，其余保守声明广泛能力；区外读写和敏感目录受控；提示词/banner 明确无 OS 沙箱 | 281 测试覆盖优先级、非交互拒绝、精确会话授权、observer fail-closed、Shell/Git 绕过、Skill/MCP 信任与脱敏 |
 | D15 | ~~**会话存储与 Runtime 失败清理不够安全**~~ ✅ 已还清（M9a） | `session/store.py`、`mcp/manager.py`、`cli/setup.py` | ✅ | Session ID 校验 + confinement；同目录临时文件、fsync、`os.replace` 原子保存；MCP initialize 与 Runtime 构造失败逆序清理 | 故障注入测试验证旧文件保留、partial stack/MCP/logger 关闭 |
-| D16 | **工具 I/O 不适合大文件与无界输出** | `tools/file_ops.py`、`tools/shell.py`、`tools/git.py` | 🟡 | read_file 无范围分页；截断后无法缩小范围重试；Shell/Git 先完整 capture 再截断，极端输出可先占满内存；文件写入非磁盘原子 | M10a：范围读取、artifact/分页、来源端限量、原子文件写、统一参数校验与结构化错误 |
+| D16 | ~~**工具 I/O 不适合大文件与无界输出**~~ ✅ 已还清（M10a） | `tools/`、`mcp/tool.py` | ✅ | 运行时 JSON Schema 校验；范围读取与流式搜索；Shell/Git 双流有界捕获和受限 Artifact；write/edit/multi_edit 同目录原子替换并保持换行/权限；MCP structuredContent 保真；`file_ops.py` 拆为兼容 facade | 335 测试与 18 个 deterministic eval 覆盖 10 万行中段读取、坏参数恢复、双 PIPE 压力、Artifact、原子写故障和结构化 MCP 结果；方案见 [归档计划](archive/phase3/m10a-tool-contract-plan.md) |
 | D17 | ~~**模型切换后的运行状态不一致**~~ ✅ 已还清（M9a） | `agent/loop.py`、`cli/commands.py`、`session/store.py` | ✅ | 默认 Compactor 跟随新 client，固定摘要 provider 不变；Session 元数据与 `model_switch` 审计同步；resume 明确沿用当前配置 | M9a 回归测试覆盖 |
+| D18 | **Shell 超时未终止完整子进程树** | `tools/process.py` | 🟡 | timeout 会 kill/wait 直接 `Popen` 进程，但 `shell=True` 命令派生的子进程可能继续存活；当前不应宣称具备进程树级取消 | 纳入 M10c 可取消运行时决策：Windows Job Object / POSIX process group 需跨平台故障测试后再实现 |
 
 ## 已还清（保留记录）
 - **任务级工具资源无边界** → M6.5 增加单次输出、累计输出、工具调用总数预算；多 tool-call 批次补齐结果后终止。✅ 2026-07-14

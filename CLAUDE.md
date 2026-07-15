@@ -84,14 +84,15 @@ python -m assistant_agent
 
 ## 当前状态
 
-**第一、第二阶段已完成，第三阶段实施中（M9a/M9b/M9c 已完成）**。里程碑详情见 ROADMAP.md。
+**第一、第二阶段已完成，第三阶段实施中（M9a/M9b/M9c/M10a 已完成）**。里程碑详情见 ROADMAP.md。
 - 第一阶段：配置/模型抽象/工具/ReAct 循环/CLI，加流式输出、会话持久化、工具集扩展（edit/multi_edit/code_search/git 只读）、模型切换、循环工程与写入安全、slash 命令、init 向导，全部落地。
 - **第二阶段 M6/M6.5/M7a/M7b/M7c/M8a/M8b 已完成**：结构化日志与工具审计；任务级工具调用/累计输出预算与批次协议完整终止；Agent Skills 系统（SKILL.md 发现 + 渐进披露 + load_skill）；MCP client（stdio + HTTP 两种 transport）——外部 server 工具接入 + 同步桥 + 命名空间 + 每工具确认 + 过滤/上限 + HTTP 委托 SDK 管 session/重连不重放 + cli/setup.py Runtime，还清 D7；上下文进化——M8a 预算口径计入 tools schema + reserved（还 D10），M8b 摘要压缩替代硬截断（双历史 + checkpoint 持久化 + 按轮分组 + 降级兜底，默认关闭时逐字节等于现状）。
 - 双后端实测通过：云端 DeepSeek + 本地 LM Studio，切换只改 `config.yaml`，业务代码零改动。
 - M9a 已完成：上下文最终硬封套、Session 路径限制与原子保存、Runtime/MCP 失败回滚、模型切换一致性、CI 与 mypy 基线。
 - M9b 已完成：Registry 统一权限门、四种权限模式、精确授权、Shell 保守能力分析、Skill/MCP 信任边界与 observer。
 - M9c 已完成：scripted/real 双轨行为 eval、14 个确定性案例、可解释 scorer、JSONL/Markdown 报告、A/B compare 与 CI 质量门。
-- 303 个测试通过（1 个符号链接测试因当前 Windows 权限跳过），覆盖率 74%，ruff/mypy 全绿；4699 行生产 Python 源码 + 1123 行 eval 基础设施。
+- M10a 已完成：统一工具参数校验与结构化结果；大文件分页/流式搜索；Shell/Git 有界捕获与受限 Artifact；文件原子写；MCP structuredContent 保真。
+- 335 个测试通过（2 个平台能力测试跳过），覆盖率 76%，ruff/mypy 全绿；6286 行生产 Python 源码 + 1328 行 eval 基础设施。
 
-第三阶段总规划见 `docs/phase3-trustworthy-agent-plan.md`；M9a/M9b/M9c 方案已归档到 `docs/archive/phase3/`，
-还清 D9/D13/D14/D15/D17。下一里程碑为 M10a“工具契约与大文件/大输出工程”，开工前按工作流细化方案。
+第三阶段总规划见 `docs/phase3-trustworthy-agent-plan.md`；M9a/M9b/M9c/M10a 方案已归档到 `docs/archive/phase3/`，
+还清 D9/D13/D14/D15/D16/D17。下一里程碑为 M10b“步骤级 Checkpoint 与可恢复执行”，开工前须细化方案并单独确认内核改动。

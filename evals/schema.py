@@ -13,8 +13,14 @@ class StrictModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+class GeneratedFileSpec(StrictModel):
+    lines: int = Field(gt=0, le=100_000)
+    template: str = Field(default="line-{line}\n", max_length=1_000)
+
+
 class FixtureSpec(StrictModel):
     files: dict[str, str] = Field(default_factory=dict)
+    generated_files: dict[str, GeneratedFileSpec] = Field(default_factory=dict)
 
 
 class EvalPermissionRule(StrictModel):
@@ -92,6 +98,9 @@ class FileExpectation(StrictModel):
 class ExpectedToolCall(StrictModel):
     name: str
     arguments: dict[str, Any] | None = None
+    output_contains: list[str] = Field(default_factory=list)
+    output_not_contains: list[str] = Field(default_factory=list)
+    is_error: bool | None = None
 
 
 class EvalExpectation(StrictModel):

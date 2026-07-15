@@ -21,6 +21,7 @@ from assistant_agent.tools.permissions import (
     PermissionScope,
 )
 from assistant_agent.tools.policy import PermissionPolicy
+from assistant_agent.tools.result import ArtifactRef, ToolResult
 
 # 确认结果：允许一次 / 本会话永远允许这类 / 拒绝。
 ConfirmChoice = Literal["allow", "always", "deny"]
@@ -90,6 +91,11 @@ class ToolContext:
     post_tool_observers: list[PostToolUseObserver] = field(default_factory=list)
     # 单个工具输出写入上下文的最大字符数（0=不截断）。
     max_output_chars: int = 0
+    # 每个进程 stdout/stderr 在内存中保留的最大字符数；超限继续 drain 但丢弃中间内容。
+    max_captured_output_chars: int = 1_000_000
+    # workspace 内 artifact 最多保留文件数。
+    max_artifact_files: int = 100
+    artifact_store: Any | None = None
     # 当前任务预算；由 AgentLoop 在每次 run() 开始时安装，结束时恢复。
     budget: ToolBudget | None = None
     # 当前工具执行内确认回调的累计等待时间。
@@ -97,6 +103,17 @@ class ToolContext:
 
     def reset_approval_wait(self) -> None:
         self._approval_wait_ms = 0
+
+    def write_artifact(self, content: str, *, prefix: str, complete: bool = True) -> ArtifactRef:
+        if self.artifact_store is None:
+            from assistant_agent.tools.artifacts import ArtifactStore
+
+            self.artifact_store = ArtifactStore(
+                self.workspace_root,
+                max_chars=self.max_captured_output_chars,
+                max_files=self.max_artifact_files,
+            )
+        return self.artifact_store.write_text(content, prefix=prefix, complete=complete)
 
     def consume_approval_wait(self) -> int:
         value = self._approval_wait_ms
@@ -193,24 +210,6 @@ class ToolContext:
                 if item.matched_rule is not None
             ],
         )
-
-
-@dataclass
-class ToolResult:
-    """工具执行结果。"""
-
-    output: str
-    is_error: bool = False
-    budget_exhausted: str | None = None
-    executed: bool = True
-
-    @classmethod
-    def ok(cls, output: str) -> ToolResult:
-        return cls(output=output, is_error=False)
-
-    @classmethod
-    def error(cls, message: str) -> ToolResult:
-        return cls(output=message, is_error=True)
 
 
 class Tool(abc.ABC):

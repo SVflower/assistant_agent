@@ -88,6 +88,16 @@ class ToolsConfig(BaseModel):
         ge=0,
         description="单个工具结果返回 UI/上下文的最大字符数；0=不截断",
     )
+    max_captured_output_chars: int = Field(
+        default=1_000_000,
+        gt=0,
+        description="Shell/Git 每个 stdout/stderr 流最多在内存/artifact 保留的字符数",
+    )
+    max_artifact_files: int = Field(
+        default=100,
+        gt=0,
+        description="workspace .assistant_agent/artifacts 内最多保留的工具输出文件数",
+    )
 
 
 class PermissionRuleConfig(BaseModel):

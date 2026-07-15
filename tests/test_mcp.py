@@ -11,16 +11,24 @@ import pytest
 from assistant_agent.config.schema import MCPConfig, MCPServerConfig
 from assistant_agent.mcp import MCPManager, MCPTool, extract_content
 from assistant_agent.mcp.manager import _interpolate_env, _sanitize, _Server
+from assistant_agent.mcp.tool import extract_result
 from assistant_agent.tools.base import ToolContext
 from assistant_agent.tools.registry import ToolRegistry
 
 
 # ---- fake MCP 类型 ----
 class _FakeTool:
-    def __init__(self, name: str, description: str = "desc", schema: dict | None = None) -> None:
+    def __init__(
+        self,
+        name: str,
+        description: str = "desc",
+        schema: dict | None = None,
+        output_schema: dict | None = None,
+    ) -> None:
         self.name = name
         self.description = description
         self.inputSchema = schema or {"type": "object", "properties": {}}
+        self.outputSchema = output_schema
 
 
 class _FakeList:
@@ -35,9 +43,12 @@ class _FakeContent:
 
 
 class _FakeCallResult:
-    def __init__(self, content: list, is_error: bool = False) -> None:
+    def __init__(
+        self, content: list, is_error: bool = False, structured: Any | None = None
+    ) -> None:
         self.content = content
         self.isError = is_error
+        self.structuredContent = structured
 
 
 class _FakeSession:
@@ -92,6 +103,14 @@ def test_extract_content_is_error_flag():
     r = _FakeCallResult([_FakeContent("text", "boom")], is_error=True)
     text, is_error = extract_content(r)
     assert is_error is True and text == "boom"
+
+
+def test_extract_structured_only_is_not_empty():
+    result = _FakeCallResult([], structured={"count": 2, "items": ["a", "b"]})
+    text, is_error, structured = extract_result(result)
+    assert is_error is False
+    assert '"count": 2' in text
+    assert structured == {"count": 2, "items": ["a", "b"]}
 
 
 # ---- MCPTool.run 权限与错误通道 ----
@@ -174,6 +193,26 @@ def test_run_tool_iserror_feeds_back():
     )
     res = tool.run({}, ToolContext())
     assert res.is_error and res.output == "bad args"  # 执行错误回喂模型
+    assert res.code == "mcp_tool_error"
+
+
+def test_run_preserves_structured_content_and_output_schema_hash():
+    tool = MCPTool(
+        server="srv",
+        registered_name="mcp__srv__structured",
+        raw_tool="structured",
+        description="d",
+        input_schema={"type": "object"},
+        output_schema={"type": "object", "properties": {"value": {"type": "integer"}}},
+        caller=lambda *_args: _FakeCallResult([], structured={"value": 42}),
+        timeout=5,
+        auto_approve=True,
+    )
+    result = tool.run({}, ToolContext())
+    assert result.code == "ok"
+    assert result.metadata["structured_content"] == {"value": 42}
+    assert len(result.metadata["output_schema_hash"]) == 16
+    assert "42" in result.output
 
 
 # ---- helper ----
@@ -201,6 +240,16 @@ def test_discover_namespaces_and_registers():
     tools = m._discover("web", m._config.servers["web"], srv, set(), budget=0)
     names = {t.name for t in tools}
     assert names == {"mcp__web__nav", "mcp__web__click"}
+
+
+def test_discover_skips_invalid_external_schema():
+    config = MCPServerConfig(command="x")
+    manager = _mgr({"web": config})
+    invalid = _FakeTool("bad", schema={"type": "not-valid"})
+    server = _inject(manager, "web", _FakeSession([invalid, _FakeTool("good")]))
+    tools = manager._discover("web", config, server, set(), budget=0)
+    assert [tool.name for tool in tools] == ["mcp__web__good"]
+    assert any("schema 无效" in warning for warning in manager.warnings)
 
 
 def test_discover_include_exclude():

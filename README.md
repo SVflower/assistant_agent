@@ -64,7 +64,13 @@ assistant-agent run "..." --config /path/to/config.yaml
 
 运行时边界由配置控制：`agent.max_tool_calls` 限制单任务工具调用总数，
 `agent.max_total_tool_output_chars` 限制累计工具结果，`tools.max_output_chars`
-限制单次工具结果。预算耗尽时 Agent 会补齐当前工具批次的结果并安全终止。
+限制单次工具结果。Shell/Git 在来源端分别限制 stdout/stderr 捕获；超大输出以有上限的
+workspace Artifact 返回，文件数由 `tools.max_artifact_files` 限制。预算耗尽时 Agent 会补齐
+当前工具批次的结果并安全终止。
+
+`read_file` 支持 1-based `start_line`/`end_line` 范围读取并返回总行数与下一页提示；
+`code_search` 支持 `context_lines`。所有工具参数会在授权和副作用前按 JSON Schema 校验，
+错误带稳定 code/retryable；write/edit/multi_edit 使用同目录临时文件和原子替换。
 
 ## 技能（Skills）
 
@@ -166,9 +172,9 @@ ui/       终端输入输出（Rich 流式渲染）
 
 扩展点：换模型动 `config.yaml`；加能力优先在 `tools/` 加文件并在 `registry.py` 注册，或接 `skills/`（SKILL.md）与 `mcp/`（外部 server）——内核 `agent/loop.py` 通常不必动（确需演进时先确认）。
 
-第三阶段“可信执行与质量闭环”实施中：M9a/M9b/M9c 已完成；下一项是 M10a 工具契约与
-大文件/大输出工程。当前 303 个测试通过（1 个符号链接测试因当前 Windows 权限跳过）、
-覆盖率 74%、4699 行生产 Python 源码 + 1123 行 eval 基础设施。详见
+第三阶段“可信执行与质量闭环”实施中：M9a/M9b/M9c/M10a 已完成；下一项是 M10b 步骤级
+Checkpoint 与可恢复执行。当前 335 个测试通过（2 个平台能力测试跳过）、覆盖率 76%、
+6286 行生产 Python 源码 + 1328 行 eval 基础设施。详见
 [第三阶段规划](docs/phase3-trustworthy-agent-plan.md)。
 
 详见 [DESIGN.md](DESIGN.md)。

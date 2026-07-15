@@ -111,6 +111,8 @@ logging:
 def test_runtime_budget_defaults(tmp_path):
     config = load_config(_write(tmp_path, _VALID_YAML))
     assert config.tools.max_output_chars == 4000
+    assert config.tools.max_captured_output_chars == 1_000_000
+    assert config.tools.max_artifact_files == 100
     assert config.agent.max_tool_calls == 50
     assert config.agent.max_total_tool_output_chars == 50_000
 
@@ -124,10 +126,14 @@ agent:
   max_total_tool_output_chars: 9000
 tools:
   max_output_chars: 500
+  max_captured_output_chars: 12000
+  max_artifact_files: 8
 """
     )
     config = load_config(_write(tmp_path, yaml_text))
     assert config.tools.max_output_chars == 500
+    assert config.tools.max_captured_output_chars == 12_000
+    assert config.tools.max_artifact_files == 8
     assert config.agent.max_tool_calls == 7
     assert config.agent.max_total_tool_output_chars == 9000
 
@@ -140,6 +146,8 @@ agent:
   max_tool_calls: 0
 tools:
   max_output_chars: -1
+  max_captured_output_chars: 0
+  max_artifact_files: 0
 """
     )
     with pytest.raises(ConfigError):

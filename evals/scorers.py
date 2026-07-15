@@ -16,8 +16,12 @@ def _check(code: str, passed: bool, success: str, failure: str) -> CheckResult:
 
 
 def _matches(actual: TraceCall, expected: ExpectedToolCall) -> bool:
-    return actual.name == expected.name and (
-        expected.arguments is None or actual.arguments == expected.arguments
+    return (
+        actual.name == expected.name
+        and (expected.arguments is None or actual.arguments == expected.arguments)
+        and (expected.is_error is None or actual.is_error is expected.is_error)
+        and all(needle in actual.output for needle in expected.output_contains)
+        and all(needle not in actual.output for needle in expected.output_not_contains)
     )
 
 

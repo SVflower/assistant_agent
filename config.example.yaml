@@ -65,6 +65,10 @@ tools:
   shell_timeout: 60
   # 单个工具结果返回 UI/上下文的最大字符数；0=不截断
   max_output_chars: 4000
+  # Shell/Git 每个 stdout/stderr 流最多保留的字符数；超限继续排空但不再增长内存
+  max_captured_output_chars: 1000000
+  # 超大工具输出 artifact 在 workspace 内最多保留的文件数
+  max_artifact_files: 100
 
 permissions:
   # 应用层权限策略：readonly / workspace（推荐）/ strict / unrestricted。

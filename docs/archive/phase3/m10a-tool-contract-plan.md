@@ -1,6 +1,6 @@
 # M10a 计划：工具契约与大文件/大输出工程
 
-> 状态：待用户审阅。上位规划见 `docs/phase3-trustworthy-agent-plan.md`。
+> 状态：✅ 已完成（2026-07-15）。上位规划见 `docs/phase3-trustworthy-agent-plan.md`。
 > 本里程碑不修改 `agent/loop.py`。
 
 ## 1. 目标
@@ -244,3 +244,11 @@ adapter 边界立刻投影/截断并建议 server 使用分页/outputSchema。�
 - **分页精确总行数成本**：允许 O(file size) 扫描换取 O(page size) 内存；若性能实测不足再引入索引，不预建缓存。
 - **MCP 无来源端硬限**：明确边界，不宣称 adapter 截断能阻止 SDK 接收大响应；服务端分页仍是根治方案。
 - **范围膨胀**：不做取消/异步/多文件事务；这些分别留给 M10c 或未来需求。
+
+## 16. 完成记录
+
+- P1-P5 全部落地；P6 增至 18 个 deterministic case，覆盖大文件中段、坏参数恢复、搜索上下文、
+  原子编辑和大输出 Artifact。
+- 全量实测：335 passed、2 skipped、覆盖率 76%；Ruff format/check、mypy、架构测试全绿。
+- `file_ops.py` 保留兼容 facade，新增工具文件均低于 300 行软线；未修改 `agent/loop.py`。
+- D16 已还清；新增 D18 记录“超时尚未保证终止完整子进程树”，交 M10c 决策评估。

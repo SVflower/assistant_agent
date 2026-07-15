@@ -68,6 +68,11 @@ def load_cases(path: str | Path) -> list[EvalCase]:
             seen.add(case.id)
             for fixture_path in case.fixture.files:
                 safe_relative_path(fixture_path)
+            for fixture_path in case.fixture.generated_files:
+                safe_relative_path(fixture_path)
+            overlap = set(case.fixture.files) & set(case.fixture.generated_files)
+            if overlap:
+                raise EvalLoadError(f"fixture 文件重复声明：{sorted(overlap)}")
             for expected_path in case.expect.files:
                 safe_relative_path(expected_path)
             cases.append(case)
@@ -82,4 +87,10 @@ def fixture_workspace(case: EvalCase) -> Iterator[Path]:
             target = confined_path(root, relative, label="fixture")
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text(content, encoding="utf-8")
+        for relative, generated in case.fixture.generated_files.items():
+            target = confined_path(root, relative, label="fixture")
+            target.parent.mkdir(parents=True, exist_ok=True)
+            with target.open("w", encoding="utf-8", newline="") as handle:
+                for line in range(1, generated.lines + 1):
+                    handle.write(generated.template.format(line=line))
         yield root

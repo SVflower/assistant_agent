@@ -117,6 +117,29 @@ def test_noninteractive_ask_fails_closed(tmp_path):
     assert not ctx.request_permissions([_request(str(tmp_path / "file.txt"))])
 
 
+def test_permission_prompt_deduplicates_shared_risk(tmp_path):
+    captured = ""
+
+    def confirm(message: str) -> str:
+        nonlocal captured
+        captured = message
+        return "deny"
+
+    requests = [
+        PermissionRequest("shell", Capability.PROCESS_EXECUTE, "cmd", "共享风险"),
+        PermissionRequest("shell", Capability.NETWORK_ACCESS, "unknown", "共享风险"),
+    ]
+    ctx = ToolContext(
+        workspace_root=tmp_path,
+        permission_policy=PermissionPolicy(mode="workspace"),
+        interactive=True,
+        confirm=confirm,
+    )
+    assert not ctx.request_permissions(requests)
+    assert captured.count("共享风险") == 1
+    assert "process.execute" in captured and "network.access" in captured
+
+
 class _EffectTool(Tool):
     name = "effect"
     description = "test"

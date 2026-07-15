@@ -7,6 +7,7 @@ from rich.console import Console as RichConsole
 from assistant_agent.agent.events import StepEvent
 from assistant_agent.tools.display import call_display, result_display, safe_text
 from assistant_agent.tools.result import ToolResult
+from assistant_agent.ui.console import Console
 from assistant_agent.ui.conversation_renderer import ConversationRenderer
 from assistant_agent.ui.markdown_stream import StreamingMarkdownRenderer
 from assistant_agent.ui.tool_renderer import ToolRenderer
@@ -146,6 +147,18 @@ def test_streaming_markdown_sanitizes_split_secret_and_ansi():
     assert "sk-abcdef" not in output and "REDACTED" in output and "\x1b" not in output
 
 
+def test_streaming_markdown_can_discard_non_final_segment():
+    owner = _Owner()
+    renderer = StreamingMarkdownRenderer(
+        owner._console,
+        lambda _live: None,
+        transient=True,
+    )
+    renderer.append("准备调用工具")
+    renderer.finish(commit=False)
+    assert owner.text() == ""
+
+
 def test_conversation_normal_avoids_duplicate_tool_body():
     owner = _Owner()
     args = {"path": "notes.txt"}
@@ -175,6 +188,54 @@ def test_conversation_normal_avoids_duplicate_tool_body():
     assert "完成" in output and "**" not in output
 
 
+def test_conversation_normal_discards_tool_progress_but_commits_final_once():
+    owner = _Owner()
+    args = {"path": "notes.txt"}
+    events = iter(
+        [
+            StepEvent(kind="content_delta", text="我先读取文件。"),
+            StepEvent(
+                kind="tool_call",
+                tool_name="read_file",
+                tool_args=args,
+                display=call_display("read_file", args),
+            ),
+            StepEvent(
+                kind="tool_result",
+                tool_name="read_file",
+                display=result_display(
+                    "read_file",
+                    args,
+                    ToolResult.ok("body", metadata={"start_line": 1, "end_line": 1}),
+                ),
+            ),
+            StepEvent(kind="content_delta", text="最终完成。"),
+            StepEvent(kind="final", text="最终完成。"),
+        ]
+    )
+    ConversationRenderer(owner, "normal", False).render(events)
+    output = owner.text()
+    assert "我先读取文件" not in output
+    assert "回答" in output
+    assert output.count("最终完成") == 1
+
+
+def test_conversation_verbose_keeps_tool_progress_and_usage():
+    owner = _Owner(mode="verbose")
+    events = iter(
+        [
+            StepEvent(kind="content_delta", text="我先读取文件。"),
+            StepEvent(kind="tool_call", tool_name="read_file", tool_args={"path": "a.txt"}),
+            StepEvent(kind="usage", usage={"prompt_tokens": 10, "completion_tokens": 2}),
+            StepEvent(kind="final", text="完成。"),
+        ]
+    )
+    ConversationRenderer(owner, "verbose", False).render(events)
+    output = owner.text()
+    assert "我先读取文件" in output
+    assert "token" in output and "上下文" in output
+
+
 def test_conversation_quiet_only_prints_final_answer():
     owner = _Owner(mode="quiet")
     events = iter(
@@ -187,3 +248,19 @@ def test_conversation_quiet_only_prints_final_answer():
     )
     ConversationRenderer(owner, "quiet", False).render(events)
     assert owner.text().strip() == "最终答案"
+
+
+def test_confirmation_prompt_is_compact_and_defaults_to_deny(monkeypatch):
+    console = Console()
+    console._console = RichConsole(record=True, width=120)
+    monkeypatch.setattr(console, "input", lambda _prompt: "")
+
+    choice = console.confirm(
+        '需要授权：\n- process.execute: del "demo.html"\n风险：进程可能修改文件'
+    )
+
+    output = console._console.export_text()
+    assert choice == "deny"
+    assert "确认执行" in output
+    assert "本会话允许" in output and "拒绝（默认）" in output
+    assert "⚠" not in output

@@ -16,11 +16,30 @@ from assistant_agent.ui.formatting import (
 
 @pytest.mark.parametrize("mode", ["readonly", "workspace", "strict", "unrestricted"])
 def test_banner_discloses_permission_mode_and_no_os_sandbox(mode):
-    console = Console(record=True, width=100)
+    console = Console(record=True, width=160)
     console.print(build_banner("provider", "model", "/workspace", mode))
     output = console.export_text()
     assert mode in output
     assert "无 OS 沙箱" in output
+    assert len(output.splitlines()) == 1
+    assert "/workspace" not in output
+
+
+def test_verbose_banner_discloses_full_runtime_details():
+    console = Console(record=True, width=160)
+    console.print(
+        build_banner(
+            "cloud",
+            "openai/deepseek-v4-pro",
+            "/workspace/project",
+            "workspace",
+            verbose=True,
+        )
+    )
+    output = console.export_text()
+    assert "deepseek-v4-pro" in output
+    assert "provider cloud" in output
+    assert "cwd /workspace/project" in output
 
 
 def test_format_usage_sums_in_out():

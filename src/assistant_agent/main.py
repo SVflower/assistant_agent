@@ -145,7 +145,8 @@ def chat(
                 provider=rt.config.active, model=rt.config.active_provider.model
             )
             store.save(session, [])
-            console.info(f"新会话 {session.id}。输入 / 查看命令，exit/quit 退出。")
+            if console.display_mode == "verbose":
+                console.info(f"新会话 {session.id}。输入 /help 查看命令，exit/quit 退出。")
 
         unfinished = [
             item

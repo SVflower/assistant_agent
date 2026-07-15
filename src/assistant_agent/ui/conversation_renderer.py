@@ -33,6 +33,7 @@ class ConversationRenderer:
         live_active = False
         markdown: StreamingMarkdownRenderer | None = None
         final_streamed = False
+        had_tool = False
         total_in = total_out = last_prompt = 0
         got_usage = False
 
@@ -47,10 +48,10 @@ class ConversationRenderer:
             live_active = False
             bind_live(None)
 
-        def stop_markdown() -> None:
+        def stop_markdown(*, commit: bool = True, label: str = "") -> None:
             nonlocal markdown
             if markdown is not None:
-                markdown.finish()
+                markdown.finish(commit=commit, label=label)
                 markdown = None
             self._owner._at_line_start = True
 
@@ -81,12 +82,17 @@ class ConversationRenderer:
                     stop_live()
                     if self._mode != "quiet":
                         if markdown is None:
-                            markdown = StreamingMarkdownRenderer(self._console, bind_live)
+                            markdown = StreamingMarkdownRenderer(
+                                self._console,
+                                bind_live,
+                                transient=self._mode == "normal",
+                            )
                         markdown.append(event.text)
                     final_streamed = True
                 elif event.kind == "tool_call":
                     stop_live()
-                    stop_markdown()
+                    stop_markdown(commit=self._mode == "verbose")
+                    had_tool = True
                     final_streamed = False
                     label = tool_renderer.call(event)
                     spin(f"{label}…")
@@ -104,25 +110,27 @@ class ConversationRenderer:
                     if self._mode == "quiet":
                         self._console.print(safe_text(event.text, 0, multiline=True), markup=False)
                     elif final_streamed:
-                        stop_markdown()
+                        stop_markdown(label="回答" if had_tool and self._mode == "normal" else "")
                     else:
+                        if had_tool and self._mode == "normal":
+                            self._console.print("回答", style="dim")
                         self._console.print(Markdown(safe_text(event.text, 0, multiline=True)))
                     self._owner._at_line_start = True
                 elif event.kind == "error":
                     stop_live()
-                    stop_markdown()
+                    stop_markdown(commit=self._mode == "verbose")
                     error = safe_text(event.text, 1200, multiline=True)
                     self._console.print(Panel(error, title="错误", border_style="red"))
                     self._owner._at_line_start = True
                 elif event.kind == "interrupted":
                     stop_live()
-                    stop_markdown()
+                    stop_markdown(commit=self._mode == "verbose")
                     interrupted = safe_text(event.text, 800, multiline=True)
                     self._console.print(f"已中断：{interrupted}", style="yellow", markup=False)
                     self._owner._at_line_start = True
                 elif event.kind == "notice" and self._mode != "quiet":
                     stop_live()
-                    stop_markdown()
+                    stop_markdown(commit=self._mode == "verbose")
                     notice = safe_text(event.text, 800, multiline=True)
                     self._console.print(notice, style="dim", markup=False)
                     self._owner._at_line_start = True
@@ -131,8 +139,8 @@ class ConversationRenderer:
             stop_markdown()
 
         if self._mode != "quiet":
-            parts = [f"耗时 {format_elapsed(time.monotonic() - start)}"]
-            if got_usage:
+            parts = [format_elapsed(time.monotonic() - start)]
+            if got_usage and self._mode == "verbose":
                 parts.append(f"token {format_usage(total_in, total_out)}")
                 parts.append(format_context(last_prompt, self._owner._context_limit))
             self._console.print(" · ".join(parts), style="dim")

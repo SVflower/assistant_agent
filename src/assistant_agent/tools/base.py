@@ -180,11 +180,13 @@ class ToolContext:
 
         if before_prompt is not None:
             before_prompt()
-        lines = ["即将执行需要授权的工具动作："]
+        lines = ["需要授权："]
         lines.extend(
-            f"- {request.capability.value}: {request.target}\n  风险：{request.risk}"
-            for request, _decision in asks
+            f"- {request.capability.value}: {request.target}" for request, _decision in asks
         )
+        risks = list(dict.fromkeys(request.risk for request, _decision in asks))
+        if risks:
+            lines.append(f"风险：{'；'.join(risks)}")
         start = time.perf_counter()
         choice = self.confirm("\n".join(lines))
         self._approval_wait_ms += int((time.perf_counter() - start) * 1000)

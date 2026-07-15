@@ -71,8 +71,9 @@ assistant-agent run "..." --max-iterations 30
 assistant-agent run "..." --config /path/to/config.yaml
 ```
 
-CLI 默认使用 `normal`：展示简洁的语义工具轨迹和 Markdown 回答；`verbose` 额外展示有界、脱敏的
-工具参数与结果详情；`quiet` 隐藏过程轨迹，适合脚本消费。可在对话中用
+CLI 默认使用 `normal`：模型生成过程在临时活动区流式显示，工具调用后不留冗余旁白，终端历史只保留
+语义工具轨迹和最终 Markdown 回答；`verbose` 额外保留完整过程及有界、脱敏的工具详情；`quiet`
+隐藏过程轨迹，适合脚本消费。可在对话中用
 `/display normal|verbose|quiet` 临时切换，也可在配置中设置默认值：
 
 ```yaml
@@ -202,8 +203,8 @@ ui/       终端输入输出（Rich 流式渲染）
 
 第三阶段“可信执行与质量闭环”已完成：M9a-M10b 已交付，M10c 决定暂不进行全栈 async 重构，
 D18 进程树终止边界保留待独立立项。M11a 已完成 CLI 对话展示重构：语义工具摘要、三种展示模式、
-统一脱敏与流式 Markdown。当前 405 个测试通过（2 个平台能力测试跳过）、覆盖率 80%、
-7060 行生产 Python 源码 + 1366 行 eval 基础设施。详见
+统一脱敏与流式 Markdown。当前 411 个测试通过（2 个平台能力测试跳过）、覆盖率 80%、
+7108 行生产 Python 源码 + 1366 行 eval 基础设施。详见
 [第三阶段规划](docs/phase3-trustworthy-agent-plan.md)。
 
 详见 [DESIGN.md](DESIGN.md)。

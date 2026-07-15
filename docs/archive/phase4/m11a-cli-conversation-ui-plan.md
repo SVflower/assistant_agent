@@ -144,13 +144,13 @@ checkpoint 顺序。
 
 | 信息 | normal（默认） | verbose | quiet |
 |------|----------------|---------|-------|
-| 模型过程文本 | Markdown，弱化样式 | 完整 Markdown | 隐藏 |
+| 模型过程文本 | 临时 Markdown 活动区，工具调用后清除 | 完整 Markdown 并保留 | 隐藏 |
 | 工具调用 | 语义动作+目标 | 工具名+call ID+脱敏参数 | 隐藏 |
 | 成功结果 | 一行摘要 | 摘要+有界详情/metadata | 隐藏 |
 | 错误/拒绝 | 自动展开必要诊断 | 完整有界诊断 | 显示 |
 | Run ID | 失败/暂停时显示 | 始终显示 | 失败/暂停时显示 |
 | 最终回答 | Markdown | Markdown | 纯文本稳定输出 |
-| token/耗时 | 一行 footer | 扩展 footer | 默认隐藏 |
+| token/耗时 | 仅耗时 | token/上下文扩展 footer | 默认隐藏 |
 
 ## 6. 是否动内核
 
@@ -190,7 +190,7 @@ checkpoint 顺序。
 
 ## 10. 风险与边界
 
-- **流式 Markdown 闪烁**：限制 Live 重绘频率和活动尾部高度；异常时无损降级纯文本。
+- **流式 Markdown 闪烁**：限制 Live 为 15 FPS，normal 使用 transient 活动区；异常时无损降级纯文本。
 - **摘要掩盖错误**：只压缩成功结果；错误、拒绝和不确定恢复状态保留诊断与 code。
 - **第三方工具无摘要**：安全 fallback 始终可用，ToolDisplay 是可选增强而非注册门槛。
 - **模式造成测试组合膨胀**：纯 renderer 输入固定事件序列做参数化矩阵，不依赖真实模型。
@@ -208,5 +208,8 @@ checkpoint 顺序。
 - CRUD normal 轨迹实测不显示原始写入/替换正文和重复绝对路径；verbose 有界且递归脱敏；quiet 只输出
   最终回答。
 - `console.py` 从 303 行降至 207 行；展示状态机、工具活动和 Markdown 已按职责拆分。
-- 405 passed、2 skipped，覆盖率 80%；Ruff、mypy、架构测试、18/18 scripted eval、4/4 recovery
+- 根据真实 CLI 反馈追加低密度修正：normal 启动区改为无边框单行摘要，新会话 ID 默认隐藏；工具间
+  模型旁白只在 transient Live 活动区显示，不进入终端历史；最终回答建立独立边界；授权风险去重；
+  token 级强制刷新改为 15 FPS 节流。
+- 411 passed、2 skipped，覆盖率 80%；Ruff、mypy、架构测试、18/18 scripted eval、4/4 recovery
   eval 全绿。

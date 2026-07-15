@@ -73,7 +73,15 @@ class Console:
     def banner(self, provider_name: str, model: str, permission_mode: str) -> None:
         if self._display_mode == "quiet":
             return
-        self._console.print(build_banner(provider_name, model, os.getcwd(), permission_mode))
+        self._console.print(
+            build_banner(
+                provider_name,
+                model,
+                os.getcwd(),
+                permission_mode,
+                verbose=self._display_mode == "verbose",
+            )
+        )
 
     def user_echo(self, task: str) -> None:
         if self._display_mode == "quiet":
@@ -104,13 +112,12 @@ class Console:
         if not self._at_line_start:
             self._console.print()
             self._at_line_start = True
-        self._console.print(f"[bold yellow]⚠ {message}[/bold yellow]")
+        self._console.print("[bold yellow]确认执行[/bold yellow]")
+        self._console.print(message, style="yellow", markup=False)
         self._console.print(
-            "  [green]1[/green] 允许    "
-            "[cyan]2[/cyan] 允许且本次会话不再询问此类    "
-            "[red]3[/red] 拒绝"
+            "[green]1[/green] 允许  [cyan]2[/cyan] 本会话允许  [red]3[/red] 拒绝（默认）"
         )
-        answer = self.input("[bold]请选择 [1/2/3]（默认 3 拒绝）: [/bold]").strip()
+        answer = self.input("[bold]选择 [1/2/3]: [/bold]").strip()
         choice: ConfirmChoice = "deny"
         if answer == "1":
             choice = "allow"
@@ -119,7 +126,7 @@ class Console:
         if choice != "deny":
             # 放行后到命令真正跑完之间没有 spinner（confirm 已停掉它）。
             # 补一行静态反馈，避免慢命令期间看着像"卡住无反应"。
-            self._console.print("[dim]▶ 执行中，请稍候…[/dim]")
+            self._console.print("[dim]执行中…[/dim]")
             self._at_line_start = True
         return choice
 

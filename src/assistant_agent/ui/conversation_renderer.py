@@ -12,7 +12,7 @@ from rich.spinner import Spinner
 
 from assistant_agent.agent.events import StepEvent
 from assistant_agent.tools.display import safe_text
-from assistant_agent.ui.formatting import format_context, format_elapsed, format_usage
+from assistant_agent.ui.formatting import build_response_panel, build_turn_status, format_elapsed
 from assistant_agent.ui.markdown_stream import StreamingMarkdownRenderer
 from assistant_agent.ui.tool_renderer import DisplayMode, ToolRenderer
 
@@ -48,10 +48,10 @@ class ConversationRenderer:
             live_active = False
             bind_live(None)
 
-        def stop_markdown(*, commit: bool = True, label: str = "") -> None:
+        def stop_markdown(*, commit: bool = True) -> None:
             nonlocal markdown
             if markdown is not None:
-                markdown.finish(commit=commit, label=label)
+                markdown.finish(commit=commit)
                 markdown = None
             self._owner._at_line_start = True
 
@@ -91,7 +91,10 @@ class ConversationRenderer:
                     final_streamed = True
                 elif event.kind == "tool_call":
                     stop_live()
-                    stop_markdown(commit=self._mode == "verbose")
+                    keep_progress = self._mode == "verbose" or (
+                        self._mode == "normal" and not had_tool
+                    )
+                    stop_markdown(commit=keep_progress)
                     had_tool = True
                     final_streamed = False
                     label = tool_renderer.call(event)
@@ -109,11 +112,13 @@ class ConversationRenderer:
                     stop_live()
                     if self._mode == "quiet":
                         self._console.print(safe_text(event.text, 0, multiline=True), markup=False)
+                    elif self._mode == "normal":
+                        stop_markdown(commit=False)
+                        final_text = safe_text(event.text, 0, multiline=True)
+                        self._console.print(build_response_panel(final_text))
                     elif final_streamed:
-                        stop_markdown(label="回答" if had_tool and self._mode == "normal" else "")
+                        stop_markdown()
                     else:
-                        if had_tool and self._mode == "normal":
-                            self._console.print("回答", style="dim")
                         self._console.print(Markdown(safe_text(event.text, 0, multiline=True)))
                     self._owner._at_line_start = True
                 elif event.kind == "error":
@@ -139,8 +144,18 @@ class ConversationRenderer:
             stop_markdown()
 
         if self._mode != "quiet":
-            parts = [f"耗时 {format_elapsed(time.monotonic() - start)}"]
+            elapsed = format_elapsed(time.monotonic() - start)
             if got_usage:
-                parts.append(f"token {format_usage(total_in, total_out)}")
-                parts.append(format_context(last_prompt, self._owner._context_limit))
-            self._console.print(" · ".join(parts), style="dim")
+                self._console.print(
+                    build_turn_status(
+                        self._owner._model_label,
+                        elapsed,
+                        total_in,
+                        total_out,
+                        last_prompt,
+                        self._owner._context_limit,
+                        self._console.width,
+                    )
+                )
+            else:
+                self._console.print(f"耗时 {elapsed}", style="dim")

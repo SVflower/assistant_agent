@@ -14,7 +14,7 @@
 
 | # | 债务 | 位置 | 级别 | 风险 | 计划 |
 |---|------|------|:---:|------|------|
-| D5 | **UI 交互层测试仍薄** | `ui/console.py`、`main.py` | 🟡 | M11a 已覆盖 renderer/Markdown/展示模式；confirm/input、真实 SIGINT 和 TTY Live 仍主要靠手验 | 不必全补；触及时补 |
+| D5 | **UI 交互层测试仍薄** | `ui/console.py`、`main.py` | 🟡 | M11a 已覆盖 renderer/Markdown/展示模式和“写入预览先于确认”顺序；真实 SIGINT、TTY Live 与真实键盘行编辑仍主要靠手验 | 不必全补；触及时补 |
 | D6 | **provider 与 model 未分层** | `config/schema.py` providers | 🟢 | 一条目=一模型；同厂商多模型要重复写 api_base/api_key（key 可用 ${VAR} 缓解） | **暂不做（YAGNI）**。触发信号：同一厂商挂 **4+ 个模型**、重复条目变烦时，重构成"backends（连接层）+ models（复用 backend）"两层（参考 Codex model_providers）。当前 2-3 模型不值得改 schema |
 | D7 | ~~**main.py 越过行数软线**~~ ✅ 已还清（M7b）| `main.py`(222)、`cli/setup.py` | ✅ | M7b 把 wiring（build_runtime + Runtime 上下文管理器）抽到 `cli/setup.py`，main.py 329→222，回落软线 300 以下。`_interrupt` 保留在 main（信号处理是 CLI 关注点），以 `interrupt_check` 参数注入。**剩 file_ops.py(278)** 仍近软线，触及"读/写/编辑"再分组 |
 | D8 | ~~**日志按会话/模型维度的缺口**~~ ✅ 已还清（M10b） | `obs/logger.py`、`cli/recovery.py` | ✅ | `trace_id`（进程）、`session_id`（聊天）、`run_id`（任务）拆分；`/clear` 重新绑定 Session；`model_switch` 更新后续事件模型；tool_call 带 run/call/provider/model；恢复与 checkpoint 有独立事件 | 新旧 JSONL 字段兼容；日志仍是尽力而为的观测，不参与 checkpoint 正确性 |
@@ -28,7 +28,7 @@
 | D16 | ~~**工具 I/O 不适合大文件与无界输出**~~ ✅ 已还清（M10a） | `tools/`、`mcp/tool.py` | ✅ | 运行时 JSON Schema 校验；范围读取与流式搜索；Shell/Git 双流有界捕获和受限 Artifact；write/edit/multi_edit 同目录原子替换并保持换行/权限；MCP structuredContent 保真；`file_ops.py` 拆为兼容 facade | 335 测试与 18 个 deterministic eval 覆盖 10 万行中段读取、坏参数恢复、双 PIPE 压力、Artifact、原子写故障和结构化 MCP 结果；方案见 [归档计划](archive/phase3/m10a-tool-contract-plan.md) |
 | D17 | ~~**模型切换后的运行状态不一致**~~ ✅ 已还清（M9a） | `agent/loop.py`、`cli/commands.py`、`session/store.py` | ✅ | 默认 Compactor 跟随新 client，固定摘要 provider 不变；Session 元数据与 `model_switch` 审计同步；resume 明确沿用当前配置 | M9a 回归测试覆盖 |
 | D18 | **Shell 超时未终止完整子进程树** | `tools/process.py` | 🟡 | timeout 会 kill/wait 直接 `Popen` 进程，但 `shell=True` 命令派生的子进程可能继续存活；当前不应宣称具备进程树级取消 | M10c 决定不以全栈 async 重构解决；后续独立立项 ProcessSupervisor，Windows Job Object / POSIX process group 经跨平台故障测试后才可还清 |
-| D19 | ~~**CLI 展示透传执行载荷，缺少语义摘要和详细度分层**~~ ✅ 已还清（M11a） | `tools/display.py`、`ui/`、`agent/events.py` | ✅ | ToolDisplay 语义摘要；normal/verbose/quiet；normal 临时活动区不沉淀工具间旁白；参数、metadata、模型文本统一终端脱敏；15 FPS 流式 Markdown；错误自动展开 | 411 测试基线覆盖模式矩阵、过程丢弃/最终单次提交、紧凑确认、碎片 Markdown、ANSI/密钥、工具 metadata；方案见 [归档计划](archive/phase4/m11a-cli-conversation-ui-plan.md) |
+| D19 | ~~**CLI 展示透传执行载荷，缺少语义摘要和详细度分层**~~ ✅ 已还清（M11a） | `tools/display.py`、`ui/`、`agent/events.py` | ✅ | ToolDisplay 语义摘要；normal/verbose/quiet；normal 临时活动区不沉淀工具间旁白；Write/Edit 权限前有界预览；参数、metadata、模型文本统一终端脱敏；15 FPS 流式 Markdown；错误自动展开 | 418 测试覆盖模式矩阵、写入/diff 截断与脱敏、确认顺序、过程丢弃/最终单次提交、碎片 Markdown、ANSI/密钥、工具 metadata；方案见 [归档计划](archive/phase4/m11a-cli-conversation-ui-plan.md) |
 
 ## 已还清（保留记录）
 - **任务级工具资源无边界** → M6.5 增加单次输出、累计输出、工具调用总数预算；多 tool-call 批次补齐结果后终止。✅ 2026-07-14

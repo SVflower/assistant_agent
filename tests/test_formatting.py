@@ -7,6 +7,8 @@ from rich.console import Console
 
 from assistant_agent.ui.formatting import (
     build_banner,
+    build_response_panel,
+    build_turn_status,
     format_context,
     format_elapsed,
     format_usage,
@@ -42,6 +44,28 @@ def test_verbose_banner_discloses_full_runtime_details():
     assert "deepseek-v4-pro" in output
     assert "后端  cloud" in output
     assert "/workspace/project" in output
+
+
+def test_response_panel_has_stable_agent_label_and_horizontal_frame():
+    console = Console(record=True, width=80)
+    console.print(build_response_panel("**完成**"))
+    output = console.export_text()
+    assert "$ Assistant" in output and "完成" in output
+    assert "**" not in output
+
+
+def test_turn_status_keeps_usage_context_and_single_line():
+    console = Console(record=True, width=72)
+    console.print(build_turn_status("openai/model", "3.2s", 1200, 80, 1200, 8000, 72))
+    output = console.export_text()
+    assert "model" in output
+    assert "token ↑1200 ↓80 共 1280" in output
+    assert "上下文 1200/8000（15%）" in output
+    assert len(output.splitlines()) == 1
+
+    narrow = Console(record=True, width=32)
+    narrow.print(build_turn_status("openai/model", "3.2s", 1200, 80, 1200, 8000, 32))
+    assert len(narrow.export_text().splitlines()) == 1
 
 
 def test_format_usage_sums_in_out():

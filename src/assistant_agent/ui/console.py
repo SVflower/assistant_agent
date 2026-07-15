@@ -11,6 +11,7 @@ from collections.abc import Iterator
 from typing import Any, Literal
 
 from rich.console import Console as RichConsole
+from rich.text import Text
 
 from assistant_agent.agent.events import StepEvent
 from assistant_agent.tools.base import ConfirmChoice
@@ -45,6 +46,7 @@ class Console:
         self._display_override = display_mode is not None
         # 上下文窗口预算，用于结尾显示"上下文占用 %"（由 main 按 config 注入）。
         self._context_limit = 0
+        self._model_label = "model"
         # 当前活动的 Live spinner（render_stream 期间）。confirm 需要在提示前停掉它，
         # 否则 spinner 占着终端，确认输入提示不可见、无法输入 → 卡死。
         self._active_live: Any = None
@@ -57,6 +59,9 @@ class Console:
 
     def set_context_limit(self, limit: int) -> None:
         self._context_limit = limit
+
+    def set_model_label(self, model: str) -> None:
+        self._model_label = model
 
     @property
     def display_mode(self) -> DisplayMode:
@@ -71,6 +76,7 @@ class Console:
             self._console.print(f"Run ID：{run_id}", style="dim")
 
     def banner(self, provider_name: str, model: str, permission_mode: str) -> None:
+        self.set_model_label(model)
         if self._display_mode == "quiet":
             return
         self._console.print(
@@ -86,7 +92,20 @@ class Console:
     def user_echo(self, task: str) -> None:
         if self._display_mode == "quiet":
             return
-        self._console.print(f"[bold green]你:[/bold green] {task}")
+        self._print_input_rule()
+        line = Text("› ", style="bold cyan")
+        line.append(task)
+        self._console.print(line)
+
+    def chat_input(self) -> str:
+        """读取普通聊天输入，使用与任务回显一致的回合边界。"""
+        self._console.print()
+        self._print_input_rule()
+        return self.input("[bold cyan]› [/bold cyan]")
+
+    def _print_input_rule(self) -> None:
+        width = min(max(self._console.width - 1, 1), 40)
+        self._console.print("─" * width, style="cyan")
 
     def render_stream(self, events: Iterator[StepEvent]) -> None:
         """消费一次任务的流式事件并渲染。

@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from rich import box
+from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
@@ -52,6 +54,50 @@ def build_banner(
         expand=False,
         padding=(0, 1),
     )
+
+
+def build_response_panel(text: str) -> Panel:
+    """构建带稳定 Agent 标识的最终回答区域。"""
+    return Panel(
+        Markdown(text),
+        title=Text("$ Assistant", style="bold cyan"),
+        title_align="left",
+        border_style="cyan",
+        box=box.HORIZONTALS,
+        padding=(0, 2),
+        expand=True,
+    )
+
+
+def build_turn_status(
+    model: str,
+    elapsed: str,
+    total_in: int,
+    total_out: int,
+    prompt_tokens: int,
+    context_limit: int,
+    width: int,
+) -> Text:
+    """构建单行任务状态带；宽度不足时在尾部省略。"""
+    bg = "on #1a1a2e"
+    status = Text(style=bg)
+    status.append(f" {model.rsplit('/', 1)[-1] or model} ", style=f"bold cyan {bg}")
+    status.append("│ ", style=f"dim {bg}")
+    status.append(f"token {format_usage(total_in, total_out)} ", style=f"white {bg}")
+    status.append("│ ", style=f"dim {bg}")
+    context = Text.from_markup(format_context(prompt_tokens, context_limit)).plain
+    ratio = _context_ratio(prompt_tokens, context_limit)
+    context_style = "red" if ratio >= 0.9 else "yellow" if ratio >= 0.8 else "green"
+    status.append(f"{context} ", style=f"{context_style} {bg}")
+    status.append("│ ", style=f"dim {bg}")
+    status.append(f"{elapsed} ", style=f"white {bg}")
+    max_width = max(int(width), 1)
+    status.truncate(max_width, overflow="ellipsis", pad=False)
+    return status
+
+
+def _context_ratio(prompt_tokens: int, context_limit: int) -> float:
+    return prompt_tokens / context_limit if context_limit > 0 else 0.0
 
 
 def format_args(args: dict[str, Any] | None) -> str:

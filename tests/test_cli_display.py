@@ -19,6 +19,7 @@ class _Owner:
         self._active_live = None
         self._at_line_start = True
         self._context_limit = 8000
+        self._model_label = "openai/deepseek-v4-pro"
         self.mode = mode
 
     def text(self) -> str:
@@ -32,6 +33,8 @@ def test_write_display_uses_semantic_metadata():
         "write_file", args, ToolResult.ok("raw body", metadata={"chars": 4}), call
     )
     assert call.action == "写入" and call.target == "demo/tasks.txt"
+    assert call.preview is not None and call.preview.kind == "code"
+    assert call.preview.language == "text" and call.preview.total_lines == 2
     assert display.summary == "已写入 4 字符，2 行"
 
 
@@ -69,26 +72,113 @@ def test_unknown_tool_fallback_keeps_registered_name():
     assert display.target == "custom_tool"
 
 
-def test_normal_tool_renderer_hides_raw_arguments_and_result_body():
+def test_normal_write_renderer_shows_redacted_bounded_preview_and_not_result_body():
     owner = _Owner()
-    args = {"path": "tasks.txt", "content": "TOP-SECRET\nsecond"}
+    args = {"path": "tasks.py", "content": "token = 'sk-abcdef123456'\nprint('safe')"}
     call = call_display("write_file", args)
     renderer = ToolRenderer(owner._console, "normal")
     renderer.call(StepEvent(kind="tool_call", tool_name="write_file", tool_args=args, display=call))
+    before = owner.text()
+    assert "写入 tasks.py" in before and "写入预览 · 2 行" in before
+    assert "print('safe')" in before and "sk-abcdef" not in before and "REDACTED" in before
     renderer.result(
         StepEvent(
             kind="tool_result",
             tool_name="write_file",
-            text="TOP-SECRET\nsecond",
+            text="raw result body",
             display=result_display(
-                "write_file", args, ToolResult.ok("TOP-SECRET", metadata={"chars": 17})
+                "write_file", args, ToolResult.ok("raw result body", metadata={"chars": 41})
             ),
         )
     )
     output = owner.text()
-    assert "写入 tasks.txt" in output
-    assert "已写入 17 字符" in output
-    assert "content=" not in output and "TOP-SECRET" not in output
+    assert "已写入 41 字符" in output and "raw result body" not in output
+    assert "content=" not in output
+
+
+def test_normal_edit_renderer_shows_structured_diff():
+    owner = _Owner()
+    args = {
+        "path": "index.html",
+        "old_string": "<h1>Old</h1>\n<p>Keep</p>",
+        "new_string": "<h1>New</h1>\n<p>Keep</p>\n<button>Save</button>",
+    }
+    call = call_display("edit_file", args)
+    assert call.preview is not None and call.preview.kind == "diff"
+    assert call.preview.added_lines == 2 and call.preview.removed_lines == 1
+
+    renderer = ToolRenderer(owner._console, "normal")
+    renderer.call(StepEvent(kind="tool_call", tool_name="edit_file", tool_args=args, display=call))
+    output = owner.text()
+    assert "编辑 index.html" in output and "拟议变更 · +2 -1" in output
+    assert "-<h1>Old</h1>" in output and "+<h1>New</h1>" in output
+
+
+def test_write_preview_is_limited_by_lines():
+    preview = call_display(
+        "write_file",
+        {"path": "long.txt", "content": "\n".join(f"line {i}" for i in range(30))},
+    ).preview
+    assert preview is not None
+    assert preview.total_lines == 30 and preview.shown_lines == 14
+    assert "省略 16 行" in preview.content and "line 29" not in preview.content
+
+
+def test_multi_edit_preview_aggregates_changed_lines_and_redacts_secrets():
+    preview = call_display(
+        "multi_edit",
+        {
+            "path": "config.py",
+            "edits": [
+                {"old_string": "mode = 'old'", "new_string": "mode = 'new'"},
+                {
+                    "old_string": "token = None",
+                    "new_string": "token = 'sk-abcdef123456'",
+                },
+            ],
+        },
+    ).preview
+    assert preview is not None and preview.kind == "diff"
+    assert preview.added_lines == 2 and preview.removed_lines == 2
+    assert "config.py#1" in preview.content and "config.py#2" in preview.content
+    assert "sk-abcdef" not in preview.content and "REDACTED" in preview.content
+
+
+def test_write_preview_precedes_permission_confirmation(monkeypatch):
+    console = Console()
+    console._console = RichConsole(record=True, width=80)
+    monkeypatch.setattr(console, "input", lambda _prompt: "3")
+    renderer = ToolRenderer(console._console, "normal")
+    args = {"path": "outside/demo.py", "content": "print('review me')"}
+
+    renderer.call(
+        StepEvent(
+            kind="tool_call",
+            tool_name="write_file",
+            tool_args=args,
+            display=call_display("write_file", args),
+        )
+    )
+    assert console.confirm("需要授权：\n- filesystem.write: outside/demo.py") == "deny"
+
+    output = console._console.export_text()
+    assert output.index("print('review me')") < output.index("确认执行")
+
+
+def test_unknown_extension_preview_renders_in_narrow_terminal():
+    owner = _Owner(width=40)
+    args = {"path": "data.unknown", "content": "a very long value that exceeds the terminal width"}
+    renderer = ToolRenderer(owner._console, "normal")
+    renderer.call(
+        StepEvent(
+            kind="tool_call",
+            tool_name="write_file",
+            tool_args=args,
+            display=call_display("write_file", args),
+        )
+    )
+    output = owner.text()
+    assert "写入 data.unknown" in output and "a very long value" in output
 
 
 def test_verbose_tool_renderer_is_detailed_but_redacted():
@@ -209,6 +299,22 @@ def test_conversation_normal_discards_tool_progress_but_commits_final_once():
                     ToolResult.ok("body", metadata={"start_line": 1, "end_line": 1}),
                 ),
             ),
+            StepEvent(kind="content_delta", text="接着做一次验证。"),
+            StepEvent(
+                kind="tool_call",
+                tool_name="read_file",
+                tool_args=args,
+                display=call_display("read_file", args),
+            ),
+            StepEvent(
+                kind="tool_result",
+                tool_name="read_file",
+                display=result_display(
+                    "read_file",
+                    args,
+                    ToolResult.ok("body", metadata={"start_line": 1, "end_line": 1}),
+                ),
+            ),
             StepEvent(kind="usage", usage={"prompt_tokens": 1200, "completion_tokens": 80}),
             StepEvent(kind="content_delta", text="最终完成。"),
             StepEvent(kind="final", text="最终完成。"),
@@ -216,8 +322,9 @@ def test_conversation_normal_discards_tool_progress_but_commits_final_once():
     )
     ConversationRenderer(owner, "normal", False).render(events)
     output = owner.text()
-    assert "我先读取文件" not in output
-    assert "回答" in output
+    assert "我先读取文件" in output
+    assert "接着做一次验证" not in output
+    assert "$ Assistant" in output and "回答" not in output
     assert output.count("最终完成") == 1
     assert "token ↑1200 ↓80 共 1280" in output
     assert "上下文 1200/8000（15%）" in output
@@ -267,3 +374,9 @@ def test_confirmation_prompt_is_compact_and_defaults_to_deny(monkeypatch):
     assert "确认执行" in output
     assert "本会话允许" in output and "拒绝（默认）" in output
     assert "⚠" not in output
+
+    console.user_echo("检查项目")
+    assert console.chat_input() == ""
+    output = console._console.export_text()
+    assert "› 检查项目" in output
+    assert "你:" not in output and "你：" not in output

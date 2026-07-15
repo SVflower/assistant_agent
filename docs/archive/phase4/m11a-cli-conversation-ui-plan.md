@@ -213,3 +213,25 @@ checkpoint 顺序。
   不进入终端历史；最终回答建立独立边界；授权风险去重；token 级强制刷新改为 15 FPS 节流。
 - 411 passed、2 skipped，覆盖率 80%；Ruff、mypy、架构测试、18/18 scripted eval、4/4 recovery
   eval 全绿。
+
+## 13. Normal 信息分级复审（2026-07-15）
+
+根据真实 CRUD 使用反馈和 Claude Code 的写入/编辑轨迹，原“每个成功工具压成一行”的规则修正为
+“按信息价值分级”，而不是对所有工具使用相同密度：
+
+| 工具类别 | 调用前 | 成功后 | 失败时 |
+|----------|--------|--------|--------|
+| Read/List/Search | spinner 中显示动作，不落历史 | 一行语义摘要 | 摘要 + 有界诊断 |
+| Shell/Git/MCP | spinner 中显示动作，不落历史 | 一行退出/结果摘要 | 摘要 + 有界诊断 |
+| Write | 文件名 + 有界代码预览 | 一行写入统计 | 摘要 + 有界诊断 |
+| Edit/MultiEdit | 文件名 + 有界拟议 diff | 一行替换统计 | 摘要 + 有界诊断 |
+
+写操作是例外，因为内容本身就是用户做授权和结果审阅所需的信息。预览由 `ToolDisplay` 提供纯数据，
+normal renderer 决定终端样式；所有内容先脱敏、去控制字符，再按字符数和行数双重截断。预览在
+`tool_call` 事件到达时展示，时序早于 Registry 权限确认，因此无需改变权限策略、checkpoint 或 Loop。
+
+本次仍不实现 `Ctrl+O` 展开、固定底栏或可点击折叠；这些能力需要保存完整渲染状态的 TUI，不能在 Rich
+scrollback 架构中用表面样式冒充。
+
+复审验收：418 passed、2 skipped，覆盖率 80%；Ruff、mypy、18/18 scripted eval、4/4 recovery eval
+全绿；7342 行生产 Python 源码 + 1366 行 eval 基础设施；`agent/loop.py` 无改动。

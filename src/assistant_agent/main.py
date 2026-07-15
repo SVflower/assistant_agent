@@ -177,7 +177,7 @@ def chat(
 
         while True:
             try:
-                task = console.input("\n[bold green]你: [/bold green]").strip()
+                task = console.chat_input().strip()
             except (EOFError, KeyboardInterrupt):
                 break
             if not task:

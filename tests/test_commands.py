@@ -17,6 +17,7 @@ class FakeConsole:
     def __init__(self) -> None:
         self.out: list[str] = []
         self.display_mode = "normal"
+        self.model_label = ""
 
     def info(self, text: str) -> None:
         self.out.append(text)
@@ -32,6 +33,9 @@ class FakeConsole:
 
     def set_display_mode(self, value, *, force=False) -> None:
         self.display_mode = value
+
+    def set_model_label(self, model: str) -> None:
+        self.model_label = model
 
     def text(self) -> str:
         return "\n".join(self.out)
@@ -119,6 +123,7 @@ def test_model_switch_by_name(tmp_path):
     assert ctx.config.active == "local"
     assert ctx.session.provider == "local"
     assert ctx.session.model == "openai/b"
+    assert ctx.console.model_label == "openai/b"
     assert "已切换到 local" in ctx.console.text()
 
 

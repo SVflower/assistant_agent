@@ -5,8 +5,9 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass, replace
+from difflib import unified_diff
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from assistant_agent.obs.redaction import redact_text, sanitize_for_display, truncate_text
 from assistant_agent.tools.result import ToolResult
@@ -27,11 +28,23 @@ _ACTIONS = {
 
 
 @dataclass(frozen=True)
+class ToolPreview:
+    kind: Literal["code", "diff"]
+    content: str
+    language: str = "text"
+    total_lines: int = 0
+    shown_lines: int = 0
+    added_lines: int = 0
+    removed_lines: int = 0
+
+
+@dataclass(frozen=True)
 class ToolDisplay:
     action: str
     target: str = ""
     summary: str = ""
     detail: str = ""
+    preview: ToolPreview | None = None
 
 
 def safe_text(value: Any, limit: int = 500, *, multiline: bool = False) -> str:
@@ -81,7 +94,101 @@ def call_display(name: str, args: dict[str, Any]) -> ToolDisplay:
     except (TypeError, ValueError):
         detail = str(sanitized)
     action = _ACTIONS.get(name, "调用工具")
-    return ToolDisplay(action, _target(name, args), detail=safe_text(detail, 500))
+    return ToolDisplay(
+        action,
+        _target(name, args),
+        detail=safe_text(detail, 500),
+        preview=_write_preview(name, args),
+    )
+
+
+def _write_preview(name: str, args: dict[str, Any]) -> ToolPreview | None:
+    if name == "write_file":
+        content = str(args.get("content", ""))
+        bounded, total, shown = _bounded_preview(content)
+        return ToolPreview(
+            kind="code",
+            content=bounded,
+            language=_language_for_path(args.get("path")),
+            total_lines=total,
+            shown_lines=shown,
+        )
+    if name == "edit_file":
+        edits = [args]
+    elif name == "multi_edit":
+        raw_edits = args.get("edits", [])
+        edits = [edit for edit in raw_edits if isinstance(edit, dict)]
+    else:
+        return None
+
+    path = safe_text(args.get("path", "file"), 120)
+    chunks: list[str] = []
+    added = 0
+    removed = 0
+    for index, edit in enumerate(edits, start=1):
+        old = str(edit.get("old_string", ""))
+        new = str(edit.get("new_string", ""))
+        old_lines = old.splitlines()
+        new_lines = new.splitlines()
+        label = path if len(edits) == 1 else f"{path}#{index}"
+        diff_lines = list(
+            unified_diff(
+                old_lines,
+                new_lines,
+                fromfile=f"{label} (before)",
+                tofile=f"{label} (after)",
+                lineterm="",
+            )
+        )
+        chunks.extend(diff_lines)
+        added += sum(line.startswith("+") and not line.startswith("+++") for line in diff_lines)
+        removed += sum(line.startswith("-") and not line.startswith("---") for line in diff_lines)
+    bounded, total, shown = _bounded_preview("\n".join(chunks))
+    return ToolPreview(
+        kind="diff",
+        content=bounded,
+        language="diff",
+        total_lines=total,
+        shown_lines=shown,
+        added_lines=added,
+        removed_lines=removed,
+    )
+
+
+def _bounded_preview(
+    value: str, *, max_lines: int = 14, max_chars: int = 2400
+) -> tuple[str, int, int]:
+    sanitized = safe_text(value, 0, multiline=True)
+    lines = sanitized.splitlines()
+    total = len(lines)
+    visible = lines[:max_lines]
+    content = "\n".join(visible)
+    if len(content) > max_chars:
+        content = content[:max_chars] + f"…(+{len(content) - max_chars} chars)"
+    shown = len(visible)
+    if total > shown:
+        content += f"\n… 省略 {total - shown} 行"
+    return content, total, shown
+
+
+def _language_for_path(value: Any) -> str:
+    suffix = Path(str(value or "")).suffix.lower().lstrip(".")
+    return {
+        "txt": "text",
+        "py": "python",
+        "js": "javascript",
+        "ts": "typescript",
+        "md": "markdown",
+        "html": "html",
+        "htm": "html",
+        "css": "css",
+        "json": "json",
+        "yaml": "yaml",
+        "yml": "yaml",
+        "toml": "toml",
+        "sh": "bash",
+        "ps1": "powershell",
+    }.get(suffix, "text")
 
 
 def result_display(

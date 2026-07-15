@@ -60,7 +60,7 @@ class StreamingMarkdownRenderer:
             self._failed = True
             self._stop_live()
 
-    def finish(self, *, commit: bool = True, label: str = "") -> None:
+    def finish(self, *, commit: bool = True) -> None:
         if not self._buffer:
             return
         if self._live is not None:
@@ -77,8 +77,6 @@ class StreamingMarkdownRenderer:
         elif not commit:
             return
         try:
-            if label:
-                self._console.print(label, style="dim")
             if self._failed:
                 self._console.print(self._render_text(), markup=False)
             else:

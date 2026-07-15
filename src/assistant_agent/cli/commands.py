@@ -105,6 +105,7 @@ def _cmd_model(args: str, ctx: ChatContext) -> None:
     ctx.loop.set_client(LLMClient(ctx.config.active_provider))
     ctx.session.provider = target
     ctx.session.model = ctx.config.active_provider.model
+    ctx.console.set_model_label(ctx.config.active_provider.model)
     ctx.logger.model_switch(
         from_provider=previous_provider,
         from_model=previous_model,

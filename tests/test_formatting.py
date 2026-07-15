@@ -21,8 +21,10 @@ def test_banner_discloses_permission_mode_and_no_os_sandbox(mode):
     output = console.export_text()
     assert mode in output
     assert "无 OS 沙箱" in output
-    assert len(output.splitlines()) == 1
-    assert "/workspace" not in output
+    assert "Assistant Agent" in output
+    assert "模型" in output and "位置" in output and "权限" in output
+    assert "/workspace" in output
+    assert len(output.splitlines()) == 5
 
 
 def test_verbose_banner_discloses_full_runtime_details():
@@ -38,8 +40,8 @@ def test_verbose_banner_discloses_full_runtime_details():
     )
     output = console.export_text()
     assert "deepseek-v4-pro" in output
-    assert "provider cloud" in output
-    assert "cwd /workspace/project" in output
+    assert "后端  cloud" in output
+    assert "/workspace/project" in output
 
 
 def test_format_usage_sums_in_out():

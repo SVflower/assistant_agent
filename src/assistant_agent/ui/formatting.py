@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
@@ -27,18 +28,30 @@ def build_banner(
     permission_mode: str,
     *,
     verbose: bool = False,
-) -> Text:
-    """构建低密度启动摘要，同时保留权限边界披露。"""
+) -> Panel:
+    """构建有明确层级的紧凑启动面板。"""
     style = "red" if permission_mode == "unrestricted" else "yellow"
-    model_label = model.rsplit("/", 1)[-1]
     info = Text()
-    info.append("Assistant Agent", style="bold")
-    info.append(f" · {model_label}", style="cyan")
-    info.append(" · ", style="dim")
-    info.append(f"{permission_mode}（无 OS 沙箱）", style=style)
+    info.append("模型  ", style="dim")
+    info.append(model, style="cyan")
     if verbose:
-        info.append(f"\nprovider {provider_name}  model {model}  cwd {cwd}", style="dim")
-    return info
+        info.append("\n后端  ", style="dim")
+        info.append(provider_name, style="cyan")
+    else:
+        info.append(f"  · {provider_name}", style="dim")
+    info.append("\n位置  ", style="dim")
+    info.append(cwd, style="green")
+    info.append("\n权限  ", style="dim")
+    info.append(permission_mode, style=style)
+    info.append("  · 应用层，无 OS 沙箱", style=style)
+    return Panel(
+        info,
+        title=Text("Assistant Agent", style="bold"),
+        title_align="left",
+        border_style="blue",
+        expand=False,
+        padding=(0, 1),
+    )
 
 
 def format_args(args: dict[str, Any] | None) -> str:

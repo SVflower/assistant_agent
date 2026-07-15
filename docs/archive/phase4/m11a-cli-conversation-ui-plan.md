@@ -208,8 +208,8 @@ checkpoint 顺序。
 - CRUD normal 轨迹实测不显示原始写入/替换正文和重复绝对路径；verbose 有界且递归脱敏；quiet 只输出
   最终回答。
 - `console.py` 从 303 行降至 207 行；展示状态机、工具活动和 Markdown 已按职责拆分。
-- 根据真实 CLI 反馈追加低密度修正：normal 启动区改为无边框单行摘要，新会话 ID 默认隐藏；工具间
-  模型旁白只在 transient Live 活动区显示，不进入终端历史；最终回答建立独立边界；授权风险去重；
-  token 级强制刷新改为 15 FPS 节流。
+- 根据真实 CLI 反馈追加低密度修正：normal 启动区保留紧凑结构化面板，以标题和“模型/位置/权限”
+  三行恢复视觉层级，同时隐藏面板外的新会话 ID；工具间模型旁白只在 transient Live 活动区显示，
+  不进入终端历史；最终回答建立独立边界；授权风险去重；token 级强制刷新改为 15 FPS 节流。
 - 411 passed、2 skipped，覆盖率 80%；Ruff、mypy、架构测试、18/18 scripted eval、4/4 recovery
   eval 全绿。

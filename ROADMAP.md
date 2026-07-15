@@ -31,7 +31,7 @@
   已完成工具不重放，started 副作用需 retry/skip/abort；预算、重复熔断、权限和摘要状态跨进程恢复；
   trace/session/run/call 标识对齐，还清 D8。
 
-**质量**：411 测试通过（2 个平台能力测试跳过）、覆盖率 80%、7108 行生产 Python 源码 + 1366 行 eval 基础设施；架构适应度测试（依赖分层 + 行数分级软/硬）+ 技术债册 + DoD + 里程碑工作流全在；CI 已加入 format/lint/mypy/coverage/scripted eval/recovery eval 与 Windows/Linux、Python 3.11/3.13 矩阵。
+**质量**：411 测试通过（2 个平台能力测试跳过）、覆盖率 80%、7121 行生产 Python 源码 + 1366 行 eval 基础设施；架构适应度测试（依赖分层 + 行数分级软/硬）+ 技术债册 + DoD + 里程碑工作流全在；CI 已加入 format/lint/mypy/coverage/scripted eval/recovery eval 与 Windows/Linux、Python 3.11/3.13 矩阵。
 
 **边界（明确未做）**：子 Agent 编排、真沙箱、Web GUI、rewind/recap、非交互 init、PyPI 分发。
 
@@ -146,7 +146,7 @@ D14，M9c 已还清 D9，M10a 已还清 D16 并登记 D18，M10b 已还清 D8，
 
 > **M11a 已完成**：ToolDisplay 让工具提供 UI 无关的动作/目标/摘要；normal 默认只显示语义轨迹，
 > verbose 显示有界脱敏详情，quiet 只输出结果；流式 Markdown、`/display`、`run --quiet`、Run ID
-> 收敛与单行 banner 落地；normal 使用临时活动区，工具间旁白不再堆积，Markdown 刷新限制为 15 FPS。
+> 收敛与紧凑分组 banner 落地；normal 使用临时活动区，工具间旁白不再堆积，Markdown 刷新限制为 15 FPS。
 > CRUD 轨迹实测通过，411 passed、2 skipped、覆盖率 80%；未修改 Loop，
 > 还清 D19。
 

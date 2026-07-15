@@ -204,7 +204,7 @@ ui/       终端输入输出（Rich 流式渲染）
 第三阶段“可信执行与质量闭环”已完成：M9a-M10b 已交付，M10c 决定暂不进行全栈 async 重构，
 D18 进程树终止边界保留待独立立项。M11a 已完成 CLI 对话展示重构：语义工具摘要、三种展示模式、
 统一脱敏与流式 Markdown。当前 411 个测试通过（2 个平台能力测试跳过）、覆盖率 80%、
-7108 行生产 Python 源码 + 1366 行 eval 基础设施。详见
+7121 行生产 Python 源码 + 1366 行 eval 基础设施。详见
 [第三阶段规划](docs/phase3-trustworthy-agent-plan.md)。
 
 详见 [DESIGN.md](DESIGN.md)。

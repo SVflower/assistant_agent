@@ -9,6 +9,7 @@ from pathlib import Path
 import yaml
 from pydantic import ValidationError
 
+from assistant_agent.config.paths import assistant_home
 from assistant_agent.config.schema import AppConfig
 
 # 匹配 ${VAR} 或 ${VAR:-default} 形式的环境变量占位
@@ -61,6 +62,30 @@ def _migrate_legacy_fields(raw: dict[object, object]) -> dict[object, object]:
     return migrated
 
 
+def _merge_user_mcp(raw: dict[object, object]) -> dict[object, object]:
+    """合并用户级 MCP 定义；项目同名 server 覆盖 user。"""
+    path = assistant_home() / "mcp" / "servers.yaml"
+    if not path.is_file():
+        return raw
+    try:
+        user = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    except (OSError, yaml.YAMLError) as exc:
+        raise ConfigError(f"用户 MCP 配置读取失败（{path}）：{exc}") from exc
+    if not isinstance(user, dict):
+        raise ConfigError(f"用户 MCP 配置根节点必须是映射（{path}）。")
+    user_servers = user.get("servers", {}) if isinstance(user, dict) else {}
+    if not isinstance(user_servers, dict):
+        raise ConfigError(f"用户 MCP servers 必须是映射（{path}）。")
+    merged = dict(raw)
+    mcp_raw = merged.get("mcp")
+    mcp = dict(mcp_raw) if isinstance(mcp_raw, dict) else {}
+    project_servers = mcp.get("servers", {})
+    project_servers = dict(project_servers) if isinstance(project_servers, dict) else {}
+    mcp["servers"] = {**user_servers, **project_servers}
+    merged["mcp"] = mcp
+    return merged
+
+
 def find_config_file(start: Path | None = None) -> Path | None:
     """从指定目录（默认 cwd）向上查找 config.yaml。"""
     current = (start or Path.cwd()).resolve()
@@ -100,7 +125,7 @@ def load_config(path: str | Path | None = None) -> AppConfig:
     if not isinstance(raw, dict):
         raise ConfigError(f"配置根节点必须是映射（{config_path}）。")
 
-    expanded = _expand_env_recursive(_migrate_legacy_fields(raw))
+    expanded = _expand_env_recursive(_merge_user_mcp(_migrate_legacy_fields(raw)))
 
     try:
         return AppConfig.model_validate(expanded)

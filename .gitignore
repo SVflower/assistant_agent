@@ -9,6 +9,7 @@ config.yaml
 crudtest/
 test_crud/
 tmp_agent_demo/
+.playwright-mcp/
 
 # Python
 __pycache__/

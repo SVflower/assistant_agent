@@ -3,7 +3,7 @@
 Agent Memory 的中期层——跨会话存活。纯存储，不依赖 agent/llm，
 主流程（main）负责在 AgentLoop 与本模块之间搬运历史。
 
-存储：每会话一个 JSON，默认位于项目下 ./.assistant_agent/sessions/。
+存储：每会话一个 JSON，默认位于用户级按 workspace 隔离的 state 目录。
 不存 system 消息（含日期/环境，恢复时按当前重建）。
 """
 
@@ -19,7 +19,6 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-DEFAULT_DIR = Path(".assistant_agent") / "sessions"
 _PREVIEW_LEN = 40
 _SESSION_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$")
 
@@ -92,7 +91,11 @@ def new_session_id() -> str:
 class SessionStore:
     """会话文件的存取（save/load/list/delete）。"""
 
-    def __init__(self, base_dir: str | Path = DEFAULT_DIR) -> None:
+    def __init__(self, base_dir: str | Path | None = None) -> None:
+        if base_dir is None:
+            from assistant_agent.config.paths import state_paths
+
+            base_dir = state_paths().sessions
         self._dir = Path(base_dir)
 
     def _path(self, session_id: str) -> Path:

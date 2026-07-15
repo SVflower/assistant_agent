@@ -10,7 +10,15 @@
 
 from __future__ import annotations
 
+from assistant_agent.skills.manager import SkillInstallError, SkillManager
 from assistant_agent.skills.store import SkillMeta, SkillSource, SkillStore
 from assistant_agent.skills.tool import LoadSkillTool
 
-__all__ = ["LoadSkillTool", "SkillMeta", "SkillSource", "SkillStore"]
+__all__ = [
+    "LoadSkillTool",
+    "SkillInstallError",
+    "SkillManager",
+    "SkillMeta",
+    "SkillSource",
+    "SkillStore",
+]

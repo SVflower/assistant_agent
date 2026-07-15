@@ -49,6 +49,7 @@ def test_timeout_kills_and_waits_for_process():
 def test_shell_large_output_returns_bounded_preview_and_artifact(tmp_path):
     ctx = ToolContext(
         workspace_root=tmp_path,
+        artifact_root=tmp_path / "state" / "artifacts" / "tools",
         max_output_chars=1_000,
         max_captured_output_chars=5_000,
         max_artifact_files=10,
@@ -63,25 +64,28 @@ def test_shell_large_output_returns_bounded_preview_and_artifact(tmp_path):
     ref = result.artifacts[0]
     assert result.output.startswith(f"[artifact: {ref.path},")
     assert "\\" not in ref.path
-    artifact = tmp_path / ref.path
+    artifact = Path(ref.path)
     assert artifact.is_file()
-    assert artifact.resolve().is_relative_to(tmp_path.resolve())
+    assert artifact.resolve().is_relative_to((tmp_path / "state").resolve())
     assert ref.complete is False
     assert artifact.stat().st_size <= 5_100
 
 
 def test_artifact_store_caps_content_and_prunes_old_files(tmp_path):
-    store = ArtifactStore(tmp_path, max_chars=100, max_files=2)
+    root = tmp_path / "state" / "artifacts" / "tools"
+    store = ArtifactStore(tmp_path, max_chars=100, max_files=2, root=root)
     refs = [store.write_text(str(index) * 200, prefix="test") for index in range(3)]
-    files = list((tmp_path / ".assistant_agent" / "artifacts").glob("*.txt"))
+    files = list(root.glob("*.txt"))
     assert len(files) == 2
-    assert not (tmp_path / refs[0].path).exists()
+    assert not Path(refs[0].path).exists()
     assert refs[-1].complete is False
-    assert len((tmp_path / refs[-1].path).read_text(encoding="utf-8")) <= 100
+    assert len(Path(refs[-1].path).read_text(encoding="utf-8")) <= 100
 
 
 def test_artifact_prefix_cannot_escape_workspace(tmp_path):
-    store = ArtifactStore(tmp_path, max_chars=100, max_files=2)
+    store = ArtifactStore(
+        tmp_path, max_chars=100, max_files=2, root=tmp_path / "state" / "artifacts"
+    )
     ref = store.write_text("ok", prefix="../../outside")
-    assert (tmp_path / ref.path).is_file()
+    assert Path(ref.path).is_file()
     assert ".." not in Path(ref.path).parts

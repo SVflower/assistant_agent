@@ -13,6 +13,7 @@ from assistant_agent.agent.recovery import RecoveryChoice, RunCoordinator
 from assistant_agent.agent.run_state import ToolCallState
 from assistant_agent.cli.setup import build_runtime
 from assistant_agent.config.loader import ConfigError, load_config
+from assistant_agent.config.paths import resolve_run_dir
 from assistant_agent.obs import sanitize_for_display
 from assistant_agent.session.run_store import RunStore
 from assistant_agent.session.store import Session, SessionStore
@@ -67,7 +68,7 @@ def runs_command(config: Path | None, delete: str | None) -> None:
     except ConfigError as exc:
         console.error(str(exc))
         raise typer.Exit(code=1) from exc
-    store = RunStore(cfg.agent.recovery.dir)
+    store = RunStore(resolve_run_dir(cfg.agent.recovery.dir))
     metas = store.list()
     if delete:
         meta = next((item for item in metas if item.id == delete), None)
@@ -111,7 +112,7 @@ def resume_command(
     console = Console()
     try:
         cfg = load_config(config)
-        preloaded = RunCoordinator.load(RunStore(cfg.agent.recovery.dir), run_id)
+        preloaded = RunCoordinator.load(RunStore(resolve_run_dir(cfg.agent.recovery.dir)), run_id)
     except (ConfigError, FileNotFoundError, ValueError) as exc:
         console.error(f"无法恢复 Run：{exc}")
         raise typer.Exit(code=1) from exc

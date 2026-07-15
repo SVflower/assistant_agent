@@ -6,7 +6,9 @@ from assistant_agent.agent.loop import AgentLoop
 from assistant_agent.cli.commands import ChatContext, build_default_slash_registry
 from assistant_agent.config.schema import AppConfig
 from assistant_agent.llm.client import StreamEvent
+from assistant_agent.mcp.configure import MCPProbeResult, MCPService
 from assistant_agent.session.store import SessionStore
+from assistant_agent.skills import SkillManager
 from assistant_agent.tools.base import ToolContext
 from assistant_agent.tools.registry import build_default_registry
 
@@ -34,6 +36,10 @@ class FakeConsole:
 
     def ask_question(self, question, options) -> str:
         return options[0]
+
+    def confirm(self, message):
+        self.out.append("CONFIRM:" + message)
+        return "allow"
 
     def set_display_mode(self, value, *, force=False) -> None:
         self.display_mode = value
@@ -137,6 +143,54 @@ def test_mcp_lists_servers(tmp_path):
     build_default_slash_registry().dispatch("/mcp", ctx)
     out = ctx.console.text()
     assert "web（2 个工具）" in out and "nav, click" in out and "db（1 个工具）" in out
+
+
+def test_skills_install_and_remove_commands(tmp_path, monkeypatch):
+    monkeypatch.setenv("ASSISTANT_AGENT_HOME", str(tmp_path / "home"))
+    ctx = _ctx(tmp_path)
+    ctx.skill_manager = SkillManager(tmp_path / "workspace")
+    source = tmp_path / "source"
+    source.mkdir()
+    (source / "SKILL.md").write_text(
+        "---\nname: demo\ndescription: demo skill\n---\nbody\n", encoding="utf-8"
+    )
+    reg = build_default_slash_registry()
+
+    reg.dispatch(f'/skills install "{source}" user', ctx)
+    assert "已安装 Skill demo" in ctx.console.text()
+    reg.dispatch("/skills remove demo user", ctx)
+    assert "已卸载 Skill demo" in ctx.console.text()
+    assert not (tmp_path / "home" / "skills" / "demo").exists()
+
+
+def test_mcp_playwright_add_test_remove_commands(tmp_path, monkeypatch):
+    monkeypatch.setenv("ASSISTANT_AGENT_HOME", str(tmp_path / "home"))
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        "active: p\nproviders:\n  p:\n    model: openai/test\n", encoding="utf-8"
+    )
+    ctx = _ctx(tmp_path)
+    ctx.mcp_service = MCPService(config_path)
+    monkeypatch.setattr(
+        ctx.mcp_service,
+        "probe",
+        lambda name, server: MCPProbeResult(name, ("mcp__playwright__browser_navigate",), ()),
+    )
+    reg = build_default_slash_registry()
+
+    reg.dispatch("/mcp add playwright user", ctx)
+    assert "已验证并添加 playwright" in ctx.console.text()
+    reg.dispatch("/mcp test playwright user", ctx)
+    assert "验证通过" in ctx.console.text()
+    artifact = tmp_path / "home" / "workspaces" / "placeholder" / "artifacts" / "mcp" / "playwright"
+    monkeypatch.setattr(
+        ctx.mcp_service,
+        "purge_artifacts",
+        lambda name: name == "playwright" and artifact.name == "playwright",
+    )
+    reg.dispatch("/mcp remove playwright user --purge-artifacts", ctx)
+    assert "历史 artifact 保留" in ctx.console.text()
+    assert "已清理历史 artifact" in ctx.console.text()
 
 
 def test_model_switch_by_name(tmp_path):

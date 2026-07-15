@@ -18,6 +18,8 @@ dependencies = [
     "prompt-toolkit>=3.0",
     "mcp>=1.28.0,<2",
     "jsonschema>=4.23,<5",
+    "httpx>=0.27,<1",
+    "ruamel.yaml>=0.18,<1",
 ]
 
 [project.optional-dependencies]

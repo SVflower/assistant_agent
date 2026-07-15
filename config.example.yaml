@@ -60,7 +60,7 @@ agent:
   # 步骤级 checkpoint：模型/审批/工具边界原子保存，进程退出后可 resume。
   recovery:
     enabled: true
-    dir: ".assistant_agent/runs"
+    dir: ".assistant_agent/runs"  # 兼容别名；默认解析到用户级 workspace state
     max_completed_runs: 100  # 只清理已同步的 terminal Run；暂停/不确定状态永不自动删除
 
 tools:
@@ -99,17 +99,29 @@ logging:
   # 结构化事件日志与工具审计。日志只落本地，随 .assistant_agent/ gitignore 不入库。
   enabled: true
   # JSONL 日志目录（按天分卷：logs/YYYY-MM-DD.jsonl）
-  dir: ".assistant_agent/logs"
+  dir: ".assistant_agent/logs"  # 兼容别名；默认解析到用户级 workspace state
   # 是否记录工具参数/输出载荷（会截断+尽力脱敏）；设 false 则只记元数据（名/耗时/状态/长度）
   log_tool_io: true
   # 单个参数/输出载荷记录的最大字符数，超出截断
   max_payload_chars: 2000
 
+web:
+  # 结构化联网工具。默认 DuckDuckGo backend 无需 key；也可切换到自建 SearXNG。
+  enabled: true
+  search:
+    backend: duckduckgo             # duckduckgo / searxng
+    max_results: 10                 # 单次搜索结果硬上限（最高 20）
+    searxng_url: ""                 # backend=searxng 时填写，如 https://search.example.com
+  request_timeout: 15
+  max_response_bytes: 2000000       # 解压后响应字节上限
+  max_content_chars: 30000          # 提取后正文字符上限
+  max_redirects: 5                  # 每一跳都会重新做公网 URL 检查
+
 skills:
   # 是否发现并注入技能（SKILL.md 指示书）。渐进披露：启动只注入 name/description，
   # 模型按需 load_skill 加载正文。
   enabled: true
-  # 技能目录；留空用默认：./.assistant_agent/skills 与 ~/.assistant_agent/skills
+  # 技能目录；留空用默认：./.agents/skills 与 ~/.assistant_agent/skills
   dirs: []
   # 项目/自定义 Skill 默认不进入模型上下文；可按 name 显式信任。
   # 个人目录 ~/.assistant_agent/skills 默认受信。
@@ -127,6 +139,7 @@ mcp:
   #     command: npx                      # 启动命令（需已装 Node/npx）
   #     args: ["-y", "@playwright/mcp@latest"]
   #     env: {}                           # 值支持 ${VAR} 从环境插值，密钥不落配置
+  #     cwd: ""                           # 空=受管运行目录；需要项目目录时显式填写
   #     enabled: true
   #     timeout: 30                       # 单次工具调用超时（秒）
   #     auto_approve: false               # true=信任该 server 的全部当前工具（高风险）

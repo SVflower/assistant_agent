@@ -34,6 +34,16 @@ def test_load_valid_config(tmp_path):
     assert config.active_provider.temperature == 0.5
 
 
+def test_malformed_user_mcp_config_is_not_silently_ignored(tmp_path, monkeypatch):
+    home = tmp_path / "home"
+    user_config = home / "mcp" / "servers.yaml"
+    user_config.parent.mkdir(parents=True)
+    user_config.write_text("servers: [broken", encoding="utf-8")
+    monkeypatch.setenv("ASSISTANT_AGENT_HOME", str(home))
+    with pytest.raises(ConfigError, match="用户 MCP 配置读取失败"):
+        load_config(_write(tmp_path, _VALID_YAML))
+
+
 def test_active_must_exist(tmp_path):
     bad = _VALID_YAML.replace("active: cloud", "active: nonexistent")
     with pytest.raises(ConfigError, match="nonexistent"):
@@ -119,6 +129,37 @@ def test_runtime_budget_defaults(tmp_path):
     assert config.agent.recovery.dir == ".assistant_agent/runs"
     assert config.agent.recovery.max_completed_runs == 100
     assert config.ui.display_mode == "normal"
+    assert config.web.enabled is True
+    assert config.web.search.backend == "duckduckgo"
+    assert config.web.search.max_results == 10
+    assert config.web.max_response_bytes == 2_000_000
+
+
+def test_web_config_override_and_validation(tmp_path):
+    yaml_text = (
+        _VALID_YAML
+        + """
+web:
+  enabled: true
+  search:
+    backend: searxng
+    searxng_url: https://search.example.com
+    max_results: 5
+  request_timeout: 8
+  max_response_bytes: 4096
+  max_content_chars: 2000
+  max_redirects: 2
+"""
+    )
+    config = load_config(_write(tmp_path, yaml_text))
+    assert config.web.search.backend == "searxng"
+    assert config.web.search.searxng_url == "https://search.example.com"
+    assert config.web.search.max_results == 5
+    assert config.web.max_redirects == 2
+
+    invalid = _VALID_YAML + "\nweb:\n  search:\n    backend: searxng\n"
+    with pytest.raises(ConfigError, match="searxng_url"):
+        load_config(_write(tmp_path, invalid))
 
 
 def test_runtime_budget_override(tmp_path):

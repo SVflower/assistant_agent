@@ -174,6 +174,33 @@ class Console:
             self._at_line_start = True
         return choice
 
+    def confirm_scoped(self, message: str, broader_label: str) -> ConfirmChoice:
+        """带上级会话 scope 的确认；当前用于 MCP server 会话信任。"""
+        if self._active_live is not None:
+            self._active_live.stop()
+            self._active_live = None
+        if not self._at_line_start:
+            self._console.print()
+            self._at_line_start = True
+        self._console.print("[bold yellow]确认执行[/bold yellow]")
+        self._console.print(message, style="yellow", markup=False)
+        self._console.print(
+            "[green]1[/green] 允许一次  [cyan]2[/cyan] 本会话允许此工具  "
+            f"[blue]3[/blue] {broader_label}  [red]4[/red] 拒绝（默认）"
+        )
+        answer = self.input("[bold]选择 [1/2/3/4]: [/bold]").strip()
+        choice: ConfirmChoice = "deny"
+        if answer == "1":
+            choice = "allow"
+        elif answer == "2":
+            choice = "always"
+        elif answer == "3":
+            choice = "broader"
+        if choice != "deny":
+            self._console.print("[dim]执行中…[/dim]")
+            self._at_line_start = True
+        return choice
+
     def info(self, text: str) -> None:
         if self._display_mode == "quiet":
             return

@@ -13,11 +13,20 @@ _SAFE_PREFIX = re.compile(r"[^A-Za-z0-9_-]+")
 
 
 class ArtifactStore:
-    def __init__(self, workspace_root: Path, *, max_chars: int, max_files: int) -> None:
+    def __init__(
+        self,
+        workspace_root: Path,
+        *,
+        max_chars: int,
+        max_files: int,
+        root: Path | None = None,
+    ) -> None:
         self.workspace_root = workspace_root.resolve()
-        self.root = (self.workspace_root / ".assistant_agent" / "artifacts").resolve()
-        if self.root != self.workspace_root and self.workspace_root not in self.root.parents:
-            raise ValueError("artifact 目录必须位于 workspace 内")
+        if root is None:
+            from assistant_agent.config.paths import state_paths
+
+            root = state_paths(self.workspace_root).tool_artifacts
+        self.root = root.expanduser().resolve()
         self.max_chars = max(max_chars, 1)
         self.max_files = max(max_files, 1)
 
@@ -36,7 +45,7 @@ class ArtifactStore:
         atomic_write_text(target, stored)
         return ArtifactRef(
             id=artifact_id,
-            path=target.relative_to(self.workspace_root).as_posix(),
+            path=target.as_posix(),
             size_chars=len(stored),
             complete=stored_complete,
         )

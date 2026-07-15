@@ -49,7 +49,9 @@ class PermissionPolicy:
             if matched is not None:
                 return PermissionDecision(effect, f"命中显式 {effect} 规则", matched)
 
-        if request.scope in grants:
+        if request.scope in grants or (
+            request.broader_scope is not None and request.broader_scope in grants
+        ):
             return PermissionDecision("allow", "命中本会话精确授权", remembered=True)
 
         matched_allow = next((rule for rule in matches if rule.effect == "allow"), None)

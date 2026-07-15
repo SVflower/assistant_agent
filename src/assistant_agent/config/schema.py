@@ -49,7 +49,10 @@ class RecoveryConfig(BaseModel):
     """步骤级 checkpoint 与单机恢复设置。"""
 
     enabled: bool = Field(default=True, description="保存 Run checkpoint，支持崩溃后恢复")
-    dir: str = Field(default=".assistant_agent/runs", description="Run checkpoint 本地目录")
+    dir: str = Field(
+        default=".assistant_agent/runs",
+        description="Run checkpoint 目录；默认兼容值解析到用户级 workspace state",
+    )
     max_completed_runs: int = Field(
         default=100, ge=0, description="最多保留的已同步 terminal Run 数量"
     )
@@ -121,6 +124,7 @@ class PermissionRuleConfig(BaseModel):
         "mcp.call",
         "skill.load",
         "user.interaction",
+        "extension.manage",
     ]
     target: str = "*"
     tool: str = "*"
@@ -149,7 +153,10 @@ class LoggingConfig(BaseModel):
     """结构化事件日志与工具审计。日志只落本地，随 .assistant_agent/ gitignore 不入库。"""
 
     enabled: bool = Field(default=True, description="是否记录结构化事件日志")
-    dir: str = Field(default=".assistant_agent/logs", description="JSONL 日志目录（按天分卷）")
+    dir: str = Field(
+        default=".assistant_agent/logs",
+        description="JSONL 日志目录；默认兼容值解析到用户级 workspace state",
+    )
     log_tool_io: bool = Field(
         default=True,
         description="是否记录工具参数/输出载荷（截断+脱敏）；关掉则只记元数据（名/耗时/状态/长度）",
@@ -159,13 +166,44 @@ class LoggingConfig(BaseModel):
     )
 
 
+class WebSearchConfig(BaseModel):
+    """Web 搜索 backend 设置。"""
+
+    backend: Literal["duckduckgo", "searxng"] = Field(
+        default="duckduckgo", description="搜索 backend；duckduckgo 无需 key"
+    )
+    max_results: int = Field(default=10, ge=1, le=20, description="单次搜索结果硬上限")
+    searxng_url: str = Field(default="", description="SearXNG 实例 base URL")
+
+    @model_validator(mode="after")
+    def _searxng_requires_url(self) -> WebSearchConfig:
+        if self.backend == "searxng" and not self.searxng_url.startswith(("http://", "https://")):
+            raise ValueError("search.backend=searxng 时必须配置有效 searxng_url")
+        return self
+
+
+class WebConfig(BaseModel):
+    """结构化联网工具设置。"""
+
+    enabled: bool = Field(default=True, description="是否注册 web_search/fetch_url")
+    search: WebSearchConfig = Field(default_factory=WebSearchConfig)
+    request_timeout: float = Field(default=15, gt=0, le=120, description="单个 HTTP 请求超时（秒）")
+    max_response_bytes: int = Field(
+        default=2_000_000, ge=1024, le=20_000_000, description="抓取响应体解压后的字节上限"
+    )
+    max_content_chars: int = Field(
+        default=30_000, ge=1000, le=200_000, description="提取正文字符上限"
+    )
+    max_redirects: int = Field(default=5, ge=0, le=10, description="重定向硬上限")
+
+
 class SkillsConfig(BaseModel):
     """技能（SKILL.md 指示书）发现设置。"""
 
     enabled: bool = Field(default=True, description="是否发现并注入技能")
     dirs: list[str] = Field(
         default_factory=list,
-        description="技能目录；留空用默认（项目与个人的 .assistant_agent/skills）",
+        description="技能目录；留空用默认（项目 .agents/skills + 用户安装目录）",
     )
     trusted_project_skills: list[str] = Field(
         default_factory=list,
@@ -183,6 +221,10 @@ class MCPServerConfig(BaseModel):
     env: dict[str, str] = Field(
         default_factory=dict,
         description="[stdio] 环境变量；值支持 ${VAR} 从进程环境插值，密钥不落配置",
+    )
+    cwd: str = Field(
+        default="",
+        description="[stdio] server 工作目录；空=按 server 隔离的受管运行目录",
     )
     # http 用
     url: str = Field(default="", description="[http] server 的 endpoint URL")
@@ -237,6 +279,7 @@ class AppConfig(BaseModel):
     permissions: PermissionsConfig = Field(default_factory=PermissionsConfig)
     ui: UIConfig = Field(default_factory=UIConfig)
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
+    web: WebConfig = Field(default_factory=WebConfig)
     skills: SkillsConfig = Field(default_factory=SkillsConfig)
     mcp: MCPConfig = Field(default_factory=MCPConfig)
 

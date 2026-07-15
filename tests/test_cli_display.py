@@ -404,6 +404,19 @@ def test_confirmation_prompt_is_compact_and_defaults_to_deny(monkeypatch):
     assert all(len(line) == 79 for line in rules[-3:])
 
 
+def test_scoped_confirmation_exposes_tool_and_server_session_choices(monkeypatch):
+    console = Console()
+    console._console = RichConsole(record=True, width=100)
+    monkeypatch.setattr(console, "input", lambda _prompt: "3")
+    choice = console.confirm_scoped(
+        "需要授权：\n- mcp.call: playwright/click", "本会话信任 playwright"
+    )
+    output = console._console.export_text()
+    assert choice == "broader"
+    assert "本会话允许此工具" in output
+    assert "本会话信任 playwright" in output
+
+
 def test_chat_input_uses_live_bottom_rule_in_tty(monkeypatch):
     class FakePromptSession:
         kwargs = None

@@ -363,7 +363,7 @@
     expected_calls:
       - name: run_shell
         arguments: {command: '${PYTHON} -c "print(''x''*20000)"'}
-        output_contains: ["[artifact: .assistant_agent/artifacts/"]
+        output_contains: ["[artifact:", "artifacts/tools/"]
         is_error: false
     required_tools: [run_shell]
     max_tool_calls: 1

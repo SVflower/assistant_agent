@@ -11,7 +11,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
-DEFAULT_RUN_DIR = Path(".assistant_agent") / "runs"
 _RUN_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$")
 
 
@@ -35,7 +34,11 @@ class RunMeta:
 class RunStore:
     """不依赖 agent 类型的版本化 JSON 文档存储。"""
 
-    def __init__(self, base_dir: str | Path = DEFAULT_RUN_DIR) -> None:
+    def __init__(self, base_dir: str | Path | None = None) -> None:
+        if base_dir is None:
+            from assistant_agent.config.paths import state_paths
+
+            base_dir = state_paths().runs
         self._dir = Path(base_dir)
 
     def _path(self, run_id: str, *, previous: bool = False) -> Path:

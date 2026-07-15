@@ -171,6 +171,8 @@ def chat(
             rt.logger,
             skills=rt.skills_meta(),
             mcp_servers=mcp_servers,
+            skill_manager=rt.skill_manager,
+            mcp_service=rt.mcp_service,
         )
         registry = build_default_slash_registry()
 

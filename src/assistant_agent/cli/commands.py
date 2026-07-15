@@ -12,10 +12,13 @@ from dataclasses import dataclass, field
 from typing import cast
 
 from assistant_agent.agent.loop import AgentLoop
+from assistant_agent.cli.extensions import cmd_mcp, cmd_skills
 from assistant_agent.config.schema import AppConfig
 from assistant_agent.llm.client import LLMClient
+from assistant_agent.mcp import MCPService
 from assistant_agent.obs import NullLogger
 from assistant_agent.session.store import Session, SessionStore
+from assistant_agent.skills import SkillManager
 from assistant_agent.ui.console import Console, DisplayMode
 
 
@@ -35,6 +38,8 @@ class ChatContext:
     skills: list[tuple[str, str]] = field(default_factory=list)  # (name, description)
     # (server 名, 其工具原始名列表)；MCP 禁用/无 server 时为空。
     mcp_servers: list[tuple[str, list[str]]] = field(default_factory=list)
+    skill_manager: SkillManager | None = None
+    mcp_service: MCPService | None = None
     should_exit: bool = False
 
 
@@ -153,32 +158,6 @@ def _cmd_context(args: str, ctx: ChatContext) -> None:
     )
 
 
-def _cmd_skills(args: str, ctx: ChatContext) -> None:
-    """列出已发现的技能（name + description）。"""
-    if not ctx.skills:
-        ctx.console.command_info(
-            "未发现技能。把 SKILL.md 放到 ./.assistant_agent/skills/<名>/ 或 "
-            "~/.assistant_agent/skills/<名>/ 下即可。"
-        )
-        return
-    lines = ["已发现技能（模型会按需 load_skill 加载）："]
-    lines += [f"  {name:<16} {description}" for name, description in ctx.skills]
-    ctx.console.command_info("\n".join(lines))
-
-
-def _cmd_mcp(args: str, ctx: ChatContext) -> None:
-    """列出已接入的 MCP server 及其工具。"""
-    if not ctx.mcp_servers:
-        ctx.console.command_info(
-            "未接入 MCP server。在配置 mcp.servers 下添加并 enabled=true 即可。"
-        )
-        return
-    lines = ["已接入的 MCP server（工具以 mcp__<server>__<tool> 注册）："]
-    for server, tools in ctx.mcp_servers:
-        lines.append(f"  {server}（{len(tools)} 个工具）: {', '.join(tools) or '(无)'}")
-    ctx.console.command_info("\n".join(lines))
-
-
 def _cmd_display(args: str, ctx: ChatContext) -> None:
     """查看或切换当前会话的展示密度。"""
     modes = ("normal", "verbose", "quiet")
@@ -210,8 +189,8 @@ def build_default_slash_registry() -> SlashRegistry:
     reg.register(SlashCommand("sessions", "列出历史会话", _cmd_sessions))
     reg.register(SlashCommand("clear", "开新会话（清空上下文）", _cmd_clear))
     reg.register(SlashCommand("context", "查看会话状态与用量", _cmd_context))
-    reg.register(SlashCommand("skills", "列出已发现的技能", _cmd_skills))
-    reg.register(SlashCommand("mcp", "列出已接入的 MCP server 与工具", _cmd_mcp))
+    reg.register(SlashCommand("skills", "管理 Skill（list/install/remove/doctor）", cmd_skills))
+    reg.register(SlashCommand("mcp", "管理 MCP server（list/add/test/remove 等）", cmd_mcp))
     reg.register(SlashCommand("display", "查看或切换展示模式", _cmd_display))
     reg.register(SlashCommand("exit", "退出（也可输入 exit/quit）", _cmd_exit))
     return reg

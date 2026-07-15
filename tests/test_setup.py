@@ -6,8 +6,11 @@ import pytest
 
 from assistant_agent.cli import setup
 from assistant_agent.config.schema import AppConfig, MCPConfig, MCPServerConfig
+from assistant_agent.mcp import MCPService
 from assistant_agent.obs import NullLogger
-from assistant_agent.skills import SkillMeta, SkillStore
+from assistant_agent.skills import SkillManager, SkillMeta, SkillStore
+from assistant_agent.tools.extensions import ConfigureMCPServerTool, ManageSkillTool
+from assistant_agent.tools.registry import build_default_registry
 
 
 class _Console:
@@ -58,7 +61,7 @@ def test_build_runtime_rolls_back_mcp_and_logger(monkeypatch):
     mcp = _MCP()
     monkeypatch.setattr(setup, "load_config", lambda _path: config)
     monkeypatch.setattr(setup, "create_logger", lambda *_args: logger)
-    monkeypatch.setattr(setup, "_start_mcp", lambda *_args: mcp)
+    monkeypatch.setattr(setup, "_start_mcp", lambda *_args, **_kwargs: mcp)
     monkeypatch.setattr(
         setup, "AgentLoop", lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("boom"))
     )
@@ -111,7 +114,7 @@ def test_start_mcp_warns_for_trusted_server(monkeypatch):
     class Manager:
         warnings = []
 
-        def __init__(self, *_args):
+        def __init__(self, *_args, **_kwargs):
             pass
 
         def start(self):
@@ -124,3 +127,20 @@ def test_start_mcp_warns_for_trusted_server(monkeypatch):
     config = MCPConfig(servers={"trusted": MCPServerConfig(command="fake", auto_approve=True)})
     setup._start_mcp(config, Console(), setup.build_default_registry())
     assert any("高风险" in message and "trusted" in message for message in messages)
+
+
+def test_extension_model_tools_degrade_when_context_is_small(tmp_path, monkeypatch):
+    monkeypatch.setenv("ASSISTANT_AGENT_HOME", str(tmp_path / "home"))
+    config = AppConfig.model_validate(
+        {"active": "p", "providers": {"p": {"model": "x"}}, "agent": {"max_context_tokens": 8_000}}
+    )
+    registry = build_default_registry()
+    service = MCPService(tmp_path / "config.yaml")
+    tools = [ManageSkillTool(SkillManager(tmp_path)), ConfigureMCPServerTool(service)]
+    large_prompt = "x" * 5_000
+
+    assert setup._register_extension_tools(config, registry, large_prompt, tools) is False
+    assert "manage_skill" not in registry.names()
+    config.agent.max_context_tokens = 65_536
+    assert setup._register_extension_tools(config, registry, large_prompt, tools) is True
+    assert "configure_mcp_server" in registry.names()

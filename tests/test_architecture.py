@@ -23,6 +23,7 @@ _LAYER_RANK = {
     "session": 0,
     "obs": 0,
     "llm": 1,
+    "web": 1,  # HTTP 搜索/抓取基础设施，只依赖 config 与外部 httpx
     "tools": 2,
     "skills": 2,  # 叶子能力层：SKILL.md 发现 + load_skill 工具，只依赖 tools/base
     "mcp": 2,  # 叶子能力层：MCP client，MCPTool 继承 tools/base，只依赖它 + 外部 mcp 包

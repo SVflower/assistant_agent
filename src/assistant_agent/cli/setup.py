@@ -15,24 +15,36 @@ import typer
 from assistant_agent.agent.loop import AgentLoop
 from assistant_agent.agent.prompts import build_system_prompt
 from assistant_agent.agent.recovery import RunCoordinator
-from assistant_agent.config.loader import ConfigError, load_config
-from assistant_agent.config.schema import AppConfig, MCPConfig, SkillsConfig
+from assistant_agent.agent.token_budget import estimate_message_tokens, estimate_tools_tokens
+from assistant_agent.config.loader import ConfigError, find_config_file, load_config
+from assistant_agent.config.paths import (
+    project_skills_dir,
+    resolve_log_dir,
+    resolve_run_dir,
+    state_paths,
+    user_skills_dir,
+)
+from assistant_agent.config.schema import AppConfig, MCPConfig, SkillsConfig, WebConfig
 from assistant_agent.llm.client import LLMClient
-from assistant_agent.mcp import MCPManager
+from assistant_agent.mcp import MCPManager, MCPService
 from assistant_agent.obs import NullLogger, create_logger, new_trace_id
 from assistant_agent.session.run_store import RunStore
-from assistant_agent.skills import LoadSkillTool, SkillMeta, SkillSource, SkillStore
-from assistant_agent.tools.base import ToolContext
+from assistant_agent.skills import LoadSkillTool, SkillManager, SkillMeta, SkillSource, SkillStore
+from assistant_agent.tools.base import Tool, ToolContext
+from assistant_agent.tools.extensions import ConfigureMCPServerTool, ManageSkillTool
 from assistant_agent.tools.permissions import Capability, PermissionRequest, PermissionRule
 from assistant_agent.tools.policy import PermissionPolicy
 from assistant_agent.tools.registry import ToolRegistry, build_default_registry
+from assistant_agent.tools.web import FetchURLTool, WebSearchTool
 from assistant_agent.ui.console import Console
+from assistant_agent.web import WebClient
 
 
 def _discover_skills(cfg: SkillsConfig) -> SkillStore:
     """按配置发现技能。禁用时返回空 store（不扫描、不注入）。
 
-    默认目录：./.assistant_agent/skills（项目级，优先）与 ~/.assistant_agent/skills（个人级）。
+    默认目录：./.agents/skills（项目级）与 ~/.assistant_agent/skills（个人级）；
+    旧 ./.assistant_agent/skills 最低优先级只读兼容。
     """
     if not cfg.enabled:
         return SkillStore({})
@@ -41,10 +53,11 @@ def _discover_skills(cfg: SkillsConfig) -> SkillStore:
         sources: list[SkillSource] = ["configured"] * len(dirs)
     else:
         dirs = [
+            project_skills_dir(),
+            user_skills_dir(),
             Path.cwd() / ".assistant_agent" / "skills",
-            Path.home() / ".assistant_agent" / "skills",
         ]
-        sources = ["project", "personal"]
+        sources = ["project", "personal", "legacy"]
     return SkillStore.discover(
         dirs,
         sources=sources,
@@ -88,11 +101,18 @@ def _authorize_skills(skills: list[SkillMeta], ctx: ToolContext) -> list[SkillMe
     return sorted(visible, key=lambda meta: meta.name)
 
 
-def _start_mcp(cfg: MCPConfig, console: Console, registry: ToolRegistry) -> MCPManager | None:
+def _start_mcp(
+    cfg: MCPConfig,
+    console: Console,
+    registry: ToolRegistry,
+    *,
+    artifact_root: Path | None = None,
+    stderr_root: Path | None = None,
+) -> MCPManager | None:
     """连接 MCP server、注册其工具、打印警告。禁用或无 server 时返回 None。"""
     if not cfg.enabled or not cfg.servers:
         return None
-    manager = MCPManager(cfg, NullLogger())
+    manager = MCPManager(cfg, NullLogger(), artifact_root=artifact_root, stderr_root=stderr_root)
     try:
         tools = manager.start()
         for tool in tools:
@@ -115,6 +135,40 @@ def _start_mcp(cfg: MCPConfig, console: Console, registry: ToolRegistry) -> MCPM
     return manager
 
 
+def _start_web(cfg: WebConfig, registry: ToolRegistry) -> WebClient | None:
+    """构造 Web client 并注册工具；不在启动阶段发起网络请求。"""
+    if not cfg.enabled:
+        return None
+    client = WebClient(cfg)
+    try:
+        registry.register(WebSearchTool(client))
+        registry.register(FetchURLTool(client))
+    except BaseException:
+        client.close()
+        raise
+    return client
+
+
+def _register_extension_tools(
+    config: AppConfig,
+    registry: ToolRegistry,
+    system_prompt: str,
+    tools: list[Tool],
+) -> bool:
+    """仅在固定开销仍留有消息空间时向模型暴露扩展管理工具。"""
+    schemas = [*registry.schemas(), *(tool.to_schema() for tool in tools)]
+    fixed = (
+        estimate_message_tokens({"role": "system", "content": system_prompt})
+        + estimate_tools_tokens(schemas)
+        + config.agent.reserved_output_tokens
+    )
+    if fixed + 5 > config.agent.max_context_tokens:
+        return False
+    for tool in tools:
+        registry.register(tool)
+    return True
+
+
 @dataclass
 class Runtime:
     """一次运行的装配结果 + 生命周期管理。用作上下文管理器。"""
@@ -124,6 +178,9 @@ class Runtime:
     logger: NullLogger
     skill_store: SkillStore
     visible_skills: list[SkillMeta] = field(default_factory=list)
+    skill_manager: SkillManager = field(default_factory=SkillManager)
+    mcp_service: MCPService | None = None
+    web: WebClient | None = None
     mcp: MCPManager | None = None
     run_store: RunStore = field(default_factory=RunStore)
     interactive: bool = False
@@ -163,6 +220,8 @@ class Runtime:
         self._closed = True
         if self.mcp is not None:
             self.mcp.close()
+        if self.web is not None:
+            self.web.close()
         self.logger.session_end(reason=reason)
 
 
@@ -181,6 +240,11 @@ def build_runtime(
     provider：非空则覆盖 active（临时后端，不改文件）。max_iterations：非空覆盖最大轮数。
     """
     try:
+        resolved_config_path = (
+            Path(config_path).expanduser().resolve()
+            if config_path is not None
+            else find_config_file()
+        )
         config = load_config(config_path)
     except ConfigError as exc:
         console.error(str(exc))
@@ -205,10 +269,19 @@ def build_runtime(
 
     # 先发现 Skill，但不把未信任项目元数据暴露给模型。
     skill_store = _discover_skills(config.skills)
-    logger = create_logger(config.logging, new_trace_id())
+    skill_manager = SkillManager()
+    paths = state_paths()
+    logging_config = config.logging.model_copy(
+        update={"dir": str(resolve_log_dir(config.logging.dir))}
+    )
+    logger = create_logger(logging_config, new_trace_id())
+    if resolved_config_path is None:  # load_config 成功时理论上不可达
+        raise RuntimeError("无法确定当前配置文件路径")
+    mcp_service = MCPService(resolved_config_path, logger, workspace_root=Path.cwd())
     logger.bind_session(None)
-    run_store = RunStore(config.agent.recovery.dir)
+    run_store = RunStore(resolve_run_dir(config.agent.recovery.dir))
     mcp: MCPManager | None = None
+    web: WebClient | None = None
     try:
         logger.session_start(
             provider=config.active,
@@ -221,11 +294,13 @@ def build_runtime(
             confirm_dangerous_shell=config.tools.confirm_dangerous_shell,
             shell_timeout=config.tools.shell_timeout,
             confirm=console.confirm,
+            confirm_scoped=getattr(console, "confirm_scoped", None),
             ask=console.ask_question,
             logger=logger,
             max_output_chars=config.tools.max_output_chars,
             max_captured_output_chars=config.tools.max_captured_output_chars,
             max_artifact_files=config.tools.max_artifact_files,
+            artifact_root=paths.tool_artifacts,
             permission_policy=_build_permission_policy(config),
             interactive=interactive,
         )
@@ -237,8 +312,26 @@ def build_runtime(
         skill_meta = [(meta.name, f"[{meta.source}] {meta.description}") for meta in visible_skills]
         system_prompt = build_system_prompt(interactive, skills=skill_meta or None)
 
+        web = _start_web(config.web, registry)
+        extension_tools = [ManageSkillTool(skill_manager), ConfigureMCPServerTool(mcp_service)]
+        if not _register_extension_tools(config, registry, system_prompt, extension_tools):
+            system_prompt = build_system_prompt(
+                interactive,
+                skills=skill_meta or None,
+                extension_management=False,
+            )
+            console.error(
+                "（扩展管理）当前上下文窗口不足，模型管理工具未注册；"
+                "仍可使用 /skills 和 /mcp 命令。"
+            )
         # MCP（M7b）：连接 server、注册外部工具。禁用/无 server 时 None。
-        mcp = _start_mcp(config.mcp, console, registry)
+        mcp = _start_mcp(
+            config.mcp,
+            console,
+            registry,
+            artifact_root=paths.mcp_artifacts,
+            stderr_root=paths.mcp_stderr,
+        )
         continue_check = console.confirm_continue if interactive else None
         loop = AgentLoop(
             config,
@@ -260,6 +353,9 @@ def build_runtime(
             logger=logger,
             skill_store=skill_store,
             visible_skills=visible_skills,
+            skill_manager=skill_manager,
+            mcp_service=mcp_service,
+            web=web,
             mcp=mcp,
             run_store=run_store,
             interactive=interactive,
@@ -267,5 +363,7 @@ def build_runtime(
     except BaseException:
         if mcp is not None:
             mcp.close()
+        if web is not None:
+            web.close()
         logger.session_end(reason="runtime_init_failed")
         raise

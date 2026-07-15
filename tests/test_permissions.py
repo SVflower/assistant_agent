@@ -11,6 +11,7 @@ from assistant_agent.tools.permissions import (
     Capability,
     PermissionRequest,
     PermissionRule,
+    PermissionScope,
 )
 from assistant_agent.tools.policy import PermissionPolicy
 from assistant_agent.tools.registry import ToolRegistry
@@ -42,6 +43,21 @@ def test_exact_grant_does_not_spread_to_other_target(tmp_path):
     not_granted = policy.decide(second, workspace_root=tmp_path, grants={first.scope})
     assert granted.effect == "allow" and granted.remembered
     assert not_granted.effect == "ask"
+
+
+def test_broader_grant_is_explicit_and_does_not_use_wildcard_matching(tmp_path):
+    broader = PermissionScope(Capability.MCP_CALL, "mcp-server:srv", "srv")
+    request = PermissionRequest(
+        "mcp__srv__click",
+        Capability.MCP_CALL,
+        "srv/click",
+        "risk",
+        broader_scope=broader,
+    )
+    policy = PermissionPolicy(mode="workspace")
+    assert policy.decide(request, workspace_root=tmp_path, grants={broader}).effect == "allow"
+    other = PermissionRequest("mcp__other__click", Capability.MCP_CALL, "other/click", "risk")
+    assert policy.decide(other, workspace_root=tmp_path, grants={broader}).effect == "ask"
 
 
 def test_explicit_ask_overrides_exact_session_grant(tmp_path):

@@ -17,7 +17,7 @@ from typing import Any
 
 from assistant_agent.obs import sanitize_for_display
 from assistant_agent.tools.base import Tool, ToolContext, ToolResult
-from assistant_agent.tools.permissions import Capability, PermissionRequest
+from assistant_agent.tools.permissions import Capability, PermissionRequest, PermissionScope
 
 #: caller(server, raw_tool, args, timeout) -> CallToolResult 形态对象（有 content/isError），
 #: 协议错误应抛异常（含超时 TimeoutError）。
@@ -120,25 +120,22 @@ class MCPTool(Tool):
         )
         if len(safe_args) > 1000:
             safe_args = safe_args[:1000] + f"…(+{len(safe_args) - 1000} chars)"
-        target = f"{self._server}/{self._raw_tool} args={safe_args}"
-        common = {"trusted_server": self._auto_approve, "args": args}
-        requests = [
+        target = f"{self._server}/{self._raw_tool}"
+        common = {
+            "trusted_server": self._auto_approve,
+            "args": args,
+            "display_target": f"{target} args={safe_args}",
+            "broader_scope_label": f"本会话信任 {self._server}",
+        }
+        return [
             PermissionRequest(
                 self.name,
                 Capability.MCP_CALL,
                 target,
-                "外部 MCP server 可能产生副作用；server 元数据默认不可信",
+                "外部 MCP server 可能联网、读写数据或产生其他副作用；server 元数据默认不可信",
                 metadata=common,
+                broader_scope=PermissionScope(
+                    Capability.MCP_CALL, f"mcp-server:{self._server}", self._server
+                ),
             )
         ]
-        if not self._auto_approve:
-            requests.append(
-                PermissionRequest(
-                    self.name,
-                    Capability.NETWORK_ACCESS,
-                    self._server,
-                    "未信任 MCP server 可能访问开放网络或外部系统",
-                    metadata=common,
-                )
-            )
-        return requests

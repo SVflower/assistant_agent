@@ -24,8 +24,8 @@ from assistant_agent.tools.permissions import (
 from assistant_agent.tools.policy import PermissionPolicy
 from assistant_agent.tools.result import ArtifactRef, ToolResult
 
-# 确认结果：允许一次 / 本会话永远允许这类 / 拒绝。
-ConfirmChoice = Literal["allow", "always", "deny"]
+# 确认结果：允许一次 / 当前 scope / 上级 scope / 拒绝。
+ConfirmChoice = Literal["allow", "always", "broader", "deny"]
 
 # 无人应答时的退化信号：非交互环境（管道/无 tty）下 ask_user 的返回。
 NO_USER_AVAILABLE = "当前非交互环境，无用户应答；请基于最合理的假设继续，并说明你做了哪些假设。"
@@ -75,6 +75,7 @@ class ToolContext:
     # 确认回调：给一条说明，返回用户的选择（allow/always/deny）。
     # 默认拒绝（安全优先）。UI 层注入真正的多选交互。
     confirm: Callable[[str], ConfirmChoice] = lambda _msg: "deny"
+    confirm_scoped: Callable[[str, str], ConfirmChoice] | None = None
     # 澄清回调（层1）：给问题+选项，返回用户所选。默认返回退化信号（无 UI 可问）。
     # UI 层注入真正的交互；ask_user 工具在非交互环境会自行退化，不调用它。
     ask: Callable[[str, list[str]], str] = lambda _q, _opts: NO_USER_AVAILABLE
@@ -96,6 +97,7 @@ class ToolContext:
     max_captured_output_chars: int = 1_000_000
     # workspace 内 artifact 最多保留文件数。
     max_artifact_files: int = 100
+    artifact_root: Path | None = None
     artifact_store: Any | None = None
     # 当前任务预算；由 AgentLoop 在每次 run() 开始时安装，结束时恢复。
     budget: ToolBudget | None = None
@@ -115,6 +117,7 @@ class ToolContext:
                 self.workspace_root,
                 max_chars=self.max_captured_output_chars,
                 max_files=self.max_artifact_files,
+                root=self.artifact_root,
             )
         return self.artifact_store.write_text(content, prefix=prefix, complete=complete)
 
@@ -182,14 +185,28 @@ class ToolContext:
             before_prompt()
         lines = ["需要授权："]
         lines.extend(
-            f"- {request.capability.value}: {request.target}" for request, _decision in asks
+            f"- {request.capability.value}: {request.display_target}" for request, _decision in asks
         )
         risks = list(dict.fromkeys(request.risk for request, _decision in asks))
         if risks:
             lines.append(f"风险：{'；'.join(risks)}")
         start = time.perf_counter()
-        choice = self.confirm("\n".join(lines))
+        broader = [request.broader_scope for request, _decision in asks]
+        can_grant_broader = bool(broader) and all(
+            scope is not None and scope == broader[0] for scope in broader
+        )
+        if can_grant_broader and self.confirm_scoped is not None:
+            label = str(asks[0][0].metadata.get("broader_scope_label", "本会话允许上级范围"))
+            choice = self.confirm_scoped("\n".join(lines), label)
+        else:
+            choice = self.confirm("\n".join(lines))
         self._approval_wait_ms += int((time.perf_counter() - start) * 1000)
+        if choice == "broader" and can_grant_broader and broader[0] is not None:
+            self.permission_grants.add(broader[0])
+            self._audit_permissions(
+                requests, decisions, "always", "用户允许并记住上级会话作用域", False
+            )
+            return True
         if choice == "always":
             self.permission_grants.update(request.scope for request, _decision in asks)
             self._audit_permissions(

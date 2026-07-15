@@ -14,6 +14,7 @@ import threading
 from concurrent.futures import Future
 from contextlib import AsyncExitStack
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from assistant_agent.mcp.tool import MCPTool
@@ -25,6 +26,20 @@ if TYPE_CHECKING:
 
 _NAME_SANITIZE = re.compile(r"[^a-zA-Z0-9_]")
 _ENV_REF = re.compile(r"\$\{([^}]+)\}")
+_BASE_ENV_KEYS = {
+    "COMSPEC",
+    "HOME",
+    "LANG",
+    "LOCALAPPDATA",
+    "PATH",
+    "PATHEXT",
+    "SYSTEMDRIVE",
+    "SYSTEMROOT",
+    "TEMP",
+    "TMP",
+    "USERPROFILE",
+    "WINDIR",
+}
 
 
 def _sanitize(part: str) -> str:
@@ -41,6 +56,11 @@ def _interpolate_env(env: dict[str, str]) -> dict[str, str]:
         key: _ENV_REF.sub(lambda mo: os.environ.get(mo.group(1), ""), value)
         for key, value in env.items()
     }
+
+
+def _minimal_env() -> dict[str, str]:
+    """保留进程启动所需基础变量，不继承 token/secret/key 等宿主凭据。"""
+    return {key: value for key, value in os.environ.items() if key.upper() in _BASE_ENV_KEYS}
 
 
 @dataclass
@@ -60,9 +80,24 @@ class MCPManager:
     start() 返回发现并通过过滤/上限的 MCPTool 列表，供 main 注册进 registry。
     """
 
-    def __init__(self, config: MCPConfig, logger: NullLogger) -> None:
+    def __init__(
+        self,
+        config: MCPConfig,
+        logger: NullLogger,
+        *,
+        artifact_root: Path | None = None,
+        stderr_root: Path | None = None,
+    ) -> None:
+        if artifact_root is None or stderr_root is None:
+            from assistant_agent.config.paths import state_paths
+
+            paths = state_paths()
+            artifact_root = artifact_root or paths.mcp_artifacts
+            stderr_root = stderr_root or paths.mcp_stderr
         self._config = config
         self._logger = logger
+        self._artifact_root = artifact_root.resolve()
+        self._stderr_root = stderr_root.resolve()
         self._loop: asyncio.AbstractEventLoop | None = None
         self._thread: threading.Thread | None = None
         self._servers: dict[str, _Server] = {}
@@ -102,7 +137,9 @@ class MCPManager:
 
     # ---- 连接与发现 ----
 
-    async def _open_transport(self, stack: AsyncExitStack, cfg: MCPServerConfig) -> tuple:
+    async def _open_transport(
+        self, stack: AsyncExitStack, name: str, cfg: MCPServerConfig
+    ) -> tuple:
         """按 type 分派 transport 工厂，返回 (read, write)。协议头/session 由 SDK 代管。
 
         stdio：stdio_client → 2 元组。
@@ -118,10 +155,24 @@ class MCPManager:
         from mcp import StdioServerParameters
         from mcp.client.stdio import stdio_client
 
+        artifact_dir = (self._artifact_root / _sanitize(name)).resolve()
+        stderr_dir = (self._stderr_root / _sanitize(name)).resolve()
+        artifact_dir.mkdir(parents=True, exist_ok=True)
+        stderr_dir.mkdir(parents=True, exist_ok=True)
+        cwd = Path(cfg.cwd).expanduser().resolve() if cfg.cwd else artifact_dir
+        env = {**_minimal_env(), **_interpolate_env(cfg.env)}
+        env.setdefault("ASSISTANT_AGENT_ARTIFACT_DIR", str(artifact_dir))
+        args = _managed_args(cfg.command, list(cfg.args), artifact_dir)
         params = StdioServerParameters(
-            command=cfg.command, args=list(cfg.args), env=_interpolate_env(cfg.env) or None
+            command=cfg.command,
+            args=args,
+            env=env,
+            cwd=cwd,
         )
-        read, write = await stack.enter_async_context(stdio_client(params))
+        errlog = stack.enter_context(
+            (stderr_dir / "server.log").open("a", encoding="utf-8", errors="replace")
+        )
+        read, write = await stack.enter_async_context(stdio_client(params, errlog=errlog))
         return read, write
 
     async def _connect_one(self, name: str, cfg: MCPServerConfig) -> _Server:
@@ -130,7 +181,7 @@ class MCPManager:
 
         stack = AsyncExitStack()
         try:
-            read, write = await self._open_transport(stack, cfg)
+            read, write = await self._open_transport(stack, name, cfg)
             session = await stack.enter_async_context(ClientSession(read, write))
             await session.initialize()
             return _Server(name=name, stack=stack, session=session)
@@ -250,3 +301,17 @@ class MCPManager:
     def server_summary(self) -> list[tuple[str, list[str]]]:
         """(server 名, 其原始工具名列表) 列表，供 /mcp 展示。"""
         return [(name, list(s.tool_names)) for name, s in self._servers.items()]
+
+
+def _managed_args(command: str, args: list[str], artifact_dir: Path) -> list[str]:
+    """为已知 MCP 注入官方产物目录参数；用户显式参数优先。"""
+    joined = " ".join([command, *args]).lower()
+    if "@playwright/mcp" not in joined or "--output-dir" in args:
+        return args
+    return [
+        *args,
+        "--output-dir",
+        str(artifact_dir),
+        "--output-max-size",
+        str(100 * 1024 * 1024),
+    ]

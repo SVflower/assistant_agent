@@ -15,6 +15,7 @@ class Capability(StrEnum):
     MCP_CALL = "mcp.call"
     SKILL_LOAD = "skill.load"
     USER_INTERACTION = "user.interaction"
+    EXTENSION_MANAGE = "extension.manage"
 
 
 PermissionEffect = Literal["allow", "ask", "deny"]
@@ -30,6 +31,7 @@ class PermissionRequest:
     target: str
     risk: str
     metadata: dict[str, Any] = field(default_factory=dict, compare=False, hash=False)
+    broader_scope: PermissionScope | None = field(default=None, compare=False, hash=False)
 
     @property
     def category(self) -> str:
@@ -38,6 +40,11 @@ class PermissionRequest:
     @property
     def scope(self) -> PermissionScope:
         return PermissionScope(self.capability, self.tool, self.target)
+
+    @property
+    def display_target(self) -> str:
+        """确认界面可显示参数详情，策略与记忆仍使用稳定 target。"""
+        return str(self.metadata.get("display_target", self.target))
 
 
 @dataclass(frozen=True)

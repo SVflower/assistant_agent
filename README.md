@@ -81,9 +81,10 @@ ui:
   display_mode: normal  # normal | verbose | quiet
 ```
 
-会话存于项目下 `./.assistant_agent/sessions/`（已 gitignore）。
+会话、Run、日志和工具产物按工作区隔离存于
+`~/.assistant_agent/workspaces/<workspace-id>/`；可用 `ASSISTANT_AGENT_HOME` 覆盖用户状态根目录。
 
-每个用户任务另有独立 Run checkpoint，默认存于 `./.assistant_agent/runs/`。模型完整响应、
+每个用户任务另有独立 Run checkpoint。模型完整响应、
 授权提示、工具副作用开始和结果确认等边界会原子保存；current 损坏时回退 prev。恢复不会重放
 已确认完成的工具。若进程在写文件、Shell、MCP 等副作用开始后退出，结果会标为不确定：交互恢复
 必须选择 retry/skip/abort，非交互模式保持暂停。checkpoint 含对话与工具参数，是本地敏感数据，
@@ -101,13 +102,16 @@ workspace Artifact 返回，文件数由 `tools.max_artifact_files` 限制。预
 
 ## 技能（Skills）
 
-把某类任务的做法手册写成 `SKILL.md`，放到 `./.assistant_agent/skills/<名>/`
-（项目级）或 `~/.assistant_agent/skills/<名>/`（个人级），Agent 会自动发现。
+把某类任务的做法手册写成 `SKILL.md`，放到 `./.agents/skills/<名>/`
+（项目级）或 `~/.assistant_agent/skills/<名>/`（个人级），Agent 会自动发现。旧的
+`./.assistant_agent/skills/` 仅做最低优先级只读兼容，不会自动移动或删除。
 个人 Skill 默认受信；项目/自定义 Skill 会在元数据进入模型上下文前聚合确认，也可通过
 `skills.trusted_project_skills` 按名称显式信任。渐进披露：启动只注入已授权技能的
 name/description（省 token），模型判断相关时才
 `load_skill` 加载正文照做；正文可指向脚本/参考文件，用现有工具读或跑。
-对话中输入 `/skills` 查看已发现的技能。格式与 Claude Code 的 SKILL.md 兼容。
+对话中使用 `/skills list|install|remove|doctor` 管理；安装默认进入 user scope，项目安装需显式
+指定 `project`。受管安装校验清单、大小和符号链接，卸载不会删除用户手写目录；变更在下次启动生效。
+格式与 Claude Code 的 SKILL.md 兼容。
 
 ```markdown
 ---
@@ -135,8 +139,9 @@ mcp:
 ```
 
 其工具以 `mcp__<server>__<tool>` 注册，与内置工具同流（审计/预算/确认）。
-每个 MCP 工具默认逐次确认，参数会递归脱敏并限长；"永久允许"按 server、tool 和精确参数
-记忆，不会扩散到其他调用。未信任 server 的 annotations 不能降低权限等级。
+每个 MCP 工具首次调用可选“允许一次 / 本会话允许此工具 / 本会话信任此 server / 拒绝”；
+记忆键按 server/tool 或 server，不再把变化的参数混入授权 scope。参数仍会递归脱敏并进入审计，
+显式 deny/ask 规则优先，未信任 server 的 annotations 不能降低权限等级。
 用 `include_tools`/`exclude_tools`、`max_tools`、`max_total_tools` 控制接入的工具集。
 远程 server 用 `type: http` + `url`（Streamable HTTP），headers 支持 `${VAR}` 注入 token：
 
@@ -150,7 +155,17 @@ mcp:
         Authorization: "Bearer ${MCP_TOKEN}"   # 真值从环境取，不落配置
 ```
 
-对话中输入 `/mcp` 查看已接入的 server 与工具。session/协议头/重连由 SDK 代管，调用不自动重放。
+对话中使用 `/mcp list|add|test|doctor|enable|disable|trust|untrust|remove` 管理 server；
+`/mcp add playwright` 会隔离探测后原子写入 user 配置，新增工具在下次启动生效。stdio server 使用
+最小环境和受管 cwd，Playwright snapshot/screenshot 默认进入 workspace MCP artifact，不落仓库根。
+卸载默认保留历史 artifact；`remove ... --purge-artifacts` 需要二次确认且只清理当前 server。
+session/协议头/重连由 SDK 代管，调用不自动重放。
+
+## 联网检索
+
+内置 `web_search` 与 `fetch_url` 用于时效性搜索和来源核验。默认 DuckDuckGo backend 无需 key，
+也可在 `web.search.backend` 切换到 SearXNG；工具返回查询/抓取时间和来源 URL。网页抓取仅允许
+HTTP(S)，拒绝 localhost/私网、URL 凭据和危险重定向，并限制超时、响应字节和正文长度。
 
 ## 权限边界
 
@@ -190,10 +205,11 @@ python -m evals compare evals/reports/run-a/results.jsonl evals/reports/run-b/re
 config/   配置加载与校验（Pydantic + YAML）
 cli/      CLI 层：slash 命令系统（/help /model 等）+ init 配置向导 + Runtime 生命周期
 llm/      模型抽象层（封装 LiteLLM，统一云端/本地）
+web/      可替换搜索 backend、安全 URL 策略、流式抓取与正文提取
 tools/    工具系统（base/registry + 内置：读/写/局部编辑/多处编辑/列目录/shell/代码检索/git 只读/澄清）
 session/  Session 存档 + Run checkpoint 双槽原子存储
 skills/   Agent Skills（SKILL.md 发现 + 渐进披露 + load_skill）
-mcp/      MCP client（stdio + HTTP transport 接外部工具生态，同步桥 + 命名空间）
+mcp/      MCP client（stdio/HTTP、同步桥、隔离探测、配置事务与受管清单）
 obs/      结构化 JSONL 事件日志与工具审计（尽力脱敏，禁用零副作用）
 agent/    ReAct 主循环 + RunState/恢复协调 + 上下文管理（token 截断/摘要）+ 提示词
 ui/       终端输入输出（Rich 流式渲染）
@@ -202,11 +218,10 @@ ui/       终端输入输出（Rich 流式渲染）
 扩展点：换模型动 `config.yaml`；加能力优先在 `tools/` 加文件并在 `registry.py` 注册，或接 `skills/`（SKILL.md）与 `mcp/`（外部 server）——内核 `agent/loop.py` 通常不必动（确需演进时先确认）。
 
 第三阶段“可信执行与质量闭环”已完成：M9a-M10b 已交付，M10c 决定暂不进行全栈 async 重构，
-D18 进程树终止边界保留待独立立项。M11a 已完成 CLI 对话展示重构：语义工具摘要、三种展示模式、
-统一脱敏与流式 Markdown，Write/Edit 在权限确认前提供有界代码预览和结构化 diff，并用代码底板与
-增删行背景区分内容；输入区使用全宽分隔并显示会话启停 ID；quiet 仍保留 slash 控制命令反馈。当前
-423 个测试通过（2 个平台能力测试跳过）、覆盖率 82%、7405 行生产 Python 源码 + 1366 行 eval
-基础设施。详见
+D18 进程树终止边界保留待独立立项。第四阶段 M11a-M11c 已完成 CLI 展示、可信联网检索和
+MCP/Skill 自助管理；真实 Playwright MCP 完成安装、24 工具发现、导航/快照与卸载，Skill 的
+user/project 安装、加载、回退与卸载闭环通过。当前 467 个测试通过（3 个平台能力测试跳过）、
+覆盖率 82%、9119 行生产 Python 源码 + 1366 行 eval 基础设施。详见
 [第三阶段规划](docs/phase3-trustworthy-agent-plan.md)。
 
 详见 [DESIGN.md](DESIGN.md)。

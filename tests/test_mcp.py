@@ -10,9 +10,17 @@ import pytest
 
 from assistant_agent.config.schema import MCPConfig, MCPServerConfig
 from assistant_agent.mcp import MCPManager, MCPTool, extract_content
-from assistant_agent.mcp.manager import _interpolate_env, _sanitize, _Server
+from assistant_agent.mcp.manager import (
+    _interpolate_env,
+    _managed_args,
+    _minimal_env,
+    _sanitize,
+    _Server,
+)
 from assistant_agent.mcp.tool import extract_result
+from assistant_agent.obs import NullLogger
 from assistant_agent.tools.base import ToolContext
+from assistant_agent.tools.permissions import Capability
 from assistant_agent.tools.registry import ToolRegistry
 
 
@@ -146,8 +154,47 @@ def test_run_confirm_category_is_server_tool_scoped():
     tool_a = _tool(lambda *a: _FakeCallResult([_FakeContent("text", "A")]), raw="ta")
     _execute(tool_a, {}, ctx)
     scopes = {scope.target for scope in ctx.permission_grants}
-    assert any(target.startswith("srv/ta ") for target in scopes)
-    assert not any(target.startswith("srv/tb ") for target in scopes)
+    assert "srv/ta" in scopes
+    assert "srv/tb" not in scopes
+
+
+def test_run_session_tool_grant_ignores_argument_changes():
+    prompts = []
+    ctx = ToolContext(confirm=lambda message: prompts.append(message) or "always")
+    tool = _tool(lambda *_a: _FakeCallResult([_FakeContent("text", "ok")]), raw="click")
+    assert not _execute(tool, {"target": "first"}, ctx).is_error
+    assert not _execute(tool, {"target": "second"}, ctx).is_error
+    assert len(prompts) == 1
+    assert "first" in prompts[0]
+
+
+def test_run_server_session_grant_covers_other_tools_only_on_same_server():
+    prompts = []
+
+    def scoped(message, _label):
+        prompts.append(message)
+        return "broader"
+
+    ctx = ToolContext(confirm_scoped=scoped)
+
+    def result(*_args):
+        return _FakeCallResult([_FakeContent("text", "ok")])
+
+    assert not _execute(_tool(result, server="srv", raw="a"), {}, ctx).is_error
+    assert not _execute(_tool(result, server="srv", raw="b"), {}, ctx).is_error
+    other = _execute(_tool(result, server="other", raw="a"), {}, ctx)
+    assert not other.is_error
+    assert len(prompts) == 2
+
+
+def test_mcp_permission_is_single_aggregate_request_without_fake_network_gate():
+    requests = _tool(lambda *_a: None).permission_requests(
+        {"url": "https://example.com"}, ToolContext()
+    )
+    assert len(requests) == 1
+    assert requests[0].capability == Capability.MCP_CALL
+    assert "args=" not in requests[0].target
+    assert "args=" in requests[0].display_target
 
 
 def test_run_auto_approve_skips_confirm():
@@ -162,7 +209,7 @@ def test_permission_target_redacts_and_limits_nested_args():
     requests = tool.permission_requests(
         {"nested": {"api_token": "secret-value"}, "payload": "x" * 2000}, ToolContext()
     )
-    target = requests[0].target
+    target = requests[0].display_target
     assert "secret-value" not in target
     assert "REDACTED" in target
     assert len(target) < 1100
@@ -322,7 +369,7 @@ def test_connect_failure_closes_partial_stack(monkeypatch):
         async def initialize(self):
             raise RuntimeError("initialize failed")
 
-    async def fake_open(_stack, _cfg):
+    async def fake_open(_stack, _name, _cfg):
         return "r", "w"
 
     monkeypatch.setattr(mcp, "ClientSession", FailingSession)
@@ -358,7 +405,9 @@ def _patch_transports(monkeypatch, record: dict):
     import mcp.client.stdio as stdio_mod
     import mcp.client.streamable_http as http_mod
 
-    def fake_stdio(_params):
+    def fake_stdio(params, errlog=None):
+        record["params"] = params
+        record["errlog"] = errlog
         return _FakeStreamCM(record, "stdio", ("r", "w"))
 
     def fake_http(url, headers=None):
@@ -370,12 +419,12 @@ def _patch_transports(monkeypatch, record: dict):
     monkeypatch.setattr(http_mod, "streamablehttp_client", fake_http)
 
 
-def _run_open(m: MCPManager, cfg: MCPServerConfig) -> tuple:
+def _run_open(m: MCPManager, cfg: MCPServerConfig, name: str = "server") -> tuple:
     """在 manager 的 loop 线程里跑 _open_transport，返回 (read, write)。"""
 
     async def _go():
         async with AsyncExitStack() as stack:
-            return await m._open_transport(stack, cfg)
+            return await m._open_transport(stack, name, cfg)
 
     return m._submit(_go(), timeout=5)
 
@@ -390,13 +439,37 @@ def test_http_transport_dispatch(monkeypatch):
     m.close()
 
 
-def test_stdio_transport_dispatch(monkeypatch):
+def test_stdio_transport_dispatch(monkeypatch, tmp_path):
     record: dict = {}
     _patch_transports(monkeypatch, record)
-    m = _mgr({"s": MCPServerConfig(type="stdio", command="npx")})
-    rw = _run_open(m, m._config.servers["s"])
+    cfg = MCPConfig(servers={"s": MCPServerConfig(type="stdio", command="npx")})
+    m = MCPManager(
+        cfg,
+        NullLogger(),
+        artifact_root=tmp_path / "artifacts",
+        stderr_root=tmp_path / "stderr",
+    )
+    rw = _run_open(m, m._config.servers["s"], "s")
     assert record["kind"] == "stdio" and rw == ("r", "w")
+    assert record["params"].cwd == tmp_path / "artifacts" / "s"
+    assert record["params"].env["ASSISTANT_AGENT_ARTIFACT_DIR"] == str(tmp_path / "artifacts" / "s")
+    assert (tmp_path / "stderr" / "s" / "server.log").is_file()
     m.close()
+
+
+def test_playwright_args_route_outputs_and_explicit_output_wins(tmp_path):
+    args = _managed_args("npx", ["-y", "@playwright/mcp@1.2.3"], tmp_path)
+    assert args[-4:] == ["--output-dir", str(tmp_path), "--output-max-size", "104857600"]
+    explicit = ["@playwright/mcp", "--output-dir", "custom"]
+    assert _managed_args("npx", explicit, tmp_path) == explicit
+
+
+def test_minimal_env_does_not_inherit_secrets(monkeypatch):
+    monkeypatch.setenv("PATH", "bin")
+    monkeypatch.setenv("GITHUB_TOKEN", "secret")
+    env = _minimal_env()
+    assert env["PATH"] == "bin"
+    assert "GITHUB_TOKEN" not in env
 
 
 def test_http_headers_interpolated(monkeypatch):

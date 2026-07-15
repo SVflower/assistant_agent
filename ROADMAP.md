@@ -16,13 +16,16 @@
 - **安全/控制**：Registry 强制统一权限门（deny→ask→allow）；readonly/workspace/strict/unrestricted 四模式；文件/进程/网络/MCP/Skill capability 独立决策；精确会话授权；项目 Skill 与 MCP 信任边界；应用层审计明确不等于 OS 沙箱。
 - **记忆/恢复**：token 感知截断与摘要压缩；Session JSON 持久化；步骤级 Run checkpoint、
   `runs`/`resume`、双槽损坏回退和副作用不确定状态人工处置。
-- **工具**：读/写/局部编辑(edit_file/multi_edit)/列目录/shell/代码检索/git 只读/用户澄清。
-- **命令层**：slash 命令系统（`/help /model /sessions /clear /context /exit`，本地拦截不花 token）。
+- **工具**：读/写/局部编辑/列目录/shell/代码检索/git 只读/用户澄清，以及带来源的
+  `web_search`/`fetch_url`；搜索 backend 可替换，抓取含 SSRF、重定向和响应上限防护。
+- **命令层**：slash 命令系统本地拦截不花 token；`/skills` 与 `/mcp` 支持列出、安装、诊断、
+  启停、信任和安全卸载，配置变更明确在下次启动生效。
 - **上手**：`assistant-agent init` 交互向导 + `docs/INSTALL.md` 多平台安装（Windows/WSL2 实测）。
 - **健壮性**：对"笨模型"容错、Windows/Linux 终端适配、保存不崩、自动保存非致命。
 - **可观测（M6）**：结构化 JSONL 事件日志（工具调用/耗时/成败/授权决策留痕）+ 尽力脱敏 + 禁用零副作用。
 - **运行时预算（M6.5）**：任务级工具调用总数 + 单次/累计工具输出上限；预算耗尽时补齐当前批次结果再安全终止，不留悬空 tool call。
-- **技能（M7a）**：Agent Skills 系统——SKILL.md 发现 + 渐进披露（L1 元数据注入 / L2 load_skill 加载正文 / L3 现有工具读跑）；`.assistant_agent/skills/` 目录、`/skills` 命令；脚本走既有确认门。
+- **技能（M7a/M11c）**：SKILL.md 发现 + 渐进披露；project 使用 `.agents/skills/`，user 使用
+  `~/.assistant_agent/skills/`，旧项目目录只读兼容；`/skills` 支持受管安装/卸载，脚本仍走既有权限门。
 - **MCP（M7b/M7c）**：MCP client（stdio + HTTP 两种 transport）——外部 server 工具接入，命名空间 `mcp__<server>__<tool>`；同步桥（守护线程常驻 loop + run_coroutine_threadsafe）；每工具主动确认（category 按 server+tool 细分）；工具白/黑名单 + 每 server/全局数量上限防 schema 撑爆；HTTP 走 Streamable HTTP，session/协议头/重连交 SDK 代管、调用层不自动重放；`/mcp` 命令；`cli/setup.py` Runtime 统管生命周期（还清 D7）。
 - **上下文进化（M8a/M8b）**：M8a 统一预算口径——可用消息预算 = 窗口 − system − tools schema − reserved_output，`/context` 分项显示真实占用（还 D10）；M8b 摘要压缩替代硬截断——双历史（raw + checkpoint + tail）、按完整用户轮分组、checkpoint 随 Session 持久化（resume 不重复摘要）、摘要 token 独立计入 usage、摘要失败降级硬截断，默认关闭时上下文逐字节等于现状。
 - **行为评测（M9c/M10b）**：scripted/real 双轨 eval；18 个 scripted 案例覆盖轨迹、权限、预算、终止、压缩和文件副作用，另有 4 个真实故障注入 recovery eval；真实 provider 报告支持重复运行与 A/B compare。
@@ -31,7 +34,7 @@
   已完成工具不重放，started 副作用需 retry/skip/abort；预算、重复熔断、权限和摘要状态跨进程恢复；
   trace/session/run/call 标识对齐，还清 D8。
 
-**质量**：423 测试通过（2 个平台能力测试跳过）、覆盖率 82%、7405 行生产 Python 源码 + 1366 行 eval 基础设施；架构适应度测试（依赖分层 + 行数分级软/硬）+ 技术债册 + DoD + 里程碑工作流全在；CI 已加入 format/lint/mypy/coverage/scripted eval/recovery eval 与 Windows/Linux、Python 3.11/3.13 矩阵。
+**质量**：467 测试通过（3 个平台能力测试跳过）、覆盖率 82%、9119 行生产 Python 源码 + 1366 行 eval 基础设施；架构适应度测试（依赖分层 + 行数分级软/硬）+ 技术债册 + DoD + 里程碑工作流全在；CI 已加入 format/lint/mypy/coverage/scripted eval/recovery eval 与 Windows/Linux、Python 3.11/3.13 矩阵。
 
 **边界（明确未做）**：子 Agent 编排、真沙箱、Web GUI、rewind/recap、非交互 init、PyPI 分发。
 
@@ -39,11 +42,12 @@
 D18 保留，后续优先按真实需求独立评估跨平台进程监管。见
 [第三阶段规划](docs/phase3-trustworthy-agent-plan.md)与 [M10c 决策](docs/archive/phase3/m10c-async-runtime-decision.md)。
 
-**当前进展**：M11a“CLI 对话展示重构”已完成；默认视图改为语义工具摘要，并提供
-normal/verbose/quiet、统一脱敏和节流流式 Markdown；normal 的过程旁白不进入终端历史，写操作按信息
-价值保留权限前有界预览；输入区和会话生命周期信息已按真实 CLI 反馈恢复。见 [M11a 方案](docs/archive/phase4/m11a-cli-conversation-ui-plan.md)。
+**当前进展**：M11a-M11c 已完成。M11b 增加可替换 backend 的结构化搜索与安全网页抓取；M11c
+完成 user/project Skill 与 MCP 配置管理、会话级 server/tool 授权、原子 YAML、隔离运行目录和受管
+产物。Playwright MCP 已在隔离 HOME 中完成安装、发现 24 个工具、导航/快照、重启发现与卸载；
+Skill user/project 安装、加载、遮蔽回退与卸载闭环通过。见 [M11b/M11c 方案](docs/archive/phase4/m11b-m11c-network-and-mcp-self-service-plan.md)。
 
-**剩余技术债**：5 项（D5/D6/D11/D12/D18）。M9a 已还清 D13/D15/D17，M9b 已还清
+**剩余技术债**：6 项（D5/D6/D11/D12/D18/D20）。M9a 已还清 D13/D15/D17，M9b 已还清
 D14，M9c 已还清 D9，M10a 已还清 D16 并登记 D18，M10b 已还清 D8，M11a 已还清 D19。详见
 [技术债登记册](docs/TECH_DEBT.md)。
 
@@ -139,17 +143,24 @@ D14，M9c 已还清 D9，M10a 已还清 D16 并登记 D18，M10b 已还清 D8，
 > 工具。D18 保留，推荐先独立实现并跨平台故障测试 Windows Job Object / POSIX process group
 > 监管；async 核心、同步 facade 与只读工具并行仅在量化触发条件成立后立项。
 
-### 第四阶段（实施中）
+### 第四阶段（已完成 ✅）
 
 | 里程碑 | 主题 | 状态 |
 |--------|------|------|
 | M11a | CLI 对话展示重构 | ✅ · [方案](docs/archive/phase4/m11a-cli-conversation-ui-plan.md) |
+| M11b | 可信联网检索（搜索 backend + 安全抓取 + 来源） | ✅ · [方案](docs/archive/phase4/m11b-m11c-network-and-mcp-self-service-plan.md) |
+| M11c | MCP/Skill 自助管理、授权与产物治理 | ✅ · [方案](docs/archive/phase4/m11b-m11c-network-and-mcp-self-service-plan.md) |
 
 > **M11a 已完成**：ToolDisplay 让工具提供 UI 无关的动作/目标/摘要；normal 默认只显示语义轨迹，
 > verbose 显示有界脱敏详情，quiet 只输出结果；流式 Markdown、`/display`、`run --quiet`、Run ID
 > 收敛与紧凑分组 banner 落地；normal 使用临时活动区，工具间旁白不再堆积，Markdown 刷新限制为 15 FPS。
 > CRUD 轨迹实测通过，411 passed、2 skipped、覆盖率 80%；未修改 Loop，
 > 还清 D19。
+
+> **M11b/M11c 已完成**：新增 DuckDuckGo/SearXNG 可替换搜索、结构化来源和受限网页抓取；
+> Skill 采用 `.agents/skills` project scope 与用户安装目录；MCP 支持 user/project 原子配置、隔离探测、
+> 最小子进程环境、会话级工具/server 信任及 `/mcp` 自助控制面。真实 Playwright MCP 与 Skill 生命周期
+> 验收通过。467 passed、3 skipped、覆盖率 82%，18/18 scripted 与 4/4 recovery eval 全绿；未修改 Loop。
 
 ## 未来方向（P3，信号驱动，暂不做）
 

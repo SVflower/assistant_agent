@@ -111,9 +111,26 @@ def test_normal_edit_renderer_shows_structured_diff():
 
     renderer = ToolRenderer(owner._console, "normal")
     renderer.call(StepEvent(kind="tool_call", tool_name="edit_file", tool_args=args, display=call))
+    html = owner._console.export_html(inline_styles=True, clear=False).lower()
     output = owner.text()
     assert "编辑 index.html" in output and "拟议变更 · +2 -1" in output
     assert "-<h1>Old</h1>" in output and "+<h1>New</h1>" in output
+    assert "#183c2b" in html and "#4a2429" in html and "#16181d" in html
+
+
+def test_normal_write_preview_uses_code_area_background():
+    owner = _Owner()
+    args = {"path": "demo.py", "content": "value = 1"}
+    renderer = ToolRenderer(owner._console, "normal")
+    renderer.call(
+        StepEvent(
+            kind="tool_call",
+            tool_name="write_file",
+            tool_args=args,
+            display=call_display("write_file", args),
+        )
+    )
+    assert "#16181d" in owner._console.export_html(inline_styles=True).lower()
 
 
 def test_write_preview_is_limited_by_lines():

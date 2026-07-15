@@ -12,7 +12,7 @@
 
 **已具备能力**：
 - **模型**：后端可切换（云端 OpenAI 兼容 / Anthropic / 本地 LM Studio·Ollama·vLLM），config/`--provider`/对话内 `/model` 三种切法，切换保留上下文。
-- **交互**：15 FPS 流式 Markdown + 语义工具摘要 + normal/verbose/quiet + `/display`/`run --quiet`；normal 过程文本只在活动区显示、最终回答才落屏；Write/Edit 权限前有界代码预览/结构化 diff；全宽输入边界与会话启停 ID；思考状态、耗时/token、上下文占用与 Ctrl+C 中断。
+- **交互**：15 FPS 流式 Markdown + 语义工具摘要 + normal/verbose/quiet + `/display`/`run --quiet`；normal 过程文本只在活动区显示、最终回答才落屏；Write/Edit 权限前有界代码预览/结构化 diff，代码底板与增删行背景明确分区；全宽输入边界与会话启停 ID；思考状态、耗时/token、上下文占用与 Ctrl+C 中断。
 - **安全/控制**：Registry 强制统一权限门（deny→ask→allow）；readonly/workspace/strict/unrestricted 四模式；文件/进程/网络/MCP/Skill capability 独立决策；精确会话授权；项目 Skill 与 MCP 信任边界；应用层审计明确不等于 OS 沙箱。
 - **记忆/恢复**：token 感知截断与摘要压缩；Session JSON 持久化；步骤级 Run checkpoint、
   `runs`/`resume`、双槽损坏回退和副作用不确定状态人工处置。
@@ -31,7 +31,7 @@
   已完成工具不重放，started 副作用需 retry/skip/abort；预算、重复熔断、权限和摘要状态跨进程恢复；
   trace/session/run/call 标识对齐，还清 D8。
 
-**质量**：420 测试通过（2 个平台能力测试跳过）、覆盖率 82%、7363 行生产 Python 源码 + 1366 行 eval 基础设施；架构适应度测试（依赖分层 + 行数分级软/硬）+ 技术债册 + DoD + 里程碑工作流全在；CI 已加入 format/lint/mypy/coverage/scripted eval/recovery eval 与 Windows/Linux、Python 3.11/3.13 矩阵。
+**质量**：421 测试通过（2 个平台能力测试跳过）、覆盖率 82%、7396 行生产 Python 源码 + 1366 行 eval 基础设施；架构适应度测试（依赖分层 + 行数分级软/硬）+ 技术债册 + DoD + 里程碑工作流全在；CI 已加入 format/lint/mypy/coverage/scripted eval/recovery eval 与 Windows/Linux、Python 3.11/3.13 矩阵。
 
 **边界（明确未做）**：子 Agent 编排、真沙箱、Web GUI、rewind/recap、非交互 init、PyPI 分发。
 

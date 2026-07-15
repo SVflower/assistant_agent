@@ -6,6 +6,7 @@ from typing import Literal
 
 from rich.console import Console
 from rich.syntax import Syntax
+from rich.table import Table
 from rich.text import Text
 
 from assistant_agent.agent.events import StepEvent
@@ -13,6 +14,13 @@ from assistant_agent.obs.redaction import sanitize_for_display
 from assistant_agent.tools.display import ToolPreview, call_display, safe_text
 
 DisplayMode = Literal["normal", "verbose", "quiet"]
+
+_CODE_BACKGROUND = "#16181d"
+_DIFF_ADDED = "#d9f7e2 on #183c2b"
+_DIFF_REMOVED = "#ffe1e4 on #4a2429"
+_DIFF_HEADER = f"#8b949e on {_CODE_BACKGROUND}"
+_DIFF_HUNK = f"#c9a7ff on {_CODE_BACKGROUND}"
+_DIFF_CONTEXT = f"#d0d4dc on {_CODE_BACKGROUND}"
 
 
 class ToolRenderer:
@@ -94,13 +102,16 @@ class ToolRenderer:
         self._console.print(Text(title, style="dim"))
         if not preview.content:
             return
+        if preview.kind == "diff":
+            self._console.print(_diff_table(preview.content))
+            return
         self._console.print(
             Syntax(
                 preview.content,
                 preview.language,
                 theme="ansi_dark",
-                background_color="default",
-                line_numbers=preview.kind == "code",
+                background_color=_CODE_BACKGROUND,
+                line_numbers=True,
                 word_wrap=False,
                 padding=(0, 2),
             )
@@ -118,3 +129,28 @@ def _call_line(action: str, target: str) -> Text:
         line.append(" ")
         line.append(target, style="cyan")
     return line
+
+
+def _diff_table(content: str) -> Table:
+    table = Table(
+        box=None,
+        show_header=False,
+        show_edge=False,
+        padding=(0, 2),
+        expand=True,
+        style=f"on {_CODE_BACKGROUND}",
+    )
+    table.add_column(overflow="fold")
+    for value in content.splitlines():
+        if value.startswith("+++") or value.startswith("---") or value.startswith("…"):
+            style = _DIFF_HEADER
+        elif value.startswith("@@"):
+            style = _DIFF_HUNK
+        elif value.startswith("+"):
+            style = _DIFF_ADDED
+        elif value.startswith("-"):
+            style = _DIFF_REMOVED
+        else:
+            style = _DIFF_CONTEXT
+        table.add_row(Text(value), style=style)
+    return table

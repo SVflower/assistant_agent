@@ -241,3 +241,7 @@ scrollback 架构中用表面样式冒充。
 真实 TTY 通过 prompt_toolkit `bottom_toolbar` 在编辑期间保持下边界，提交后再落稳定 scrollback 边界；
 非 TTY 保留内置 input 回退。最终验收 420 passed、2 skipped，覆盖率 82%；7363 行生产 Python 源码，
 Loop 仍无改动。
+
+代码区视觉复审：Write 预览统一使用无边框深灰代码底板；Edit/MultiEdit 的上下文行沿用代码底色，
+新增/删除内容改为整行绿/红背景，文件头与 hunk 弱化显示，不再只用高饱和前景色表达修改。40/100
+列均验证背景覆盖整行。最终验收 421 passed、2 skipped，覆盖率 82%；7396 行生产 Python 源码。

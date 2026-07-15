@@ -76,7 +76,7 @@ class SlashRegistry:
     def _render_help(self, console: Console) -> None:
         lines = ["可用命令（输入 / 前缀，本地执行、不消耗 token）："]
         lines += [f"  /{c.name:<10} {c.description}" for c in self._cmds.values()]
-        console.info("\n".join(lines))
+        console.command_info("\n".join(lines))
 
 
 # ---- 内置命令 handler ----
@@ -88,7 +88,7 @@ def _cmd_model(args: str, ctx: ChatContext) -> None:
     target = args
     if not target:
         if not sys.stdin.isatty():
-            ctx.console.info(f"非交互环境，请用 /model <名>。可选：{', '.join(names)}")
+            ctx.console.command_info(f"非交互环境，请用 /model <名>。可选：{', '.join(names)}")
             return
         choices = [f"{n}（当前）" if n == ctx.config.active else n for n in names]
         picked = ctx.console.ask_question("切换到哪个 provider？", choices)
@@ -97,7 +97,7 @@ def _cmd_model(args: str, ctx: ChatContext) -> None:
         ctx.console.error(f"未知 provider：{target}。可选：{', '.join(names)}")
         return
     if target == ctx.config.active:
-        ctx.console.info(f"已在使用 {target}，无需切换。")
+        ctx.console.command_info(f"已在使用 {target}，无需切换。")
         return
     previous_provider = ctx.config.active
     previous_model = ctx.config.active_provider.model
@@ -112,14 +112,16 @@ def _cmd_model(args: str, ctx: ChatContext) -> None:
         to_provider=target,
         to_model=ctx.config.active_provider.model,
     )
-    ctx.console.info(f"已切换到 {target}（{ctx.config.active_provider.model}），对话上下文保留。")
+    ctx.console.command_info(
+        f"已切换到 {target}（{ctx.config.active_provider.model}），对话上下文保留。"
+    )
 
 
 def _cmd_sessions(args: str, ctx: ChatContext) -> None:
     """列出历史会话。"""
     metas = ctx.store.list()
     if not metas:
-        ctx.console.info("暂无历史会话。")
+        ctx.console.command_info("暂无历史会话。")
         return
     ctx.console.print_sessions(metas)
 
@@ -133,7 +135,7 @@ def _cmd_clear(args: str, ctx: ChatContext) -> None:
     ctx.loop.load_checkpoint(None)  # M8b：新会话清掉摘要 checkpoint
     ctx.logger.bind_session(ctx.session.id)
     ctx.store.save(ctx.session, [])
-    ctx.console.info(f"已开新会话 {ctx.session.id}，上下文已清空。")
+    ctx.console.command_info(f"已开新会话 {ctx.session.id}，上下文已清空。")
 
 
 def _cmd_context(args: str, ctx: ChatContext) -> None:
@@ -143,7 +145,7 @@ def _cmd_context(args: str, ctx: ChatContext) -> None:
     total = r["total"] or 1  # 防除零
     pct = round(r["used"] * 100 / total)
     compacted = "（早前对话已压缩为摘要）" if r.get("compacted") else ""
-    ctx.console.info(
+    ctx.console.command_info(
         f"当前会话：{n} 条消息 · 模型 {ctx.config.active_provider.model}{compacted}\n"
         f"上下文占用 {r['used']}/{r['total']} tokens（约 {pct}%）：\n"
         f"  system {r['system']} · tools {r['tools']} · "
@@ -154,25 +156,27 @@ def _cmd_context(args: str, ctx: ChatContext) -> None:
 def _cmd_skills(args: str, ctx: ChatContext) -> None:
     """列出已发现的技能（name + description）。"""
     if not ctx.skills:
-        ctx.console.info(
+        ctx.console.command_info(
             "未发现技能。把 SKILL.md 放到 ./.assistant_agent/skills/<名>/ 或 "
             "~/.assistant_agent/skills/<名>/ 下即可。"
         )
         return
     lines = ["已发现技能（模型会按需 load_skill 加载）："]
     lines += [f"  {name:<16} {description}" for name, description in ctx.skills]
-    ctx.console.info("\n".join(lines))
+    ctx.console.command_info("\n".join(lines))
 
 
 def _cmd_mcp(args: str, ctx: ChatContext) -> None:
     """列出已接入的 MCP server 及其工具。"""
     if not ctx.mcp_servers:
-        ctx.console.info("未接入 MCP server。在配置 mcp.servers 下添加并 enabled=true 即可。")
+        ctx.console.command_info(
+            "未接入 MCP server。在配置 mcp.servers 下添加并 enabled=true 即可。"
+        )
         return
     lines = ["已接入的 MCP server（工具以 mcp__<server>__<tool> 注册）："]
     for server, tools in ctx.mcp_servers:
         lines.append(f"  {server}（{len(tools)} 个工具）: {', '.join(tools) or '(无)'}")
-    ctx.console.info("\n".join(lines))
+    ctx.console.command_info("\n".join(lines))
 
 
 def _cmd_display(args: str, ctx: ChatContext) -> None:
@@ -180,7 +184,9 @@ def _cmd_display(args: str, ctx: ChatContext) -> None:
     modes = ("normal", "verbose", "quiet")
     target = args.strip().lower()
     if not target:
-        ctx.console.info(f"当前展示模式：{ctx.console.display_mode}。可选：{', '.join(modes)}")
+        ctx.console.command_info(
+            f"当前展示模式：{ctx.console.display_mode}。可选：{', '.join(modes)}"
+        )
         return
     if target not in modes:
         ctx.console.error(f"未知展示模式：{target}。可选：{', '.join(modes)}")
@@ -188,7 +194,7 @@ def _cmd_display(args: str, ctx: ChatContext) -> None:
     mode = cast(DisplayMode, target)
     ctx.console.set_display_mode(mode, force=True)
     ctx.config.ui.display_mode = mode
-    ctx.console.info(f"展示模式已切换为 {target}。")
+    ctx.console.command_info(f"展示模式已切换为 {target}。")
 
 
 def _cmd_exit(args: str, ctx: ChatContext) -> None:

@@ -131,3 +131,24 @@ def test_chat_reports_current_session_when_exiting_after_clear(tmp_path, monkeyp
     assert opened is not None and cleared is not None and closed is not None
     assert opened.group(1) != cleared.group(1)
     assert closed.group(1) == cleared.group(1)
+
+
+def test_chat_quiet_mode_keeps_slash_control_feedback(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    config = tmp_path / "config.yaml"
+    config.write_text(
+        "\n".join(["active: p", "providers:", "  p:", "    model: openai/fake"]),
+        encoding="utf-8",
+    )
+
+    result = CliRunner().invoke(
+        app,
+        ["chat", "--config", str(config)],
+        input="/display quiet\n/display\n/help\n/display normal\nexit\n",
+    )
+
+    assert result.exit_code == 0
+    assert "展示模式已切换为 quiet" in result.output
+    assert "当前展示模式：quiet" in result.output
+    assert "可用命令" in result.output
+    assert "展示模式已切换为 normal" in result.output

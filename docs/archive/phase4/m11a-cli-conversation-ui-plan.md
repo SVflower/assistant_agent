@@ -245,3 +245,8 @@ Loop 仍无改动。
 代码区视觉复审：Write 预览统一使用无边框深灰代码底板；Edit/MultiEdit 的上下文行沿用代码底色，
 新增/删除内容改为整行绿/红背景，文件头与 hunk 弱化显示，不再只用高饱和前景色表达修改。40/100
 列均验证背景覆盖整行。最终验收 421 passed、2 skipped，覆盖率 82%；7396 行生产 Python 源码。
+
+quiet 回归修正：过程性 `Console.info()` 继续受 quiet 抑制，新增不受展示模式影响的
+`Console.command_info()`；所有 slash 命令反馈统一走控制面出口。真实 chat 序列
+`/display quiet` → `/display` → `/help` → `/display normal` 已覆盖。最终验收 423 passed、2 skipped，
+覆盖率 82%；7405 行生产 Python 源码，Loop 无改动。

@@ -20,6 +20,10 @@ class FakeConsole:
         self.model_label = ""
 
     def info(self, text: str) -> None:
+        if self.display_mode != "quiet":
+            self.out.append(text)
+
+    def command_info(self, text: str) -> None:
         self.out.append(text)
 
     def error(self, text: str) -> None:
@@ -95,6 +99,24 @@ def test_display_command_reports_and_switches_mode(tmp_path):
     reg.dispatch("/display verbose", ctx)
     assert ctx.console.display_mode == "verbose"
     assert ctx.config.ui.display_mode == "verbose"
+
+
+def test_quiet_keeps_slash_command_feedback_visible(tmp_path):
+    ctx = _ctx(tmp_path)
+    reg = build_default_slash_registry()
+
+    reg.dispatch("/display quiet", ctx)
+    assert "展示模式已切换为 quiet" in ctx.console.text()
+    ctx.console.out.clear()
+
+    reg.dispatch("/display", ctx)
+    reg.dispatch("/help", ctx)
+    assert "当前展示模式：quiet" in ctx.console.text()
+    assert "可用命令" in ctx.console.text()
+
+    reg.dispatch("/display normal", ctx)
+    assert ctx.console.display_mode == "normal"
+    assert "展示模式已切换为 normal" in ctx.console.text()
 
 
 def test_display_command_rejects_unknown_mode(tmp_path):

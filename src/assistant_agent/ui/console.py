@@ -179,6 +179,10 @@ class Console:
             return
         self._console.print(f"[dim]{text}[/dim]")
 
+    def command_info(self, text: str) -> None:
+        """显示交互控制命令反馈；quiet 只隐藏 Agent 轨迹，不隐藏控制面。"""
+        self._console.print(f"[dim]{text}[/dim]")
+
     def error(self, text: str) -> None:
         self._console.print(f"[bold red]{text}[/bold red]")
 

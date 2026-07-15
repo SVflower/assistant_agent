@@ -39,7 +39,10 @@
 D18 保留，后续优先按真实需求独立评估跨平台进程监管。见
 [第三阶段规划](docs/phase3-trustworthy-agent-plan.md)与 [M10c 决策](docs/archive/phase3/m10c-async-runtime-decision.md)。
 
-**剩余技术债**：5 项（D5/D6/D11/D12/D18）。M9a 已还清 D13/D15/D17，M9b 已还清
+**当前规划**：M11a“CLI 对话展示重构”方案待用户确认；默认视图改为语义工具摘要，并提供
+normal/verbose/quiet、统一脱敏和流式 Markdown。见 [M11a 计划](docs/m11a-cli-conversation-ui-plan.md)。
+
+**剩余技术债**：6 项（D5/D6/D11/D12/D18/D19）。M9a 已还清 D13/D15/D17，M9b 已还清
 D14，M9c 已还清 D9，M10a 已还清 D16 并登记 D18，M10b 已还清 D8。详见
 [技术债登记册](docs/TECH_DEBT.md)。
 

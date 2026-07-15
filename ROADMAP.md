@@ -35,9 +35,9 @@
 
 **边界（明确未做）**：子 Agent 编排、真沙箱、Web GUI、rewind/recap、非交互 init、PyPI 分发。
 
-**下一阶段**：第三阶段“可信执行与质量闭环”实施中；M9a/M9b/M9c/M10a/M10b 已完成，
-下一项为 M10c 异步与可取消运行时的可行性决策（只决策，不自动立项）。见
-[第三阶段规划](docs/phase3-trustworthy-agent-plan.md)。
+**阶段状态**：第三阶段“可信执行与质量闭环”已完成。M10c 决定暂不进行全栈 async 重构；
+D18 保留，后续优先按真实需求独立评估跨平台进程监管。见
+[第三阶段规划](docs/phase3-trustworthy-agent-plan.md)与 [M10c 决策](docs/archive/phase3/m10c-async-runtime-decision.md)。
 
 **剩余技术债**：5 项（D5/D6/D11/D12/D18）。M9a 已还清 D13/D15/D17，M9b 已还清
 D14，M9c 已还清 D9，M10a 已还清 D16 并登记 D18，M10b 已还清 D8。详见
@@ -100,7 +100,7 @@ D14，M9c 已还清 D9，M10a 已还清 D16 并登记 D18，M10b 已还清 D8。
 > **M8 系列已收全（a/b）**：M8a 统一预算口径（还 D10），M8b 摘要压缩替代硬截断（双历史 +
 > checkpoint 持久化 + 按轮分组 + 降级兜底，默认关闭时逐字节等于现状）。第二阶段里程碑全部完成。
 
-### 第三阶段（实施中）
+### 第三阶段（已完成 ✅）
 
 > 总体目标：从“功能完整的单体 Agent”进入“边界明确、失败可恢复、行为可评测”的可信执行阶段。
 > 唯一总规划见 [第三阶段规划](docs/phase3-trustworthy-agent-plan.md)。每个子里程碑开工前仍需细化方案；
@@ -113,7 +113,7 @@ D14，M9c 已还清 D9，M10a 已还清 D16 并登记 D18，M10b 已还清 D8。
 | M9c | Agent 行为 Eval 与 CI 质量闭环 | ✅ · [方案](docs/archive/phase3/m9c-agent-evals-plan.md) |
 | M10a | 工具契约与大文件/大输出工程 | ✅ · [方案](docs/archive/phase3/m10a-tool-contract-plan.md) |
 | M10b | 步骤级 Checkpoint 与可恢复执行 | ✅ · [方案](docs/archive/phase3/m10b-recoverable-execution-plan.md) |
-| M10c | 异步与可取消运行时 | 决策门，非阶段退出条件 |
+| M10c | 异步与可取消运行时 | ✅ 暂不全栈 async · [决策](docs/archive/phase3/m10c-async-runtime-decision.md) |
 
 > **M9c 已完成**：新增顶层 `evals/`，scripted/real 双轨 runner、版本化 YAML schema、
 > fixture confinement、可解释 scorer、JSONL/Markdown 报告与 A/B compare；14 个 deterministic
@@ -130,6 +130,10 @@ D14，M9c 已还清 D9，M10a 已还清 D16 并登记 D18，M10b 已还清 D8。
 > `runs`/`resume` CLI 与 terminal Session 幂等同步；日志 trace/session/run/call/provider/model 对齐。
 > 18/18 scripted eval + 4/4 recovery fault-injection eval 全绿，全量 392 passed、2 skipped、覆盖率 78%。
 > 经用户单独授权修改 `agent/loop.py`，原有测试无回退；还清 D8。
+
+> **M10c 决策完成**：当前证据不足以支持全栈 async 重构；协程取消也不能停止线程池中的同步
+> 工具。D18 保留，推荐先独立实现并跨平台故障测试 Windows Job Object / POSIX process group
+> 监管；async 核心、同步 facade 与只读工具并行仅在量化触发条件成立后立项。
 
 ## 未来方向（P3，信号驱动，暂不做）
 

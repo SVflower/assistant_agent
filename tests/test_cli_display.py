@@ -209,6 +209,7 @@ def test_conversation_normal_discards_tool_progress_but_commits_final_once():
                     ToolResult.ok("body", metadata={"start_line": 1, "end_line": 1}),
                 ),
             ),
+            StepEvent(kind="usage", usage={"prompt_tokens": 1200, "completion_tokens": 80}),
             StepEvent(kind="content_delta", text="最终完成。"),
             StepEvent(kind="final", text="最终完成。"),
         ]
@@ -218,6 +219,8 @@ def test_conversation_normal_discards_tool_progress_but_commits_final_once():
     assert "我先读取文件" not in output
     assert "回答" in output
     assert output.count("最终完成") == 1
+    assert "token ↑1200 ↓80 共 1280" in output
+    assert "上下文 1200/8000（15%）" in output
 
 
 def test_conversation_verbose_keeps_tool_progress_and_usage():

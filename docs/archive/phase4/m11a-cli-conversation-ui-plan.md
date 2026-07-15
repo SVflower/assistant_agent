@@ -150,7 +150,7 @@ checkpoint 顺序。
 | 错误/拒绝 | 自动展开必要诊断 | 完整有界诊断 | 显示 |
 | Run ID | 失败/暂停时显示 | 始终显示 | 失败/暂停时显示 |
 | 最终回答 | Markdown | Markdown | 纯文本稳定输出 |
-| token/耗时 | 仅耗时 | token/上下文扩展 footer | 默认隐藏 |
+| token/耗时 | 完整单行 footer | 完整单行 footer | 默认隐藏 |
 
 ## 6. 是否动内核
 

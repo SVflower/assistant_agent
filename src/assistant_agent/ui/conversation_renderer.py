@@ -139,8 +139,8 @@ class ConversationRenderer:
             stop_markdown()
 
         if self._mode != "quiet":
-            parts = [format_elapsed(time.monotonic() - start)]
-            if got_usage and self._mode == "verbose":
+            parts = [f"耗时 {format_elapsed(time.monotonic() - start)}"]
+            if got_usage:
                 parts.append(f"token {format_usage(total_in, total_out)}")
                 parts.append(format_context(last_prompt, self._owner._context_limit))
             self._console.print(" · ".join(parts), style="dim")

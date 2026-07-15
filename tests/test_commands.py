@@ -16,6 +16,7 @@ class FakeConsole:
 
     def __init__(self) -> None:
         self.out: list[str] = []
+        self.display_mode = "normal"
 
     def info(self, text: str) -> None:
         self.out.append(text)
@@ -28,6 +29,9 @@ class FakeConsole:
 
     def ask_question(self, question, options) -> str:
         return options[0]
+
+    def set_display_mode(self, value, *, force=False) -> None:
+        self.display_mode = value
 
     def text(self) -> str:
         return "\n".join(self.out)
@@ -77,6 +81,22 @@ def test_exit_sets_flag(tmp_path):
     ctx = _ctx(tmp_path)
     build_default_slash_registry().dispatch("/exit", ctx)
     assert ctx.should_exit is True
+
+
+def test_display_command_reports_and_switches_mode(tmp_path):
+    ctx = _ctx(tmp_path)
+    reg = build_default_slash_registry()
+    reg.dispatch("/display", ctx)
+    assert "normal" in ctx.console.text()
+    reg.dispatch("/display verbose", ctx)
+    assert ctx.console.display_mode == "verbose"
+    assert ctx.config.ui.display_mode == "verbose"
+
+
+def test_display_command_rejects_unknown_mode(tmp_path):
+    ctx = _ctx(tmp_path)
+    build_default_slash_registry().dispatch("/display noisy", ctx)
+    assert "未知展示模式" in ctx.console.text()
 
 
 def test_mcp_empty(tmp_path):

@@ -118,6 +118,7 @@ def test_runtime_budget_defaults(tmp_path):
     assert config.agent.recovery.enabled is True
     assert config.agent.recovery.dir == ".assistant_agent/runs"
     assert config.agent.recovery.max_completed_runs == 100
+    assert config.ui.display_mode == "normal"
 
 
 def test_runtime_budget_override(tmp_path):

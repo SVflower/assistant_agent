@@ -12,7 +12,7 @@
 
 **已具备能力**：
 - **模型**：后端可切换（云端 OpenAI 兼容 / Anthropic / 本地 LM Studio·Ollama·vLLM），config/`--provider`/对话内 `/model` 三种切法，切换保留上下文。
-- **交互**：流式输出 + 思考显示 + spinner + 耗时/token（跨轮累计）+ 上下文占用%；Ctrl+C 中断。
+- **交互**：流式 Markdown + 语义工具摘要 + normal/verbose/quiet + `/display`/`run --quiet`；思考状态、耗时/token、上下文占用与 Ctrl+C 中断。
 - **安全/控制**：Registry 强制统一权限门（deny→ask→allow）；readonly/workspace/strict/unrestricted 四模式；文件/进程/网络/MCP/Skill capability 独立决策；精确会话授权；项目 Skill 与 MCP 信任边界；应用层审计明确不等于 OS 沙箱。
 - **记忆/恢复**：token 感知截断与摘要压缩；Session JSON 持久化；步骤级 Run checkpoint、
   `runs`/`resume`、双槽损坏回退和副作用不确定状态人工处置。
@@ -31,7 +31,7 @@
   已完成工具不重放，started 副作用需 retry/skip/abort；预算、重复熔断、权限和摘要状态跨进程恢复；
   trace/session/run/call 标识对齐，还清 D8。
 
-**质量**：392 测试通过（2 个平台能力测试跳过）、覆盖率 78%、6744 行生产 Python 源码 + 1366 行 eval 基础设施；架构适应度测试（依赖分层 + 行数分级软/硬）+ 技术债册 + DoD + 里程碑工作流全在；CI 已加入 format/lint/mypy/coverage/scripted eval/recovery eval 与 Windows/Linux、Python 3.11/3.13 矩阵。
+**质量**：405 测试通过（2 个平台能力测试跳过）、覆盖率 80%、7060 行生产 Python 源码 + 1366 行 eval 基础设施；架构适应度测试（依赖分层 + 行数分级软/硬）+ 技术债册 + DoD + 里程碑工作流全在；CI 已加入 format/lint/mypy/coverage/scripted eval/recovery eval 与 Windows/Linux、Python 3.11/3.13 矩阵。
 
 **边界（明确未做）**：子 Agent 编排、真沙箱、Web GUI、rewind/recap、非交互 init、PyPI 分发。
 
@@ -39,11 +39,11 @@
 D18 保留，后续优先按真实需求独立评估跨平台进程监管。见
 [第三阶段规划](docs/phase3-trustworthy-agent-plan.md)与 [M10c 决策](docs/archive/phase3/m10c-async-runtime-decision.md)。
 
-**当前规划**：M11a“CLI 对话展示重构”方案待用户确认；默认视图改为语义工具摘要，并提供
-normal/verbose/quiet、统一脱敏和流式 Markdown。见 [M11a 计划](docs/m11a-cli-conversation-ui-plan.md)。
+**当前进展**：M11a“CLI 对话展示重构”已完成；默认视图改为语义工具摘要，并提供
+normal/verbose/quiet、统一脱敏和流式 Markdown。见 [M11a 方案](docs/archive/phase4/m11a-cli-conversation-ui-plan.md)。
 
-**剩余技术债**：6 项（D5/D6/D11/D12/D18/D19）。M9a 已还清 D13/D15/D17，M9b 已还清
-D14，M9c 已还清 D9，M10a 已还清 D16 并登记 D18，M10b 已还清 D8。详见
+**剩余技术债**：5 项（D5/D6/D11/D12/D18）。M9a 已还清 D13/D15/D17，M9b 已还清
+D14，M9c 已还清 D9，M10a 已还清 D16 并登记 D18，M10b 已还清 D8，M11a 已还清 D19。详见
 [技术债登记册](docs/TECH_DEBT.md)。
 
 ---
@@ -137,6 +137,17 @@ D14，M9c 已还清 D9，M10a 已还清 D16 并登记 D18，M10b 已还清 D8。
 > **M10c 决策完成**：当前证据不足以支持全栈 async 重构；协程取消也不能停止线程池中的同步
 > 工具。D18 保留，推荐先独立实现并跨平台故障测试 Windows Job Object / POSIX process group
 > 监管；async 核心、同步 facade 与只读工具并行仅在量化触发条件成立后立项。
+
+### 第四阶段（实施中）
+
+| 里程碑 | 主题 | 状态 |
+|--------|------|------|
+| M11a | CLI 对话展示重构 | ✅ · [方案](docs/archive/phase4/m11a-cli-conversation-ui-plan.md) |
+
+> **M11a 已完成**：ToolDisplay 让工具提供 UI 无关的动作/目标/摘要；normal 默认只显示语义轨迹，
+> verbose 显示有界脱敏详情，quiet 只输出结果；流式 Markdown、`/display`、`run --quiet`、Run ID
+> 收敛与紧凑 banner 落地。CRUD 轨迹实测通过，405 passed、2 skipped、覆盖率 80%；未修改 Loop，
+> 还清 D19。
 
 ## 未来方向（P3，信号驱动，暂不做）
 

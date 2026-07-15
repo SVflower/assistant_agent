@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 from assistant_agent.obs import NullLogger
+from assistant_agent.tools.display import ToolDisplay, call_display, result_display
 from assistant_agent.tools.observers import PostToolUseObserver, PreToolUseObserver
 from assistant_agent.tools.permissions import (
     Capability,
@@ -248,6 +249,14 @@ class Tool(abc.ABC):
                 "parameters": self.parameters,
             },
         }
+
+    def display_call(self, args: dict[str, Any]) -> ToolDisplay:
+        """返回 UI 无关的调用摘要；扩展工具可覆盖。"""
+        return call_display(self.name, args)
+
+    def display_result(self, args: dict[str, Any], result: ToolResult) -> ToolDisplay:
+        """返回 UI 无关的结果摘要；不改变回喂模型的 ToolResult。"""
+        return result_display(self.name, args, result, self.display_call(args))
 
     def permission_requests(
         self, args: dict[str, Any], ctx: ToolContext

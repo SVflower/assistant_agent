@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Literal
 
+from assistant_agent.tools.display import ToolDisplay
+
 EventKind = Literal[
     "reasoning",
     "content_delta",
@@ -28,3 +30,7 @@ class StepEvent:
     tool_args: dict[str, Any] | None = None
     is_error: bool = False
     usage: dict[str, int] | None = None
+    call_id: str = ""
+    display: ToolDisplay | None = None
+    result_code: str = ""
+    result_metadata: dict[str, Any] | None = None

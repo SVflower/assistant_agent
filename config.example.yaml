@@ -89,6 +89,12 @@ permissions:
   #   target: "*"
   #   tool: "*"
 
+ui:
+  # normal=语义摘要（默认）；verbose=脱敏调试详情；quiet=仅最终结果或错误。
+  display_mode: normal
+  # 是否实时显示 provider 返回的 reasoning；默认只显示思考状态。
+  show_reasoning: false
+
 logging:
   # 结构化事件日志与工具审计。日志只落本地，随 .assistant_agent/ gitignore 不入库。
   enabled: true

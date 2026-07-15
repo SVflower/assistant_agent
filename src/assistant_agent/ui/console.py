@@ -7,33 +7,29 @@ from __future__ import annotations
 
 import os
 import sys
-import time
 from collections.abc import Iterator
-from typing import Any
+from typing import Any, Literal
 
 from rich.console import Console as RichConsole
-from rich.panel import Panel
-from rich.spinner import Spinner
 
-from assistant_agent.agent.loop import StepEvent
+from assistant_agent.agent.events import StepEvent
 from assistant_agent.tools.base import ConfirmChoice
 from assistant_agent.ui.formatting import (
     build_banner,
     build_providers_table,
     build_sessions_table,
-    format_args,
-    format_context,
-    format_elapsed,
-    format_usage,
     read_input,
-    truncate,
 )
+
+DisplayMode = Literal["normal", "verbose", "quiet"]
 
 
 class Console:
     """对 Rich 的薄封装，集中所有终端输出。"""
 
-    def __init__(self, show_reasoning: bool = False) -> None:
+    def __init__(
+        self, show_reasoning: bool = False, display_mode: DisplayMode | None = None
+    ) -> None:
         # Windows 终端默认 GBK，遇到中文/emoji 会抛 UnicodeEncodeError。
         # 把底层 stdout/stderr 重配为 UTF-8（Python 3.7+ 支持）。
         for stream in (sys.stdout, sys.stderr):
@@ -45,6 +41,8 @@ class Console:
                     pass
         self._console = RichConsole()
         self._show_reasoning = show_reasoning
+        self._display_mode: DisplayMode = display_mode or "normal"
+        self._display_override = display_mode is not None
         # 上下文窗口预算，用于结尾显示"上下文占用 %"（由 main 按 config 注入）。
         self._context_limit = 0
         # 当前活动的 Live spinner（render_stream 期间）。confirm 需要在提示前停掉它，
@@ -60,10 +58,26 @@ class Console:
     def set_context_limit(self, limit: int) -> None:
         self._context_limit = limit
 
+    @property
+    def display_mode(self) -> DisplayMode:
+        return self._display_mode
+
+    def set_display_mode(self, value: DisplayMode, *, force: bool = False) -> None:
+        if force or not self._display_override:
+            self._display_mode = value
+
+    def show_run_id(self, run_id: str, *, force: bool = False) -> None:
+        if force or self._display_mode == "verbose":
+            self._console.print(f"Run ID：{run_id}", style="dim")
+
     def banner(self, provider_name: str, model: str, permission_mode: str) -> None:
+        if self._display_mode == "quiet":
+            return
         self._console.print(build_banner(provider_name, model, os.getcwd(), permission_mode))
 
     def user_echo(self, task: str) -> None:
+        if self._display_mode == "quiet":
+            return
         self._console.print(f"[bold green]你:[/bold green] {task}")
 
     def render_stream(self, events: Iterator[StepEvent]) -> None:
@@ -72,121 +86,9 @@ class Console:
         协调原则（见 M2 方案 7.4）：spinner（Live）只用于"无正文输出的空窗期"，
         一旦有正文/思考增量就停 Live、直接打印，两者在时间上错开，避免刷屏错位。
         """
-        from rich.live import Live
+        from assistant_agent.ui.conversation_renderer import ConversationRenderer
 
-        start = time.monotonic()
-        spinner = Spinner("dots", text="连接模型…")
-        initial_live = Live(spinner, console=self._console, refresh_per_second=12, transient=True)
-        initial_live.start()
-        live: Live | None = initial_live
-        live_active = True
-        self._active_live = live
-        streaming_text = False  # 是否正在打印正文（正文期间不开 spinner）
-        final_streamed = False  # 最终回复是否已通过流式正文打印过（避免 final 重复整段）
-        # token 累计：跨轮求和 = 本次任务真实消耗（每轮 input 都计费）。
-        total_in = 0
-        total_out = 0
-        # 最后一轮的 prompt_tokens = 当前上下文占用（容量视角，非累计）。
-        last_prompt = 0
-        got_usage = False
-
-        def stop_live() -> None:
-            nonlocal live, live_active
-            if live_active and live is not None:
-                live.stop()
-                live_active = False
-                self._active_live = None
-
-        def spin(text: str) -> None:
-            """切回 spinner 状态（仅在非正文期），附带已耗时。"""
-            nonlocal live, live_active
-            if streaming_text:
-                return
-            spinner.update(text=f"{text}（{format_elapsed(time.monotonic() - start)}）")
-            if not live_active:
-                live = Live(spinner, console=self._console, refresh_per_second=12, transient=True)
-                live.start()
-                live_active = True
-            self._active_live = live
-
-        try:
-            for event in events:
-                if event.kind == "reasoning":
-                    if self._show_reasoning:
-                        stop_live()
-                        self._console.print(f"[dim italic]{event.text}[/dim italic]", end="")
-                        self._at_line_start = False
-                    else:
-                        spin("思考中…")
-                elif event.kind == "content_delta":
-                    stop_live()
-                    if not streaming_text:
-                        streaming_text = True
-                    final_streamed = True
-                    self._console.print(event.text, end="", markup=False)
-                    self._at_line_start = event.text.endswith("\n")
-                elif event.kind == "tool_call":
-                    stop_live()
-                    streaming_text = False
-                    final_streamed = False  # 工具后模型会再流一段新的最终回复
-                    args = format_args(event.tool_args)
-                    self._console.print(
-                        f"\n[yellow]→ 调用工具[/yellow] [bold]{event.tool_name}[/bold]({args})"
-                    )
-                    self._at_line_start = True
-                    spin("执行中…")
-                elif event.kind == "tool_result":
-                    stop_live()
-                    style = "red" if event.is_error else "dim cyan"
-                    preview = truncate(event.text, 500)
-                    self._console.print(f"[{style}]  {preview}[/{style}]")
-                    self._at_line_start = True
-                    spin("思考中…")
-                elif event.kind == "usage" and event.usage:
-                    # 条件里的 event.usage 把类型收窄为非 None，.get 合法；同时跨轮累加。
-                    got_usage = True
-                    total_in += event.usage.get("prompt_tokens", 0)
-                    total_out += event.usage.get("completion_tokens", 0)
-                    last_prompt = event.usage.get("prompt_tokens", last_prompt)
-                elif event.kind == "final":
-                    stop_live()
-                    streaming_text = False
-                    if final_streamed:
-                        # 正文已流式打印过，不重复整段，只收尾换行。
-                        self._console.print()
-                        self._console.print("[dim green]— 完成 —[/dim green]")
-                    else:
-                        # 没有流式正文（如纯工具轮直接结束），补一个结果面板。
-                        self._console.print()
-                        self._console.print(Panel(event.text, title="结果", border_style="green"))
-                    self._at_line_start = True
-                elif event.kind == "error":
-                    stop_live()
-                    streaming_text = False
-                    self._console.print()
-                    self._console.print(Panel(event.text, title="错误", border_style="red"))
-                    self._at_line_start = True
-                elif event.kind == "interrupted":
-                    stop_live()
-                    streaming_text = False
-                    self._console.print()
-                    self._console.print(f"[yellow]⏹ {event.text}[/yellow]")
-                    self._at_line_start = True
-                elif event.kind == "notice":
-                    stop_live()
-                    streaming_text = False
-                    self._console.print()
-                    self._console.print(f"[dim]{event.text}[/dim]")
-                    self._at_line_start = True
-        finally:
-            stop_live()
-
-        elapsed = time.monotonic() - start
-        parts = [f"耗时 {format_elapsed(elapsed)}"]
-        if got_usage:
-            parts.append(f"token {format_usage(total_in, total_out)}")
-            parts.append(format_context(last_prompt, self._context_limit))
-        self._console.print(f"[dim]{' · '.join(parts)}[/dim]")
+        ConversationRenderer(self, self._display_mode, self._show_reasoning).render(events)
 
     def confirm(self, message: str) -> ConfirmChoice:
         """危险操作确认，返回用户选择：allow / always / deny。
@@ -222,6 +124,8 @@ class Console:
         return choice
 
     def info(self, text: str) -> None:
+        if self._display_mode == "quiet":
+            return
         self._console.print(f"[dim]{text}[/dim]")
 
     def error(self, text: str) -> None:

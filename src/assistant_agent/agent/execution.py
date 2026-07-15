@@ -66,7 +66,14 @@ def execute_tool_batch(
                 )
                 continue
 
-        yield StepEvent(kind="tool_call", tool_name=call.name, tool_args=call.arguments)
+        display = registry.display_call(call.name, call.arguments)
+        yield StepEvent(
+            kind="tool_call",
+            tool_name=call.name,
+            tool_args=call.arguments,
+            call_id=call.id,
+            display=display,
+        )
         result = registry.execute(
             call.name,
             call.arguments,
@@ -84,5 +91,9 @@ def execute_tool_batch(
             tool_name=call.name,
             text=result.output,
             is_error=result.is_error,
+            call_id=call.id,
+            display=registry.display_result(call.name, call.arguments, result),
+            result_code=result.code,
+            result_metadata=result.metadata,
         )
     return BatchOutcome(exhausted_reason, skipped_calls)

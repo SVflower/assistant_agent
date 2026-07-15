@@ -115,6 +115,7 @@ def format_process_result(
     needs_artifact = not source_complete or (inline_limit > 0 and len(full) > inline_limit)
     artifacts: list[Any] = []
     metadata = {
+        "returncode": result.returncode,
         "stdout_bytes": result.stdout.total_bytes,
         "stderr_bytes": result.stderr.total_bytes,
         "source_complete": source_complete,

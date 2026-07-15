@@ -13,6 +13,7 @@ from jsonschema import Draft202012Validator
 
 from assistant_agent.tools.ask import AskUserTool
 from assistant_agent.tools.base import Tool, ToolBudget, ToolContext, ToolResult
+from assistant_agent.tools.display import ToolDisplay, call_display, result_display
 from assistant_agent.tools.file_ops import (
     EditFileTool,
     ListDirTool,
@@ -211,6 +212,16 @@ class ToolRegistry:
 
     def names(self) -> list[str]:
         return list(self._tools)
+
+    def display_call(self, name: str, args: dict[str, Any]) -> ToolDisplay:
+        tool = self._tools.get(name)
+        return tool.display_call(args) if tool is not None else call_display(name, args)
+
+    def display_result(self, name: str, args: dict[str, Any], result: ToolResult) -> ToolDisplay:
+        tool = self._tools.get(name)
+        if tool is not None:
+            return tool.display_result(args, result)
+        return result_display(name, args, result)
 
     def execute(
         self,

@@ -15,7 +15,7 @@ from pathlib import Path
 
 import typer
 
-from assistant_agent.agent.loop import StepEvent
+from assistant_agent.agent.events import StepEvent
 from assistant_agent.cli.commands import ChatContext, build_default_slash_registry
 from assistant_agent.cli.init import run_init
 from assistant_agent.cli.recovery import (
@@ -75,9 +75,10 @@ def run(
     max_iterations: int | None = typer.Option(
         None, "--max-iterations", help="最大工具调用轮数（覆盖 config）"
     ),
+    quiet: bool = typer.Option(False, "--quiet", "-q", help="仅输出最终结果或错误"),
 ) -> None:
     """执行单个任务后退出。"""
-    console = Console()
+    console = Console(display_mode="quiet" if quiet else None)
     with build_runtime(
         config,
         console,
@@ -90,9 +91,11 @@ def run(
         rt.logger.task(task)
         coordinator = rt.new_run(task)
         if coordinator is not None:
-            console.info(f"Run ID：{coordinator.run_id}")
+            console.show_run_id(coordinator.run_id)
         _run_streamed(console, rt.loop.run(task, coordinator=coordinator))
         if coordinator is not None:
+            if coordinator.state.status != "completed" and console.display_mode != "verbose":
+                console.show_run_id(coordinator.run_id, force=True)
             rt.run_store.prune(rt.config.agent.recovery.max_completed_runs)
 
 
@@ -188,10 +191,15 @@ def chat(
             rt.logger.task(task)
             coordinator = rt.new_run(task, ctx.session.id)
             if coordinator is not None:
-                console.info(f"Run ID：{coordinator.run_id}")
+                console.show_run_id(coordinator.run_id)
             _run_streamed(console, rt.loop.run(task, coordinator=coordinator))
             try:
                 if coordinator is not None:
+                    if (
+                        coordinator.state.status != "completed"
+                        and console.display_mode != "verbose"
+                    ):
+                        console.show_run_id(coordinator.run_id, force=True)
                     synced = sync_terminal_session(coordinator, store, ctx.session)
                     if synced is not None:
                         ctx.session = synced

@@ -22,16 +22,14 @@ def read_input(prompt: str = "") -> str:
 
 
 def build_banner(provider_name: str, model: str, cwd: str, permission_mode: str) -> Panel:
-    """构建启动横幅：Agent 名 / provider / model / 工作目录。"""
-    info = Table.grid(padding=(0, 1))
-    info.add_column(justify="right", style="dim")
-    info.add_column()
-    info.add_row("Agent", "[bold]Assistant Agent[/bold]")
-    info.add_row("provider", f"[cyan]{provider_name}[/cyan]")
-    info.add_row("model", f"[cyan]{model}[/cyan]")
-    info.add_row("位置", f"[green]{cwd}[/green]")
+    """构建紧凑启动横幅，同时保留权限边界披露。"""
     style = "red" if permission_mode == "unrestricted" else "yellow"
-    info.add_row("权限", f"[{style}]{permission_mode}（应用层，无 OS 沙箱）[/{style}]")
+    info = Text()
+    info.append("Assistant Agent", style="bold")
+    info.append(f"  {provider_name}/{model}", style="cyan")
+    info.append(f"  {cwd}\n", style="green")
+    info.append("权限 ", style="dim")
+    info.append(f"{permission_mode}（应用层，无 OS 沙箱）", style=style)
     return Panel(info, border_style="blue", expand=False)
 
 

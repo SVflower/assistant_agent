@@ -38,8 +38,14 @@ cp config.example.yaml config.yaml
 # 单次任务
 assistant-agent run "读取 README.md，在末尾追加一行 changelog，然后列出当前目录确认"
 
+# 脚本/管道场景：隐藏过程轨迹，只输出最终回答（失败诊断仍保留）
+assistant-agent run "总结 README.md" --quiet
+
 # 交互模式（默认新建会话，自动保存）
 assistant-agent chat
+
+# Windows 开发环境也可直接使用项目虚拟环境启动同一入口
+.venv\Scripts\python -m assistant_agent chat
 
 # 恢复历史会话续接
 assistant-agent chat --resume <会话id>
@@ -56,12 +62,22 @@ assistant-agent resume <run-id>
 assistant-agent providers                 # 列出所有 provider
 assistant-agent run "..." --provider local_lmstudio   # 临时指定后端（-p，覆盖 active）
 # 对话中输入 / 或 /help 查看所有命令（/model 切模型、/clear 新会话、/context 看用量、/sessions、/exit）
+# 使用 /display normal|verbose|quiet 即时切换当前会话的展示详细度
 
 # 轮数上限（复杂任务不够时提高）
 assistant-agent run "..." --max-iterations 30
 
 # 指定配置文件
 assistant-agent run "..." --config /path/to/config.yaml
+```
+
+CLI 默认使用 `normal`：展示简洁的语义工具轨迹和 Markdown 回答；`verbose` 额外展示有界、脱敏的
+工具参数与结果详情；`quiet` 隐藏过程轨迹，适合脚本消费。可在对话中用
+`/display normal|verbose|quiet` 临时切换，也可在配置中设置默认值：
+
+```yaml
+ui:
+  display_mode: normal  # normal | verbose | quiet
 ```
 
 会话存于项目下 `./.assistant_agent/sessions/`（已 gitignore）。
@@ -185,8 +201,9 @@ ui/       终端输入输出（Rich 流式渲染）
 扩展点：换模型动 `config.yaml`；加能力优先在 `tools/` 加文件并在 `registry.py` 注册，或接 `skills/`（SKILL.md）与 `mcp/`（外部 server）——内核 `agent/loop.py` 通常不必动（确需演进时先确认）。
 
 第三阶段“可信执行与质量闭环”已完成：M9a-M10b 已交付，M10c 决定暂不进行全栈 async 重构，
-D18 进程树终止边界保留待独立立项。当前 392 个测试通过（2 个平台能力测试跳过）、覆盖率 78%、
-6744 行生产 Python 源码 + 1366 行 eval 基础设施。详见
+D18 进程树终止边界保留待独立立项。M11a 已完成 CLI 对话展示重构：语义工具摘要、三种展示模式、
+统一脱敏与流式 Markdown。当前 405 个测试通过（2 个平台能力测试跳过）、覆盖率 80%、
+7060 行生产 Python 源码 + 1366 行 eval 基础设施。详见
 [第三阶段规划](docs/phase3-trustworthy-agent-plan.md)。
 
 详见 [DESIGN.md](DESIGN.md)。

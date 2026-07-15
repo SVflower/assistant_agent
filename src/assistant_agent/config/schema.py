@@ -137,6 +137,9 @@ class PermissionsConfig(BaseModel):
 class UIConfig(BaseModel):
     """终端 UI 行为。"""
 
+    display_mode: Literal["normal", "verbose", "quiet"] = Field(
+        default="normal", description="CLI 展示密度：normal / verbose / quiet"
+    )
     show_reasoning: bool = Field(
         default=False, description="是否实时显示模型的思考（reasoning）过程；关闭时只显示 spinner"
     )

@@ -9,13 +9,14 @@ from __future__ import annotations
 import sys
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from typing import cast
 
 from assistant_agent.agent.loop import AgentLoop
 from assistant_agent.config.schema import AppConfig
 from assistant_agent.llm.client import LLMClient
 from assistant_agent.obs import NullLogger
 from assistant_agent.session.store import Session, SessionStore
-from assistant_agent.ui.console import Console
+from assistant_agent.ui.console import Console, DisplayMode
 
 
 @dataclass
@@ -173,6 +174,22 @@ def _cmd_mcp(args: str, ctx: ChatContext) -> None:
     ctx.console.info("\n".join(lines))
 
 
+def _cmd_display(args: str, ctx: ChatContext) -> None:
+    """查看或切换当前会话的展示密度。"""
+    modes = ("normal", "verbose", "quiet")
+    target = args.strip().lower()
+    if not target:
+        ctx.console.info(f"当前展示模式：{ctx.console.display_mode}。可选：{', '.join(modes)}")
+        return
+    if target not in modes:
+        ctx.console.error(f"未知展示模式：{target}。可选：{', '.join(modes)}")
+        return
+    mode = cast(DisplayMode, target)
+    ctx.console.set_display_mode(mode, force=True)
+    ctx.config.ui.display_mode = mode
+    ctx.console.info(f"展示模式已切换为 {target}。")
+
+
 def _cmd_exit(args: str, ctx: ChatContext) -> None:
     """退出交互模式。"""
     ctx.should_exit = True
@@ -188,5 +205,6 @@ def build_default_slash_registry() -> SlashRegistry:
     reg.register(SlashCommand("context", "查看会话状态与用量", _cmd_context))
     reg.register(SlashCommand("skills", "列出已发现的技能", _cmd_skills))
     reg.register(SlashCommand("mcp", "列出已接入的 MCP server 与工具", _cmd_mcp))
+    reg.register(SlashCommand("display", "查看或切换展示模式", _cmd_display))
     reg.register(SlashCommand("exit", "退出（也可输入 exit/quit）", _cmd_exit))
     return reg

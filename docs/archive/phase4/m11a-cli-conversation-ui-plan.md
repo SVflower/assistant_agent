@@ -1,6 +1,6 @@
 # M11a 计划：CLI 对话展示重构
 
-> 状态：待用户审阅确认；确认前不实施代码。
+> 状态：已完成；按用户确认实施，未修改 `agent/loop.py`。
 > 目标：把当前“原始执行轨迹”升级为默认简洁、需要时可审计、对本地小模型仍稳健的 Agent CLI。
 
 ## 1. 背景与问题
@@ -200,3 +200,13 @@ checkpoint 顺序。
 
 用户确认本方案后才实施。方案默认允许修改 `agent/events.py`、`agent/execution.py`、`tools/`、`ui/`、
 `cli/commands.py`、`config/schema.py`、`main.py` 和提示词；**不包含修改 `agent/loop.py` 的授权**。
+
+## 12. 实施结果
+
+- ToolDisplay、三种展示模式、`/display`、`run --quiet`、流式 Markdown、Run ID/banner 和提示词收敛
+  全部落地。
+- CRUD normal 轨迹实测不显示原始写入/替换正文和重复绝对路径；verbose 有界且递归脱敏；quiet 只输出
+  最终回答。
+- `console.py` 从 303 行降至 207 行；展示状态机、工具活动和 Markdown 已按职责拆分。
+- 405 passed、2 skipped，覆盖率 80%；Ruff、mypy、架构测试、18/18 scripted eval、4/4 recovery
+  eval 全绿。

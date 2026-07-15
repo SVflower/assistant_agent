@@ -14,7 +14,8 @@
 - **模型**：后端可切换（云端 OpenAI 兼容 / Anthropic / 本地 LM Studio·Ollama·vLLM），config/`--provider`/对话内 `/model` 三种切法，切换保留上下文。
 - **交互**：流式输出 + 思考显示 + spinner + 耗时/token（跨轮累计）+ 上下文占用%；Ctrl+C 中断。
 - **安全/控制**：Registry 强制统一权限门（deny→ask→allow）；readonly/workspace/strict/unrestricted 四模式；文件/进程/网络/MCP/Skill capability 独立决策；精确会话授权；项目 Skill 与 MCP 信任边界；应用层审计明确不等于 OS 沙箱。
-- **记忆**：token 感知截断（上下文工程）；会话持久化（JSON，`/sessions`、`--resume`、`/clear`）。
+- **记忆/恢复**：token 感知截断与摘要压缩；Session JSON 持久化；步骤级 Run checkpoint、
+  `runs`/`resume`、双槽损坏回退和副作用不确定状态人工处置。
 - **工具**：读/写/局部编辑(edit_file/multi_edit)/列目录/shell/代码检索/git 只读/用户澄清。
 - **命令层**：slash 命令系统（`/help /model /sessions /clear /context /exit`，本地拦截不花 token）。
 - **上手**：`assistant-agent init` 交互向导 + `docs/INSTALL.md` 多平台安装（Windows/WSL2 实测）。
@@ -24,18 +25,22 @@
 - **技能（M7a）**：Agent Skills 系统——SKILL.md 发现 + 渐进披露（L1 元数据注入 / L2 load_skill 加载正文 / L3 现有工具读跑）；`.assistant_agent/skills/` 目录、`/skills` 命令；脚本走既有确认门。
 - **MCP（M7b/M7c）**：MCP client（stdio + HTTP 两种 transport）——外部 server 工具接入，命名空间 `mcp__<server>__<tool>`；同步桥（守护线程常驻 loop + run_coroutine_threadsafe）；每工具主动确认（category 按 server+tool 细分）；工具白/黑名单 + 每 server/全局数量上限防 schema 撑爆；HTTP 走 Streamable HTTP，session/协议头/重连交 SDK 代管、调用层不自动重放；`/mcp` 命令；`cli/setup.py` Runtime 统管生命周期（还清 D7）。
 - **上下文进化（M8a/M8b）**：M8a 统一预算口径——可用消息预算 = 窗口 − system − tools schema − reserved_output，`/context` 分项显示真实占用（还 D10）；M8b 摘要压缩替代硬截断——双历史（raw + checkpoint + tail）、按完整用户轮分组、checkpoint 随 Session 持久化（resume 不重复摘要）、摘要 token 独立计入 usage、摘要失败降级硬截断，默认关闭时上下文逐字节等于现状。
-- **行为评测（M9c）**：scripted/real 双轨 eval；14 个确定性案例覆盖轨迹、权限、预算、终止、压缩和文件副作用，真实 provider 报告支持重复运行与 A/B compare；scripted 进入 CI，真实结果不作 PR 硬门。
+- **行为评测（M9c/M10b）**：scripted/real 双轨 eval；18 个 scripted 案例覆盖轨迹、权限、预算、终止、压缩和文件副作用，另有 4 个真实故障注入 recovery eval；真实 provider 报告支持重复运行与 A/B compare。
 - **工具契约（M10a）**：统一 JSON Schema 运行时校验与结构化 ToolResult；10 万行范围读取、流式上下文搜索、目录上限；Shell/Git 双流有界捕获与受限 Artifact；文件原子写；MCP structuredContent 保真。
+- **可恢复执行（M10b）**：Conversation/Session/RunState 分离；模型、审批、副作用前后 checkpoint；
+  已完成工具不重放，started 副作用需 retry/skip/abort；预算、重复熔断、权限和摘要状态跨进程恢复；
+  trace/session/run/call 标识对齐，还清 D8。
 
-**质量**：335 测试通过（2 个平台能力测试跳过）、覆盖率 76%、6286 行生产 Python 源码 + 1328 行 eval 基础设施；架构适应度测试（依赖分层 + 行数分级软/硬）+ 技术债册 + DoD + 里程碑工作流全在；CI 已加入 format/lint/mypy/coverage/scripted eval 与 Windows/Linux、Python 3.11/3.13 矩阵。
+**质量**：392 测试通过（2 个平台能力测试跳过）、覆盖率 78%、6744 行生产 Python 源码 + 1366 行 eval 基础设施；架构适应度测试（依赖分层 + 行数分级软/硬）+ 技术债册 + DoD + 里程碑工作流全在；CI 已加入 format/lint/mypy/coverage/scripted eval/recovery eval 与 Windows/Linux、Python 3.11/3.13 矩阵。
 
 **边界（明确未做）**：子 Agent 编排、真沙箱、Web GUI、rewind/recap、非交互 init、PyPI 分发。
 
-**下一阶段**：第三阶段“可信执行与质量闭环”实施中；M9a/M9b/M9c/M10a 已完成，
-下一项为 M10b 步骤级 Checkpoint 与可恢复执行。见 [第三阶段规划](docs/phase3-trustworthy-agent-plan.md)。
+**下一阶段**：第三阶段“可信执行与质量闭环”实施中；M9a/M9b/M9c/M10a/M10b 已完成，
+下一项为 M10c 异步与可取消运行时的可行性决策（只决策，不自动立项）。见
+[第三阶段规划](docs/phase3-trustworthy-agent-plan.md)。
 
-**剩余技术债**：6 项（D5/D6/D8/D11/D12/D18）。M9a 已还清 D13/D15/D17，M9b 已还清
-D14，M9c 已还清 D9，M10a 已还清 D16 并登记 D18。详见
+**剩余技术债**：5 项（D5/D6/D11/D12/D18）。M9a 已还清 D13/D15/D17，M9b 已还清
+D14，M9c 已还清 D9，M10a 已还清 D16 并登记 D18，M10b 已还清 D8。详见
 [技术债登记册](docs/TECH_DEBT.md)。
 
 ---
@@ -99,7 +104,7 @@ D14，M9c 已还清 D9，M10a 已还清 D16 并登记 D18。详见
 
 > 总体目标：从“功能完整的单体 Agent”进入“边界明确、失败可恢复、行为可评测”的可信执行阶段。
 > 唯一总规划见 [第三阶段规划](docs/phase3-trustworthy-agent-plan.md)。每个子里程碑开工前仍需细化方案；
-> M10b 涉及 `agent/loop.py` 的实质改动，必须单独确认后实施。
+> M10b 涉及 `agent/loop.py` 的实质改动，已在用户单独确认后实施并通过全量回归。
 
 | 里程碑 | 主题 | 状态 |
 |--------|------|------|
@@ -107,7 +112,7 @@ D14，M9c 已还清 D9，M10a 已还清 D16 并登记 D18。详见
 | M9b | 统一权限与信任边界 | ✅ · [方案](docs/archive/phase3/m9b-permission-boundary-plan.md) |
 | M9c | Agent 行为 Eval 与 CI 质量闭环 | ✅ · [方案](docs/archive/phase3/m9c-agent-evals-plan.md) |
 | M10a | 工具契约与大文件/大输出工程 | ✅ · [方案](docs/archive/phase3/m10a-tool-contract-plan.md) |
-| M10b | 步骤级 Checkpoint 与可恢复执行 | 总规划就绪，待细化 |
+| M10b | 步骤级 Checkpoint 与可恢复执行 | ✅ · [方案](docs/archive/phase3/m10b-recoverable-execution-plan.md) |
 | M10c | 异步与可取消运行时 | 决策门，非阶段退出条件 |
 
 > **M9c 已完成**：新增顶层 `evals/`，scripted/real 双轨 runner、版本化 YAML schema、
@@ -119,6 +124,12 @@ D14，M9c 已还清 D9，M10a 已还清 D16 并登记 D18。详见
 > 执行 Draft 2020-12 参数校验；文件工具支持 10 万行分页、流式搜索、原子写和换行保持；Shell/Git
 > 使用双流有界捕获与 workspace Artifact；MCP structuredContent 不再丢失。18 个 deterministic
 > eval 全绿，全量 335 passed、2 skipped、覆盖率 76%，未修改 `agent/loop.py`，还清 D16。
+
+> **M10b 已完成**：严格 RunState 与双槽 RunStore；模型/审批/工具前后 checkpoint；稳定 call ID；
+> planned、部分批次和 started 不确定状态恢复；预算/重复熔断/精确授权/摘要 checkpoint 跨进程保持；
+> `runs`/`resume` CLI 与 terminal Session 幂等同步；日志 trace/session/run/call/provider/model 对齐。
+> 18/18 scripted eval + 4/4 recovery fault-injection eval 全绿，全量 392 passed、2 skipped、覆盖率 78%。
+> 经用户单独授权修改 `agent/loop.py`，原有测试无回退；还清 D8。
 
 ## 未来方向（P3，信号驱动，暂不做）
 
@@ -147,7 +158,7 @@ D14，M9c 已还清 D9，M10a 已还清 D16 并登记 D18。详见
 |--------|------|------|
 | 循环终止（防跑飞/死循环）| ✅ `max_iterations` | 已有 |
 | 上下文管理（不爆窗、留对的东西）| ✅ token 感知截断 + 预算口径含 schema/reserved + 摘要压缩 | M3/M8a/M8b |
-| 错误恢复（工具失败循环不崩）| ✅ 工具异常归一为 ToolResult | 已有 |
+| 错误恢复（工具失败循环不崩）| ✅ ToolResult 归一 + 步骤级 checkpoint/恢复 | M10a/M10b |
 | 反馈质量（喂回模型的观察够好）| ✅ 基本具备 | 已有 |
 | 状态可见性（能看到循环在干嘛）| ✅ 流式 + 分阶段状态 + JSONL 事件日志 | M2/M6 |
 | 成本 / token 可见与控制 | ✅ token 用量显示 + 运行时预算 + 上下文占用% | M2/M6.5/M8a |

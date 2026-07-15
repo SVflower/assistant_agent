@@ -2,7 +2,7 @@
 
 > AI 迭代开发中，债务会隐形复利（LLM 在每个决策点埋入未言明的假设）。
 > 这里显式追踪，防止"上次说的债"下次忘。每次里程碑评审更新本表。
-> 最后更新：2026-07-15（M10a 完成；还清 D16，新增 D18；第三阶段规划见
+> 最后更新：2026-07-15（M10b 完成；还清 D8；第三阶段规划见
 > [可信执行与质量闭环](phase3-trustworthy-agent-plan.md)。）
 
 ## 状态说明
@@ -17,10 +17,10 @@
 | D5 | **UI 层测试仍薄** | `ui/console.py`、`main.py` | 🟡 | render_stream 状态机、SIGINT 仍仅手验（session/input 部分已间接覆盖） | 不必全补；触及时补 |
 | D6 | **provider 与 model 未分层** | `config/schema.py` providers | 🟢 | 一条目=一模型；同厂商多模型要重复写 api_base/api_key（key 可用 ${VAR} 缓解） | **暂不做（YAGNI）**。触发信号：同一厂商挂 **4+ 个模型**、重复条目变烦时，重构成"backends（连接层）+ models（复用 backend）"两层（参考 Codex model_providers）。当前 2-3 模型不值得改 schema |
 | D7 | ~~**main.py 越过行数软线**~~ ✅ 已还清（M7b）| `main.py`(222)、`cli/setup.py` | ✅ | M7b 把 wiring（build_runtime + Runtime 上下文管理器）抽到 `cli/setup.py`，main.py 329→222，回落软线 300 以下。`_interrupt` 保留在 main（信号处理是 CLI 关注点），以 `interrupt_check` 参数注入。**剩 file_ops.py(278)** 仍近软线，触及"读/写/编辑"再分组 |
-| D8 | **日志按会话/模型维度的缺口（原 4 项剩 2）** | `main.py`、`obs/logger.py` | 🟡 | ①② 已还清（见下）；剩：③chat 里 `/clear` 换会话后日志 `session_id` 不变（日志按"进程运行"粒度、与 SessionStore 会话 id 不同名却像）；④`/model` 切模型后 `session_start` 的 model 已过时，tool_call 不带模型信息，无法从日志看出某调用用的哪个模型 | 触发信号：要按会话/模型维度聚合日志时——`/clear` 补一条 `session_start`、`/model` 记 `model_switch` 事件。现不做 |
+| D8 | ~~**日志按会话/模型维度的缺口**~~ ✅ 已还清（M10b） | `obs/logger.py`、`cli/recovery.py` | ✅ | `trace_id`（进程）、`session_id`（聊天）、`run_id`（任务）拆分；`/clear` 重新绑定 Session；`model_switch` 更新后续事件模型；tool_call 带 run/call/provider/model；恢复与 checkpoint 有独立事件 | 新旧 JSONL 字段兼容；日志仍是尽力而为的观测，不参与 checkpoint 正确性 |
 | D9 | ~~**无行为级 eval 任务集**~~ ✅ 已还清（M9c） | `evals/`、`tests/test_evals.py` | ✅ | 版本化 YAML case + fixture confinement + scripted/real runner + 可解释 scorer + JSONL/Markdown 报告 + A/B compare；14 个 deterministic case 进入 CI，真实 provider 轨道不进 PR 硬门 | 303 测试基线覆盖 loader/scorer/runner/report/CLI、权限/预算/终止和 Runtime/UI 补测；方案见 [归档计划](archive/phase3/m9c-agent-evals-plan.md) |
 | D10 | ~~**上下文预算未计入工具 schema**~~ ✅ 已还清（M8a）| `agent/context.py`、`agent/loop.py` | ✅ | M8a 统一预算口径：可用消息预算 = 窗口 − system − tools schema − reserved_output。tools schema 由 loop（持 registry）估算注入 context（context 保持被动、不反依赖 registry）；reserved_output 默认 1024 保证回复空间；`/context` 分项显示真实占用。实测内置工具 schema 3208 token 现已计入（原完全不计）。**两开销默认归零时预算与旧行为逐字节一致（回归保护）** |
-| D11 | **三个文件越过行数软线** | `agent/context.py`(342)、`agent/loop.py`(351)、`ui/console.py`(303) | 🟢 | M9a 的封套与协议块逻辑使 context 越软线；loop/console 仍低于硬线 500，仅警告。职责仍内聚，不为行数机械拆分 | 触发信号：相关文件逼近 400 或再增加独立职责时，分别抽预算封套编排、循环阶段或流式 renderer；当前保留软线评审 |
+| D11 | **七个文件越过行数软线** | `agent/context.py`(342)、`agent/loop.py`(419)、`agent/recovery.py`(452)、`main.py`(309)、`obs/logger.py`(349)、`tools/registry.py`(367)、`ui/console.py`(303) | 🟢 | 全部低于硬线 500；M10b 已把工具批次、状态编解码和恢复 CLI 按职责拆出，剩余 Loop/Coordinator/Logger/Registry 是内聚状态机或协议编排，不为 300 软线机械切碎 | 任一文件继续增加独立职责或逼近硬线时再拆；`recovery.py` 优先按“状态转换/定义兼容”边界评审，Loop 禁止放宽硬线 |
 | D12 | **摘要压缩为整段、无选择性/检索** | `agent/compaction.py` | 🟢 | M8b 先做整段摘要（最旧轮压成要点）。工具结果选择性压缩、语义检索式记忆（RAG/向量）、跨会话记忆均未做 | 信号驱动的未来方向：长会话里"早期某具体事实被摘要糊掉、后续又要精确引用"反复出现时，再考虑选择性保留或检索式记忆。当前整段摘要够用 |
 | D13 | ~~**上下文预算不是最终硬保证**~~ ✅ 已还清（M9a） | `agent/token_budget.py`、`agent/context.py` | ✅ | 最终封套出口强制 `used <= window`；超大用户输入在 provider 调用前稳定拒绝，摘要受硬上限并为最新任务让位；估算器可替换且失败回退保守口径 | 258 测试基线覆盖超大消息、摘要、坏 checkpoint 与不调用 client |
 | D14 | ~~**权限边界可被 Shell/区外读取绕过**~~ ✅ 已还清（M9b） | `tools/permissions.py`、`tools/policy.py`、`tools/registry.py` | ✅ | Registry 在预算与 Tool.run 前强制统一门控；文件/进程/网络/MCP/Skill capability 独立决策；未知 Tool 默认 ask；Shell 仅证明极小只读集合，其余保守声明广泛能力；区外读写和敏感目录受控；提示词/banner 明确无 OS 沙箱 | 281 测试覆盖优先级、非交互拒绝、精确会话授权、observer fail-closed、Shell/Git 绕过、Skill/MCP 信任与脱敏 |

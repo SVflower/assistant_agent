@@ -1,0 +1,35 @@
+"""工具执行生命周期协议；上层可在副作用边界持久化状态。"""
+
+from __future__ import annotations
+
+from collections.abc import Sequence
+from typing import Literal, Protocol
+
+from assistant_agent.tools.permissions import PermissionRequest
+from assistant_agent.tools.result import ToolResult
+
+ReplayPolicy = Literal["safe_readonly", "requires_decision"]
+
+
+class ToolExecutionLifecycle(Protocol):
+    def approval_pending(
+        self,
+        call_id: str,
+        requests: Sequence[PermissionRequest],
+        replay_policy: ReplayPolicy,
+    ) -> None: ...
+
+    def tool_started(
+        self,
+        call_id: str,
+        requests: Sequence[PermissionRequest],
+        replay_policy: ReplayPolicy,
+    ) -> None: ...
+
+    def tool_completed(
+        self,
+        call_id: str,
+        result: ToolResult,
+        requests: Sequence[PermissionRequest],
+        replay_policy: ReplayPolicy,
+    ) -> None: ...

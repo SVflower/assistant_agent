@@ -8,6 +8,7 @@ from pathlib import Path
 
 from assistant_agent.config.loader import load_config
 from evals.loader import load_cases
+from evals.recovery import run_recovery_evals
 from evals.report import build_metadata, compare_reports, write_report
 from evals.runner import run_cases
 
@@ -31,6 +32,7 @@ def _parser() -> argparse.ArgumentParser:
     compare.add_argument("baseline")
     compare.add_argument("candidate")
     compare.add_argument("--output", default="evals/reports/compare.md")
+    sub.add_parser("recovery")
     return parser
 
 
@@ -55,6 +57,12 @@ def main(argv: list[str] | None = None) -> int:
         output = compare_reports(args.baseline, args.candidate, args.output)
         print(output)
         return 0
+    if args.command == "recovery":
+        results = run_recovery_evals()
+        for result in results:
+            status = "PASS" if result.passed else "FAIL"
+            print(f"{status} {result.case_id}: {result.detail}")
+        return 0 if all(result.passed for result in results) else 1
     try:
         cases = _filter(load_cases(args.cases), args.case, args.tag)
         config_path = getattr(args, "config", None)

@@ -17,6 +17,7 @@ from evals.loader import (
     load_cases,
     safe_relative_path,
 )
+from evals.recovery import run_recovery_evals
 from evals.report import build_metadata, compare_reports, read_report, write_report
 from evals.runner import run_cases
 from evals.schema import (
@@ -318,3 +319,15 @@ def test_cli_exit_codes(tmp_path):
     cases = Path(__file__).parents[1] / "evals" / "cases"
     assert main(["scripted", "--cases", str(cases), "--report-dir", str(report_dir)]) == 0
     assert (report_dir / "results.jsonl").is_file()
+    assert main(["recovery"]) == 0
+
+
+def test_recovery_evals_cover_all_crash_classes():
+    results = run_recovery_evals()
+    assert [result.case_id for result in results] == [
+        "planned_resume",
+        "partial_batch_no_replay",
+        "uncertain_side_effect_pauses",
+        "budget_survives_restart",
+    ]
+    assert all(result.passed for result in results)

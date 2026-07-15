@@ -45,6 +45,16 @@ class CompactionConfig(BaseModel):
     )
 
 
+class RecoveryConfig(BaseModel):
+    """步骤级 checkpoint 与单机恢复设置。"""
+
+    enabled: bool = Field(default=True, description="保存 Run checkpoint，支持崩溃后恢复")
+    dir: str = Field(default=".assistant_agent/runs", description="Run checkpoint 本地目录")
+    max_completed_runs: int = Field(
+        default=100, ge=0, description="最多保留的已同步 terminal Run 数量"
+    )
+
+
 class AgentConfig(BaseModel):
     """Agent 循环行为。"""
 
@@ -73,6 +83,7 @@ class AgentConfig(BaseModel):
         description="从上下文预算中预留给模型回复的 token；0=不预留（回退旧口径）",
     )
     compaction: CompactionConfig = Field(default_factory=lambda: CompactionConfig())
+    recovery: RecoveryConfig = Field(default_factory=lambda: RecoveryConfig())
 
 
 class ToolsConfig(BaseModel):

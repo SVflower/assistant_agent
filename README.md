@@ -48,6 +48,10 @@ assistant-agent chat --resume <会话id>
 assistant-agent sessions
 assistant-agent sessions --delete <会话id>
 
+# 列出 / 恢复中断的任务运行
+assistant-agent runs
+assistant-agent resume <run-id>
+
 # 模型/后端管理
 assistant-agent providers                 # 列出所有 provider
 assistant-agent run "..." --provider local_lmstudio   # 临时指定后端（-p，覆盖 active）
@@ -61,6 +65,12 @@ assistant-agent run "..." --config /path/to/config.yaml
 ```
 
 会话存于项目下 `./.assistant_agent/sessions/`（已 gitignore）。
+
+每个用户任务另有独立 Run checkpoint，默认存于 `./.assistant_agent/runs/`。模型完整响应、
+授权提示、工具副作用开始和结果确认等边界会原子保存；current 损坏时回退 prev。恢复不会重放
+已确认完成的工具。若进程在写文件、Shell、MCP 等副作用开始后退出，结果会标为不确定：交互恢复
+必须选择 retry/skip/abort，非交互模式保持暂停。checkpoint 含对话与工具参数，是本地敏感数据，
+不等于外部副作用的 exactly-once 事务日志。可在 `agent.recovery` 下关闭或调整目录/保留上限。
 
 运行时边界由配置控制：`agent.max_tool_calls` 限制单任务工具调用总数，
 `agent.max_total_tool_output_chars` 限制累计工具结果，`tools.max_output_chars`
@@ -146,12 +156,14 @@ python -m mypy src/assistant_agent
 
 ```bash
 python -m evals scripted
+python -m evals recovery
 python -m evals real --config config.yaml --provider local --repeat 3
 python -m evals compare evals/reports/run-a/results.jsonl evals/reports/run-b/results.jsonl
 ```
 
-`scripted` 使用确定性脚本验证真实 AgentLoop 的工具轨迹、权限、预算、终止协议和文件副作用，
-已接入 CI，但不代表模型能力。`real` 才调用配置中的真实 provider，结果可能波动，不作为 PR
+`scripted` 使用确定性脚本验证真实 AgentLoop 的工具轨迹、权限、预算、终止协议和文件副作用；
+`recovery` 在真实 checkpoint 边界注入崩溃，验证不重放和预算恢复。
+确定性评测已接入 CI，但不代表模型能力。`real` 才调用配置中的真实 provider，结果可能波动，不作为 PR
 硬门；外部 Skills/MCP 默认关闭，需要时显式加 `--skills` / `--mcp`。当前没有 OS 沙箱，真实
 评测只应运行仓库自有、可信的小型 fixture。
 
@@ -162,19 +174,19 @@ config/   配置加载与校验（Pydantic + YAML）
 cli/      CLI 层：slash 命令系统（/help /model 等）+ init 配置向导 + Runtime 生命周期
 llm/      模型抽象层（封装 LiteLLM，统一云端/本地）
 tools/    工具系统（base/registry + 内置：读/写/局部编辑/多处编辑/列目录/shell/代码检索/git 只读/澄清）
-session/  会话持久化（JSON 存档，跨会话续接 + 摘要 checkpoint）
+session/  Session 存档 + Run checkpoint 双槽原子存储
 skills/   Agent Skills（SKILL.md 发现 + 渐进披露 + load_skill）
 mcp/      MCP client（stdio + HTTP transport 接外部工具生态，同步桥 + 命名空间）
 obs/      结构化 JSONL 事件日志与工具审计（尽力脱敏，禁用零副作用）
-agent/    ReAct 主循环 + 上下文管理（token 感知截断 + 摘要压缩）+ 提示词
+agent/    ReAct 主循环 + RunState/恢复协调 + 上下文管理（token 截断/摘要）+ 提示词
 ui/       终端输入输出（Rich 流式渲染）
 ```
 
 扩展点：换模型动 `config.yaml`；加能力优先在 `tools/` 加文件并在 `registry.py` 注册，或接 `skills/`（SKILL.md）与 `mcp/`（外部 server）——内核 `agent/loop.py` 通常不必动（确需演进时先确认）。
 
-第三阶段“可信执行与质量闭环”实施中：M9a/M9b/M9c/M10a 已完成；下一项是 M10b 步骤级
-Checkpoint 与可恢复执行。当前 335 个测试通过（2 个平台能力测试跳过）、覆盖率 76%、
-6286 行生产 Python 源码 + 1328 行 eval 基础设施。详见
+第三阶段“可信执行与质量闭环”实施中：M9a/M9b/M9c/M10a/M10b 已完成；下一项是 M10c
+异步与可取消运行时的可行性决策。当前 392 个测试通过（2 个平台能力测试跳过）、覆盖率 78%、
+6744 行生产 Python 源码 + 1366 行 eval 基础设施。详见
 [第三阶段规划](docs/phase3-trustworthy-agent-plan.md)。
 
 详见 [DESIGN.md](DESIGN.md)。

@@ -236,7 +236,7 @@ def _run_one(
         )
         loop = AgentLoop(
             config,
-            client,  # type: ignore[arg-type]
+            client,
             registry,
             context,
             interactive=mode == "scripted",

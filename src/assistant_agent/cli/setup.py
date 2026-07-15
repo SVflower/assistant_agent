@@ -14,12 +14,13 @@ import typer
 
 from assistant_agent.agent.loop import AgentLoop
 from assistant_agent.agent.prompts import build_system_prompt
+from assistant_agent.agent.recovery import RunCoordinator
 from assistant_agent.config.loader import ConfigError, load_config
 from assistant_agent.config.schema import AppConfig, MCPConfig, SkillsConfig
 from assistant_agent.llm.client import LLMClient
 from assistant_agent.mcp import MCPManager
-from assistant_agent.obs import NullLogger, create_logger
-from assistant_agent.session.store import new_session_id
+from assistant_agent.obs import NullLogger, create_logger, new_trace_id
+from assistant_agent.session.run_store import RunStore
 from assistant_agent.skills import LoadSkillTool, SkillMeta, SkillSource, SkillStore
 from assistant_agent.tools.base import ToolContext
 from assistant_agent.tools.permissions import Capability, PermissionRequest, PermissionRule
@@ -124,10 +125,30 @@ class Runtime:
     skill_store: SkillStore
     visible_skills: list[SkillMeta] = field(default_factory=list)
     mcp: MCPManager | None = None
+    run_store: RunStore = field(default_factory=RunStore)
+    interactive: bool = False
     _closed: bool = field(default=False, init=False)
 
     def skills_meta(self) -> list[tuple[str, str]]:
         return [(m.name, f"[{m.source}] {m.description}") for m in self.visible_skills]
+
+    def new_run(self, task: str, session_id: str | None = None) -> RunCoordinator | None:
+        if not self.config.agent.recovery.enabled:
+            return None
+        return RunCoordinator.create(
+            self.run_store,
+            task=task,
+            provider=self.config.active,
+            model=self.config.active_provider.model,
+            system_prompt=self.loop.system_prompt,
+            tool_schemas=self.loop.tool_schemas,
+            interactive=self.interactive,
+            max_iterations=self.config.agent.max_iterations,
+            max_tool_calls=self.config.agent.max_tool_calls,
+            max_total_tool_output_chars=self.config.agent.max_total_tool_output_chars,
+            session_id=session_id,
+            logger=self.logger,
+        )
 
     def __enter__(self) -> Runtime:
         return self
@@ -184,7 +205,9 @@ def build_runtime(
 
     # 先发现 Skill，但不把未信任项目元数据暴露给模型。
     skill_store = _discover_skills(config.skills)
-    logger = create_logger(config.logging, new_session_id())
+    logger = create_logger(config.logging, new_trace_id())
+    logger.bind_session(None)
+    run_store = RunStore(config.agent.recovery.dir)
     mcp: MCPManager | None = None
     try:
         logger.session_start(
@@ -237,6 +260,8 @@ def build_runtime(
             skill_store=skill_store,
             visible_skills=visible_skills,
             mcp=mcp,
+            run_store=run_store,
+            interactive=interactive,
         )
     except BaseException:
         if mcp is not None:

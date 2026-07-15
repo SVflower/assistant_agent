@@ -57,6 +57,11 @@ agent:
     threshold: 0.8           # 未截断历史占预算超此比例时触发
     keep_recent_turns: 4     # 绝不压缩的最近完整用户轮（保护窗）
     summary_model: ""        # 摘要用的 provider 名；空=用当前对话模型
+  # 步骤级 checkpoint：模型/审批/工具边界原子保存，进程退出后可 resume。
+  recovery:
+    enabled: true
+    dir: ".assistant_agent/runs"
+    max_completed_runs: 100  # 只清理已同步的 terminal Run；暂停/不确定状态永不自动删除
 
 tools:
   # [已废弃] 兼容旧配置；统一权限边界始终启用，此值不能再关闭保护。

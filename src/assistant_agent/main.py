@@ -18,6 +18,11 @@ import typer
 from assistant_agent.agent.loop import StepEvent
 from assistant_agent.cli.commands import ChatContext, build_default_slash_registry
 from assistant_agent.cli.init import run_init
+from assistant_agent.cli.recovery import (
+    resume_command,
+    runs_command,
+    sync_terminal_session,
+)
 from assistant_agent.cli.setup import build_runtime
 from assistant_agent.config.loader import ConfigError, load_config
 from assistant_agent.session.store import SessionStore
@@ -83,7 +88,12 @@ def run(
     ) as rt:
         console.user_echo(task)
         rt.logger.task(task)
-        _run_streamed(console, rt.loop.run(task))
+        coordinator = rt.new_run(task)
+        if coordinator is not None:
+            console.info(f"Run ID：{coordinator.run_id}")
+        _run_streamed(console, rt.loop.run(task, coordinator=coordinator))
+        if coordinator is not None:
+            rt.run_store.prune(rt.config.agent.recovery.max_completed_runs)
 
 
 @app.command()
@@ -131,7 +141,22 @@ def chat(
             session = store.new_session(
                 provider=rt.config.active, model=rt.config.active_provider.model
             )
+            store.save(session, [])
             console.info(f"新会话 {session.id}。输入 / 查看命令，exit/quit 退出。")
+
+        unfinished = [
+            item
+            for item in rt.run_store.list()
+            if item.session_id == session.id and item.status in {"running", "paused"}
+        ]
+        if unfinished:
+            run_id = unfinished[0].id
+            console.error(
+                f"会话 {session.id} 存在未完成 Run {run_id}；请先执行 "
+                f"assistant-agent resume {run_id}。"
+            )
+            raise typer.Exit(code=1)
+        rt.logger.bind_session(session.id)
 
         mcp_servers = rt.mcp.server_summary() if rt.mcp else []
         ctx = ChatContext(
@@ -161,14 +186,24 @@ def chat(
                     break
                 continue
             rt.logger.task(task)
-            _run_streamed(console, rt.loop.run(task))
-            # 每轮结束自动保存（/clear 可能已换 session，用 ctx.session 为准）。
-            # 自动保存失败不应崩掉会话：只警告并继续。
+            coordinator = rt.new_run(task, ctx.session.id)
+            if coordinator is not None:
+                console.info(f"Run ID：{coordinator.run_id}")
+            _run_streamed(console, rt.loop.run(task, coordinator=coordinator))
             try:
-                ctx.session.compaction_checkpoint = rt.loop.export_checkpoint()  # M8b
-                store.save(ctx.session, rt.loop.export_history())
-            except Exception as exc:  # noqa: BLE001 - 自动保存兜底，任何异常都不该中断对话
+                if coordinator is not None:
+                    synced = sync_terminal_session(coordinator, store, ctx.session)
+                    if synced is not None:
+                        ctx.session = synced
+                    rt.run_store.prune(rt.config.agent.recovery.max_completed_runs)
+                else:
+                    ctx.session.compaction_checkpoint = rt.loop.export_checkpoint()
+                    store.save(ctx.session, rt.loop.export_history())
+            except Exception as exc:  # noqa: BLE001 - 保留 checkpoint，后续可 resume 补同步
                 console.error(f"（自动保存失败，已跳过：{exc}）")
+                if coordinator is not None:
+                    console.error("为避免 Session/Run 分叉，已停止当前 chat；请按 Run ID 恢复。")
+                    break
     # 单一出口打印一次；带前导换行，Ctrl+C/D 中断后也能干净换行
     console.info("\n再见。")
 
@@ -206,6 +241,33 @@ def sessions(
         console.info("暂无历史会话。")
         return
     console.print_sessions(metas)
+
+
+@app.command()
+def runs(
+    config: Path | None = typer.Option(None, "--config", "-c", help="配置文件路径"),
+    delete: str | None = typer.Option(None, "--delete", "-d", help="删除指定 Run ID"),
+) -> None:
+    """列出可恢复 Run；--delete 删除指定记录。"""
+    runs_command(config, delete)
+
+
+@app.command("resume")
+def resume_run(
+    run_id: str = typer.Argument(..., help="要恢复的 Run ID"),
+    config: Path | None = typer.Option(None, "--config", "-c", help="配置文件路径"),
+    provider: str | None = typer.Option(
+        None, "--provider", "-p", help="覆盖保存的 provider（会触发兼容确认）"
+    ),
+) -> None:
+    """从最近有效 checkpoint 恢复一次 Run。"""
+    resume_command(
+        run_id,
+        config,
+        provider,
+        interrupt_check=_interrupt.is_set,
+        render_streamed=_run_streamed,
+    )
 
 
 @app.command()

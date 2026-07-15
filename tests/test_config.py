@@ -115,6 +115,9 @@ def test_runtime_budget_defaults(tmp_path):
     assert config.tools.max_artifact_files == 100
     assert config.agent.max_tool_calls == 50
     assert config.agent.max_total_tool_output_chars == 50_000
+    assert config.agent.recovery.enabled is True
+    assert config.agent.recovery.dir == ".assistant_agent/runs"
+    assert config.agent.recovery.max_completed_runs == 100
 
 
 def test_runtime_budget_override(tmp_path):

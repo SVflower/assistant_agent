@@ -1,6 +1,6 @@
 """结构化事件日志（JSON Lines）与工具审计。
 
-一行一个 JSON 事件，追加到 `<dir>/<日期>.jsonl`。事件含 ts/session_id/type +
+一行一个 JSON 事件，追加到 `<dir>/<日期>.jsonl`。事件含 ts/trace_id/type +
 该事件字段。写入非致命：任何异常都吞掉，绝不因日志写不了而中断任务
 （对齐既有"自动保存失败只警告"原则）。
 
@@ -14,6 +14,7 @@ NullLogger 为默认注入值（禁用/未配置时零副作用），也用于�
 from __future__ import annotations
 
 import json
+import secrets
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -22,6 +23,10 @@ from assistant_agent.obs.redaction import redact_text, sanitize_args, truncate_t
 
 if TYPE_CHECKING:
     from assistant_agent.config.schema import LoggingConfig
+
+
+def new_trace_id() -> str:
+    return f"trace-{secrets.token_hex(12)}"
 
 
 class NullLogger:
@@ -34,6 +39,25 @@ class NullLogger:
     def session_start(self, *, provider: str, model: str, mode: str, cwd: str) -> None: ...
 
     def session_end(self, *, reason: str = "") -> None: ...
+
+    def bind_session(self, session_id: str | None) -> None: ...
+
+    def run_start(self, *, run_id: str, provider: str, model: str, task: str) -> None: ...
+
+    def run_resume(
+        self,
+        *,
+        run_id: str,
+        phase: str,
+        source: str,
+        provider: str,
+        model: str,
+        warning: str = "",
+    ) -> None: ...
+
+    def run_checkpoint(self, *, run_id: str, status: str, phase: str, iteration: int) -> None: ...
+
+    def run_end(self, *, run_id: str, status: str, reason: str = "") -> None: ...
 
     def model_switch(
         self, *, from_provider: str, from_model: str, to_provider: str, to_model: str
@@ -54,6 +78,7 @@ class NullLogger:
         wall_duration_ms: int | None = None,
         execution_duration_ms: int | None = None,
         returned_output_len: int | None = None,
+        call_id: str = "",
     ) -> None: ...
 
     def budget_exhausted(
@@ -84,13 +109,18 @@ class EventLogger(NullLogger):
     def __init__(
         self,
         log_dir: str | Path,
-        session_id: str,
+        trace_id: str,
         *,
+        session_id: str | None | object = ...,
         log_tool_io: bool = True,
         max_payload_chars: int = 2000,
     ) -> None:
         self._dir = Path(log_dir)
-        self._session_id = session_id
+        self._trace_id = trace_id
+        self._session_id = trace_id if session_id is ... else session_id
+        self._run_id: str | None = None
+        self._provider = ""
+        self._model = ""
         self._log_tool_io = log_tool_io
         self._max_chars = max_payload_chars
 
@@ -99,12 +129,20 @@ class EventLogger(NullLogger):
         return self._dir / f"{datetime.now():%Y-%m-%d}.jsonl"
 
     def _write(self, event: dict[str, Any]) -> None:
-        """给事件补上 ts/session_id 并追加一行。写入失败非致命，静默吞掉。"""
+        """补齐关联标识并追加一行。写入失败非致命，静默吞掉。"""
         record = {
             "ts": datetime.now().isoformat(timespec="milliseconds"),
-            "session_id": self._session_id,
+            "trace_id": self._trace_id,
             **event,
         }
+        if self._session_id is not None:
+            record["session_id"] = self._session_id
+        if self._run_id is not None:
+            record["run_id"] = self._run_id
+        if self._provider:
+            record["provider"] = self._provider
+        if self._model:
+            record["model"] = self._model
         try:
             self._dir.mkdir(parents=True, exist_ok=True)
             line = json.dumps(record, ensure_ascii=False, default=str)
@@ -128,6 +166,52 @@ class EventLogger(NullLogger):
     def session_end(self, *, reason: str = "") -> None:
         self._write({"type": "session_end", "reason": reason})
 
+    def bind_session(self, session_id: str | None) -> None:
+        self._session_id = session_id
+
+    def run_start(self, *, run_id: str, provider: str, model: str, task: str) -> None:
+        self._run_id = run_id
+        self._provider = provider
+        self._model = model
+        self._write({"type": "run_start", "task": truncate_text(task, self._max_chars)})
+
+    def run_resume(
+        self,
+        *,
+        run_id: str,
+        phase: str,
+        source: str,
+        provider: str,
+        model: str,
+        warning: str = "",
+    ) -> None:
+        self._run_id = run_id
+        self._provider = provider
+        self._model = model
+        self._write(
+            {
+                "type": "run_resume",
+                "phase": phase,
+                "source": source,
+                "warning": warning,
+            }
+        )
+
+    def run_checkpoint(self, *, run_id: str, status: str, phase: str, iteration: int) -> None:
+        self._run_id = run_id
+        self._write(
+            {
+                "type": "run_checkpoint",
+                "status": status,
+                "phase": phase,
+                "iteration": iteration,
+            }
+        )
+
+    def run_end(self, *, run_id: str, status: str, reason: str = "") -> None:
+        self._run_id = run_id
+        self._write({"type": "run_end", "status": status, "reason": reason})
+
     def model_switch(
         self, *, from_provider: str, from_model: str, to_provider: str, to_model: str
     ) -> None:
@@ -140,6 +224,8 @@ class EventLogger(NullLogger):
                 "to_model": to_model,
             }
         )
+        self._provider = to_provider
+        self._model = to_model
 
     def task(self, text: str) -> None:
         self._write({"type": "task", "text": truncate_text(text, self._max_chars)})
@@ -157,6 +243,7 @@ class EventLogger(NullLogger):
         wall_duration_ms: int | None = None,
         execution_duration_ms: int | None = None,
         returned_output_len: int | None = None,
+        call_id: str = "",
     ) -> None:
         execution_ms = duration_ms if execution_duration_ms is None else execution_duration_ms
         event: dict[str, Any] = {
@@ -174,6 +261,8 @@ class EventLogger(NullLogger):
         # 仅在确实等过用户确认时才记录，避免给绝大多数工具调用增噪。
         if approval_wait_ms is not None:
             event["approval_wait_ms"] = approval_wait_ms
+        if call_id:
+            event["call_id"] = call_id
         # 写入上下文的输出被截断时标记（output_len 仍是原始长度）。
         if truncated:
             event["truncated"] = True
@@ -242,13 +331,19 @@ class EventLogger(NullLogger):
         )
 
 
-def create_logger(cfg: LoggingConfig, session_id: str) -> NullLogger:
+def create_logger(
+    cfg: LoggingConfig,
+    trace_id: str,
+    *,
+    session_id: str | None | object = ...,
+) -> NullLogger:
     """按配置构建日志器：禁用时返回 NullLogger（零副作用），否则 EventLogger。"""
     if not cfg.enabled:
         return NullLogger()
     return EventLogger(
         cfg.dir,
-        session_id,
+        trace_id,
+        session_id=session_id,
         log_tool_io=cfg.log_tool_io,
         max_payload_chars=cfg.max_payload_chars,
     )

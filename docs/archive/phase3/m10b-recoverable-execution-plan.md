@@ -1,7 +1,7 @@
 # M10b 计划：步骤级 Checkpoint 与可恢复执行
 
-> 状态：方案已完成，待用户确认内核改动。上位规划见 `docs/phase3-trustworthy-agent-plan.md`。
-> 本里程碑会实质修改 `agent/loop.py`；未经用户单独确认，不进入实现。
+> 状态：已完成（2026-07-15）。上位规划见 [第三阶段规划](../../phase3-trustworthy-agent-plan.md)。
+> 用户已单独确认内核改动；实现与验收完成后归档于 `docs/archive/phase3/`。
 
 ## 1. 目标
 

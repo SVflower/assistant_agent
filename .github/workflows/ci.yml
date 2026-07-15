@@ -24,3 +24,4 @@ jobs:
       - run: python -m mypy src/assistant_agent
       - run: python -m pytest --cov -q
       - run: python -m evals scripted --report-dir evals/reports/ci
+      - run: python -m evals recovery

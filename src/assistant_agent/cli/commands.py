@@ -129,6 +129,8 @@ def _cmd_clear(args: str, ctx: ChatContext) -> None:
     )
     ctx.loop.load_history([])
     ctx.loop.load_checkpoint(None)  # M8b：新会话清掉摘要 checkpoint
+    ctx.logger.bind_session(ctx.session.id)
+    ctx.store.save(ctx.session, [])
     ctx.console.info(f"已开新会话 {ctx.session.id}，上下文已清空。")
 
 

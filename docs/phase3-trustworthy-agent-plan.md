@@ -1,6 +1,6 @@
 # 第三阶段规划：可信执行与质量闭环
 
-> 状态：**实施中；M9a/M9b/M9c/M10a 已完成，下一项 M10b**。
+> 状态：**实施中；M9a/M9b/M9c/M10a/M10b 已完成，下一项 M10c 可行性决策**。
 > 本文基于第二阶段完成后的代码审计、240 个测试与 67% 覆盖率基线，以及 Claude Code、
 > OpenAI Agents SDK、LangGraph 等成熟 Agent 的公开设计原则整理。它是第三阶段唯一总规划；
 > 每个子里程碑开工前仍需按项目工作流细化为对应的 `docs/<里程碑>-plan.md`。
@@ -48,7 +48,7 @@ Agent 从“可信用户本机上的功能型 Agent”提升为“边界明确�
 | M9b | 统一权限与信任边界 | P0 | 原则上不动 | ✅ 完成 |
 | M9c | Agent 行为 Eval 与 CI 质量闭环 | P0 | 不动 | ✅ 完成 |
 | M10a | 工具契约与大文件/大输出工程 | P1 | 未改动 | ✅ 完成 |
-| M10b | 步骤级 Checkpoint 与可恢复执行 | P1 | 实质改动，需要确认 | 必做 |
+| M10b | 步骤级 Checkpoint 与可恢复执行 | P1 | 已获确认并完成 | ✅ |
 | M10c | 异步与可取消运行时 | P2 | 重构级，需要单独立项 | 决策门，不作为第三阶段退出条件 |
 
 第三阶段完成定义：M9a、M9b、M9c、M10a、M10b 全部交付；M10c 只完成可行性评估，
@@ -241,6 +241,12 @@ ToolRegistry ---- ArgumentValidator ---- PermissionPolicy
 
 ## 10. M10b：步骤级 Checkpoint 与可恢复执行
 
+> **已完成（2026-07-15）**：版本化严格 RunState、current/prev 双槽原子 RunStore、工具生命周期
+> checkpoint、planned/started/completed 恢复协议、预算/熔断/权限/摘要状态恢复、`runs`/`resume`
+> CLI、Session terminal 后幂等同步以及 trace/session/run/call 日志标识均已落地。副作用结果未知时
+> 非交互稳定暂停，交互必须 retry/skip/abort；框架不宣称 exactly-once。详细方案见
+> [归档计划](archive/phase3/m10b-recoverable-execution-plan.md)。
+
 ### 解决什么
 
 当前只在完整任务结束后保存聊天历史。进程在工具副作用之后崩溃，会丢失轨迹并可能在恢复后重复执行。
@@ -303,7 +309,7 @@ AgentLoop 提供 async 核心，CLI 再包同步入口。禁止一次性重写�
 1. 用户审阅本文，确认第三阶段范围和优先级。
 2. 为 M9a 写详细实施计划；因轻触 `loop.py`，开工前再次获得明确授权。
 3. M9a DoD 全绿并归档后，依次进入 M9b、M9c、M10a。
-4. M10b 开工前重新评估 AgentLoop 结构，并单独获得内核修改授权。
+4. M10b 已完成 AgentLoop 结构评估并取得单独内核授权；实现后原有测试无回退。
 5. M10c 只在触发信号成立时立项，不因“路线图有这一项”自动实施。
 
 每个里程碑继续执行项目 DoD：测试/覆盖率、format/lint/type check、技术债、密钥检查、状态文档同步、

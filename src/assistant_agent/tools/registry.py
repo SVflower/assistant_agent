@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import copy
 import time
+from collections.abc import Callable
 from dataclasses import replace
+from pathlib import Path
 from typing import Any
 
 from jsonschema import Draft202012Validator
@@ -19,6 +21,8 @@ from assistant_agent.tools.file_ops import (
     WriteFileTool,
 )
 from assistant_agent.tools.git import GitTool
+from assistant_agent.tools.lifecycle import ReplayPolicy, ToolExecutionLifecycle
+from assistant_agent.tools.permissions import Capability, PermissionRequest
 from assistant_agent.tools.search import CodeSearchTool
 from assistant_agent.tools.shell import ShellTool
 from assistant_agent.tools.validation import build_validator, validate_arguments
@@ -99,6 +103,7 @@ def _finish_denied(
     result: ToolResult,
     ctx: ToolContext,
     start: float,
+    call_id: str,
 ) -> ToolResult:
     """统一收尾未执行的权限拒绝，并保留可审计 tool_call 事件。"""
     wall_duration_ms = int((time.perf_counter() - start) * 1000)
@@ -115,12 +120,17 @@ def _finish_denied(
         wall_duration_ms=wall_duration_ms,
         execution_duration_ms=max(wall_duration_ms - approval_wait_ms, 0),
         returned_output_len=len(limited.output),
+        call_id=call_id,
     )
     return limited
 
 
 def _finish_preflight_error(
-    name: str, args: dict[str, Any], result: ToolResult, ctx: ToolContext
+    name: str,
+    args: dict[str, Any],
+    result: ToolResult,
+    ctx: ToolContext,
+    call_id: str,
 ) -> ToolResult:
     """记录未进入权限/副作用阶段的 schema 或工具查找错误。"""
     limited, original_output, truncated = _limit_result_output(result, ctx)
@@ -134,8 +144,46 @@ def _finish_preflight_error(
         wall_duration_ms=0,
         execution_duration_ms=0,
         returned_output_len=len(limited.output),
+        call_id=call_id,
     )
     return limited
+
+
+def _is_within_workspace(target: str, workspace_root: Path) -> bool:
+    try:
+        Path(target).resolve().relative_to(workspace_root.resolve())
+    except (OSError, ValueError):
+        return False
+    return True
+
+
+def _replay_policy(requests: list[PermissionRequest], ctx: ToolContext) -> ReplayPolicy:
+    """只有权限契约能证明无副作用时才允许恢复自动重试。"""
+    if requests and all(
+        request.capability == Capability.FILESYSTEM_READ
+        and _is_within_workspace(request.target, ctx.workspace_root)
+        for request in requests
+    ):
+        return "safe_readonly"
+    if requests and all(
+        request.metadata.get("trusted_readonly") is True
+        and request.capability in {Capability.FILESYSTEM_READ, Capability.PROCESS_EXECUTE}
+        for request in requests
+    ):
+        return "safe_readonly"
+    return "requires_decision"
+
+
+def _notify_completed(
+    lifecycle: ToolExecutionLifecycle | None,
+    call_id: str,
+    result: ToolResult,
+    requests: list[PermissionRequest],
+    replay_policy: ReplayPolicy,
+) -> ToolResult:
+    if lifecycle is not None:
+        lifecycle.tool_completed(call_id, result, requests, replay_policy)
+    return result
 
 
 class ToolRegistry:
@@ -164,11 +212,21 @@ class ToolRegistry:
     def names(self) -> list[str]:
         return list(self._tools)
 
-    def execute(self, name: str, args: dict[str, Any], ctx: ToolContext) -> ToolResult:
+    def execute(
+        self,
+        name: str,
+        args: dict[str, Any],
+        ctx: ToolContext,
+        *,
+        call_id: str = "",
+        lifecycle: ToolExecutionLifecycle | None = None,
+    ) -> ToolResult:
         """按名执行工具。未知工具或异常都归一为 ToolResult，不向外抛。
 
         执行前后计时，把工具调用作为结构化事件写入 ctx.logger（默认 NullLogger 无副作用）。
         """
+        if lifecycle is not None and not call_id:
+            raise ValueError("使用工具生命周期时必须提供 call_id")
         tool = self._tools.get(name)
         if tool is None:
             result = ToolResult.error(
@@ -178,7 +236,7 @@ class ToolRegistry:
                 executed=False,
             )
             limited, _, _ = _limit_result_output(result, ctx)
-            return limited
+            return _notify_completed(lifecycle, call_id, limited, [], "requires_decision")
         validation_error = validate_arguments(self._validators[name], args)
         if validation_error is not None:
             message, metadata = validation_error
@@ -189,7 +247,8 @@ class ToolRegistry:
                 metadata=metadata,
                 executed=False,
             )
-            return _finish_preflight_error(name, args, result, ctx)
+            limited = _finish_preflight_error(name, args, result, ctx, call_id)
+            return _notify_completed(lifecycle, call_id, limited, [], "requires_decision")
         ctx.reset_approval_wait()
         start = time.perf_counter()
         try:
@@ -205,7 +264,14 @@ class ToolRegistry:
                         code="permission_denied",
                         executed=False,
                     )
-                    return _finish_denied(name, args, result, ctx, start)
+                    limited = _finish_denied(name, args, result, ctx, start, call_id)
+                    return _notify_completed(
+                        lifecycle,
+                        call_id,
+                        limited,
+                        requests,
+                        _replay_policy(requests, ctx),
+                    )
         except Exception as exc:
             result = ToolResult(
                 output=f"[permission_denied] 权限检查失败，已拒绝执行：{exc}",
@@ -213,26 +279,44 @@ class ToolRegistry:
                 code="permission_check_failed",
                 executed=False,
             )
-            return _finish_denied(name, args, result, ctx, start)
+            limited = _finish_denied(name, args, result, ctx, start, call_id)
+            return _notify_completed(lifecycle, call_id, limited, [], "requires_decision")
 
-        if not ctx.request_permissions(requests):
+        replay_policy = _replay_policy(requests, ctx)
+        before_prompt: Callable[[], None] | None = None
+        if lifecycle is not None:
+
+            def checkpoint_approval() -> None:
+                lifecycle.approval_pending(call_id, requests, replay_policy)
+
+            before_prompt = checkpoint_approval
+        if not ctx.request_permissions(requests, before_prompt=before_prompt):
             result = ToolResult(
                 output="[permission_denied] 权限拒绝：工具动作未获授权",
                 is_error=True,
                 code="permission_denied",
                 executed=False,
             )
-            return _finish_denied(name, args, result, ctx, start)
+            limited = _finish_denied(name, args, result, ctx, start, call_id)
+            return _notify_completed(lifecycle, call_id, limited, requests, replay_policy)
 
         if ctx.budget is not None:
             exhausted = ctx.budget.try_consume_call()
             if exhausted is not None:
-                return _budget_error(exhausted, ctx.budget)
+                result = _budget_error(exhausted, ctx.budget)
+                return _notify_completed(lifecycle, call_id, result, requests, replay_policy)
 
+        if lifecycle is not None:
+            lifecycle.tool_started(call_id, requests, replay_policy)
+        previous_call_id = ctx.current_call_id
+        ctx.current_call_id = call_id
         try:
-            result = tool.run(args, ctx)
-        except Exception as exc:  # 工具实现的兜底，绝不让循环崩
-            result = ToolResult.error(f"工具 {name} 执行异常：{exc}", code="tool_exception")
+            try:
+                result = tool.run(args, ctx)
+            except Exception as exc:  # 工具实现的兜底，绝不让循环崩
+                result = ToolResult.error(f"工具 {name} 执行异常：{exc}", code="tool_exception")
+        finally:
+            ctx.current_call_id = previous_call_id
         wall_duration_ms = int((time.perf_counter() - start) * 1000)
         approval_wait_ms = ctx.consume_approval_wait()
         execution_duration_ms = max(wall_duration_ms - approval_wait_ms, 0)
@@ -251,6 +335,7 @@ class ToolRegistry:
                 # Post observer 只观察；失败不能覆盖真实工具结果。
                 ctx.logger.observer_error(phase="post", tool=name, error=str(exc))
 
+        _notify_completed(lifecycle, call_id, result, requests, replay_policy)
         ctx.logger.tool_call(
             name=name,
             args=args,
@@ -262,6 +347,7 @@ class ToolRegistry:
             wall_duration_ms=wall_duration_ms,
             execution_duration_ms=execution_duration_ms,
             returned_output_len=len(result.output),
+            call_id=call_id,
         )
         return result
 

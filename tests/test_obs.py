@@ -379,6 +379,7 @@ def test_budget_exhausted_event(tmp_path):
     event = _read_events(tmp_path)[0]
     assert event == {
         "ts": event["ts"],
+        "trace_id": "sid-test",
         "session_id": "sid-test",
         "type": "budget_exhausted",
         "reason": "max_tool_calls",
@@ -386,3 +387,36 @@ def test_budget_exhausted_event(tmp_path):
         "used": 5,
         "skipped_calls": 2,
     }
+
+
+def test_trace_session_run_call_and_model_are_distinct(tmp_path):
+    logger = EventLogger(tmp_path, "trace-1", session_id=None)
+    logger.bind_session("session-1")
+    logger.run_start(run_id="run-1", provider="p", model="m", task="task")
+    logger.tool_call(
+        name="read_file",
+        args={},
+        duration_ms=1,
+        status="ok",
+        output="done",
+        call_id="call-1",
+    )
+    logger.run_resume(
+        run_id="run-1",
+        phase="model_pending",
+        source="previous",
+        provider="p",
+        model="m",
+        warning="fallback",
+    )
+
+    events = _read_events(tmp_path)
+    tool_event = next(item for item in events if item["type"] == "tool_call")
+    assert tool_event["trace_id"] == "trace-1"
+    assert tool_event["session_id"] == "session-1"
+    assert tool_event["run_id"] == "run-1"
+    assert tool_event["call_id"] == "call-1"
+    assert (tool_event["provider"], tool_event["model"]) == ("p", "m")
+    resume_event = next(item for item in events if item["type"] == "run_resume")
+    assert resume_event["source"] == "previous"
+    assert resume_event["warning"] == "fallback"

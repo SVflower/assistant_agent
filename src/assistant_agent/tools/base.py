@@ -98,6 +98,8 @@ class ToolContext:
     artifact_store: Any | None = None
     # 当前任务预算；由 AgentLoop 在每次 run() 开始时安装，结束时恢复。
     budget: ToolBudget | None = None
+    # 当前稳定工具调用 ID；仅 Tool.run 执行期间设置，供支持幂等键的扩展工具使用。
+    current_call_id: str = ""
     # 当前工具执行内确认回调的累计等待时间。
     _approval_wait_ms: int = 0
 
@@ -141,7 +143,12 @@ class ToolContext:
         self.logger.confirm(category=category, decision=choice, remembered=False)
         return choice == "allow"
 
-    def request_permissions(self, requests: list[PermissionRequest]) -> bool:
+    def request_permissions(
+        self,
+        requests: list[PermissionRequest],
+        *,
+        before_prompt: Callable[[], None] | None = None,
+    ) -> bool:
         """合并权限请求并执行一次确认；deny 优先，ask 在非交互模式下拒绝。"""
         if not requests:
             return True
@@ -170,6 +177,8 @@ class ToolContext:
             self._audit_permissions(requests, decisions, "deny", "非交互模式无法请求授权", False)
             return False
 
+        if before_prompt is not None:
+            before_prompt()
         lines = ["即将执行需要授权的工具动作："]
         lines.extend(
             f"- {request.capability.value}: {request.target}\n  风险：{request.risk}"

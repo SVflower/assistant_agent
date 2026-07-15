@@ -1,6 +1,6 @@
 # M9c 计划：Agent 行为 Eval 与 CI 质量闭环
 
-> 状态：待用户审阅。上位规划见 `docs/phase3-trustworthy-agent-plan.md`。
+> 状态：✅ 已完成（2026-07-15）。上位规划见 `docs/phase3-trustworthy-agent-plan.md`。
 > 本里程碑不修改 `agent/loop.py`。
 
 ## 1. 目标
@@ -274,5 +274,14 @@ compaction 记录启用状态。用户分别运行两个配置或 git revision �
 3. P3：补齐 12+ scripted、5 real case，完成 real runner 与权限限制。
 4. P4：JSONL/Markdown、compare、指纹和 CLI；接入 CI。
 5. P5：Runtime/UI 补测、全量验收、D9/状态文档、归档与提交。
+
+## 16. 完成记录（2026-07-15）
+
+- 14 个 deterministic case 全绿，5 个 real-tag case 可走任意现有 provider。
+- `pytest --cov -q`：303 passed、1 skipped，覆盖率 74%。跳过项仅为当前 Windows
+  用户权限不允许创建符号链接；路径逃逸仍有非符号链接覆盖，Linux CI 会执行该项。
+- `ruff format --check .`、`ruff check .`、`mypy src/assistant_agent evals`、架构测试全绿。
+- 生产源码 4699 行，eval 基础设施 1123 行；D9 已还清。
+- 未修改 `agent/loop.py`；真实 provider 未在本地验收中调用，避免使用用户密钥和产生费用。
 
 每步保持 `pytest`/Ruff/mypy 可运行。若实现中发现必须修改 `agent/loop.py`，立即停止并重新请求确认。

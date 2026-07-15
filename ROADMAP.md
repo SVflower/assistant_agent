@@ -24,16 +24,17 @@
 - **技能（M7a）**：Agent Skills 系统——SKILL.md 发现 + 渐进披露（L1 元数据注入 / L2 load_skill 加载正文 / L3 现有工具读跑）；`.assistant_agent/skills/` 目录、`/skills` 命令；脚本走既有确认门。
 - **MCP（M7b/M7c）**：MCP client（stdio + HTTP 两种 transport）——外部 server 工具接入，命名空间 `mcp__<server>__<tool>`；同步桥（守护线程常驻 loop + run_coroutine_threadsafe）；每工具主动确认（category 按 server+tool 细分）；工具白/黑名单 + 每 server/全局数量上限防 schema 撑爆；HTTP 走 Streamable HTTP，session/协议头/重连交 SDK 代管、调用层不自动重放；`/mcp` 命令；`cli/setup.py` Runtime 统管生命周期（还清 D7）。
 - **上下文进化（M8a/M8b）**：M8a 统一预算口径——可用消息预算 = 窗口 − system − tools schema − reserved_output，`/context` 分项显示真实占用（还 D10）；M8b 摘要压缩替代硬截断——双历史（raw + checkpoint + tail）、按完整用户轮分组、checkpoint 随 Session 持久化（resume 不重复摘要）、摘要 token 独立计入 usage、摘要失败降级硬截断，默认关闭时上下文逐字节等于现状。
+- **行为评测（M9c）**：scripted/real 双轨 eval；14 个确定性案例覆盖轨迹、权限、预算、终止、压缩和文件副作用，真实 provider 报告支持重复运行与 A/B compare；scripted 进入 CI，真实结果不作 PR 硬门。
 
-**质量**：281 测试、覆盖率 73%、4699 行 Python 源码；架构适应度测试（依赖分层 + 行数分级软/硬）+ 技术债册 + DoD + 里程碑工作流全在；CI 已加入 format/lint/mypy/coverage 与 Windows/Linux、Python 3.11/3.13 矩阵。
+**质量**：303 测试通过（1 个符号链接测试因当前 Windows 权限跳过）、覆盖率 74%、4699 行生产 Python 源码 + 1123 行 eval 基础设施；架构适应度测试（依赖分层 + 行数分级软/硬）+ 技术债册 + DoD + 里程碑工作流全在；CI 已加入 format/lint/mypy/coverage/scripted eval 与 Windows/Linux、Python 3.11/3.13 矩阵。
 
 **边界（明确未做）**：子 Agent 编排、真沙箱、Web GUI、rewind/recap、非交互 init、PyPI 分发。
 
-**下一阶段**：第三阶段“可信执行与质量闭环”实施中；M9a 硬正确性与 M9b 统一权限边界完成，
-下一项为 M9c Agent 行为 Eval 与 CI 质量闭环。见 [第三阶段规划](docs/phase3-trustworthy-agent-plan.md)。
+**下一阶段**：第三阶段“可信执行与质量闭环”实施中；M9a/M9b/M9c 已完成，
+下一项为 M10a 工具契约与大文件/大输出工程。见 [第三阶段规划](docs/phase3-trustworthy-agent-plan.md)。
 
-**剩余技术债**：7 项（D5/D6/D8/D9/D11/D12/D16）。M9a 已还清 D13/D15/D17，M9b 已还清
-D14（统一权限与信任边界）；D16 纳入 M10a。详见
+**剩余技术债**：6 项（D5/D6/D8/D11/D12/D16）。M9a 已还清 D13/D15/D17，M9b 已还清
+D14，M9c 已还清 D9；D16 纳入 M10a。详见
 [技术债登记册](docs/TECH_DEBT.md)。
 
 ---
@@ -103,10 +104,15 @@ D14（统一权限与信任边界）；D16 纳入 M10a。详见
 |--------|------|------|
 | M9a | 硬正确性与工程基线 | ✅ · [方案](docs/archive/phase3/m9a-hard-correctness-plan.md) |
 | M9b | 统一权限与信任边界 | ✅ · [方案](docs/archive/phase3/m9b-permission-boundary-plan.md) |
-| M9c | Agent 行为 Eval 与 CI 质量闭环 | [详细方案待审阅](docs/m9c-agent-evals-plan.md) |
+| M9c | Agent 行为 Eval 与 CI 质量闭环 | ✅ · [方案](docs/archive/phase3/m9c-agent-evals-plan.md) |
 | M10a | 工具契约与大文件/大输出工程 | 总规划就绪，待细化 |
 | M10b | 步骤级 Checkpoint 与可恢复执行 | 总规划就绪，待细化 |
 | M10c | 异步与可取消运行时 | 决策门，非阶段退出条件 |
+
+> **M9c 已完成**：新增顶层 `evals/`，scripted/real 双轨 runner、版本化 YAML schema、
+> fixture confinement、可解释 scorer、JSONL/Markdown 报告与 A/B compare；14 个 deterministic
+> 案例全绿，5 个 real-tag 案例可调用任意现有 provider。外部 Skills/MCP 默认关闭并需显式启用；
+> CI 不调用真实模型。全量 303 passed、1 skipped、覆盖率 74%，未修改 `agent/loop.py`，还清 D9。
 
 ## 未来方向（P3，信号驱动，暂不做）
 

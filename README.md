@@ -136,6 +136,19 @@ ruff format . && ruff check .   # 格式化 + lint
 python -m mypy src/assistant_agent
 ```
 
+### Agent 行为评测
+
+```bash
+python -m evals scripted
+python -m evals real --config config.yaml --provider local --repeat 3
+python -m evals compare evals/reports/run-a/results.jsonl evals/reports/run-b/results.jsonl
+```
+
+`scripted` 使用确定性脚本验证真实 AgentLoop 的工具轨迹、权限、预算、终止协议和文件副作用，
+已接入 CI，但不代表模型能力。`real` 才调用配置中的真实 provider，结果可能波动，不作为 PR
+硬门；外部 Skills/MCP 默认关闭，需要时显式加 `--skills` / `--mcp`。当前没有 OS 沙箱，真实
+评测只应运行仓库自有、可信的小型 fixture。
+
 ## 架构
 
 ```
@@ -153,8 +166,9 @@ ui/       终端输入输出（Rich 流式渲染）
 
 扩展点：换模型动 `config.yaml`；加能力优先在 `tools/` 加文件并在 `registry.py` 注册，或接 `skills/`（SKILL.md）与 `mcp/`（外部 server）——内核 `agent/loop.py` 通常不必动（确需演进时先确认）。
 
-第三阶段“可信执行与质量闭环”实施中：M9a 硬正确性与工程基线、M9b 统一权限与信任边界已完成；
-下一项是 M9c Agent 行为 Eval 与 CI 质量闭环。当前 281 个测试、覆盖率 73%、4699 行 Python 源码。详见
+第三阶段“可信执行与质量闭环”实施中：M9a/M9b/M9c 已完成；下一项是 M10a 工具契约与
+大文件/大输出工程。当前 303 个测试通过（1 个符号链接测试因当前 Windows 权限跳过）、
+覆盖率 74%、4699 行生产 Python 源码 + 1123 行 eval 基础设施。详见
 [第三阶段规划](docs/phase3-trustworthy-agent-plan.md)。
 
 详见 [DESIGN.md](DESIGN.md)。

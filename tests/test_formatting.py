@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import pytest
 from rich.console import Console
 
 from assistant_agent.ui.formatting import (
@@ -13,11 +14,12 @@ from assistant_agent.ui.formatting import (
 )
 
 
-def test_banner_discloses_permission_mode_and_no_os_sandbox():
+@pytest.mark.parametrize("mode", ["readonly", "workspace", "strict", "unrestricted"])
+def test_banner_discloses_permission_mode_and_no_os_sandbox(mode):
     console = Console(record=True, width=100)
-    console.print(build_banner("provider", "model", "/workspace", "workspace"))
+    console.print(build_banner("provider", "model", "/workspace", mode))
     output = console.export_text()
-    assert "workspace" in output
+    assert mode in output
     assert "无 OS 沙箱" in output
 
 

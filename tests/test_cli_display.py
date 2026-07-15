@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import sys
+
 from rich.console import Console as RichConsole
 
 from assistant_agent.agent.events import StepEvent
@@ -362,7 +364,7 @@ def test_conversation_quiet_only_prints_final_answer():
 
 def test_confirmation_prompt_is_compact_and_defaults_to_deny(monkeypatch):
     console = Console()
-    console._console = RichConsole(record=True, width=120)
+    console._console = RichConsole(record=True, width=80)
     monkeypatch.setattr(console, "input", lambda _prompt: "")
 
     choice = console.confirm(
@@ -380,3 +382,27 @@ def test_confirmation_prompt_is_compact_and_defaults_to_deny(monkeypatch):
     output = console._console.export_text()
     assert "› 检查项目" in output
     assert "你:" not in output and "你：" not in output
+    rules = [line for line in output.splitlines() if line and set(line) == {"─"}]
+    assert len(rules) >= 3
+    assert all(len(line) == 79 for line in rules[-3:])
+
+
+def test_chat_input_uses_live_bottom_rule_in_tty(monkeypatch):
+    class FakePromptSession:
+        kwargs = None
+
+        def prompt(self, _message, **kwargs):
+            self.kwargs = kwargs
+            return "hello"
+
+    console = Console()
+    console._console = RichConsole(record=True, width=64)
+    session = FakePromptSession()
+    console._chat_prompt_session = session
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
+    monkeypatch.setattr(sys.stdout, "isatty", lambda: True)
+
+    assert console.chat_input() == "hello"
+    assert session.kwargs is not None
+    toolbar = session.kwargs["bottom_toolbar"]
+    assert toolbar == [("class:bottom-toolbar", "─" * 63)]

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 from typer.testing import CliRunner
 
 from assistant_agent.agent.recovery import RunCoordinator
@@ -106,3 +108,26 @@ def test_recovery_choice_redacts_secrets():
     assert recovery_choice(console, call) == "skip"
     assert "secret-value" not in console.question
     assert "***REDACTED***" in console.question
+
+
+def test_chat_reports_current_session_when_exiting_after_clear(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    config = tmp_path / "config.yaml"
+    config.write_text(
+        "\n".join(["active: p", "providers:", "  p:", "    model: openai/fake"]),
+        encoding="utf-8",
+    )
+
+    result = CliRunner().invoke(
+        app,
+        ["chat", "--config", str(config)],
+        input="/clear\nexit\n",
+    )
+
+    assert result.exit_code == 0
+    opened = re.search(r"新会话 (\d{8}-\d{6}-[0-9a-f]{8})", result.output)
+    cleared = re.search(r"已开新会话 (\d{8}-\d{6}-[0-9a-f]{8})", result.output)
+    closed = re.search(r"已结束会话 (\d{8}-\d{6}-[0-9a-f]{8})", result.output)
+    assert opened is not None and cleared is not None and closed is not None
+    assert opened.group(1) != cleared.group(1)
+    assert closed.group(1) == cleared.group(1)

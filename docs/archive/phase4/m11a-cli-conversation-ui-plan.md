@@ -235,3 +235,9 @@ scrollback 架构中用表面样式冒充。
 
 复审验收：418 passed、2 skipped，覆盖率 80%；Ruff、mypy、18/18 scripted eval、4/4 recovery eval
 全绿；7342 行生产 Python 源码 + 1366 行 eval 基础设施；`agent/loop.py` 无改动。
+
+后续真实 CLI 回归修正：移除输入横线 40 列硬上限，任务回显和聊天输入均使用终端全宽上下边界；normal
+恢复新建/续接会话 ID，退出时读取当前 `ctx.session.id`，即使中途 `/clear` 也准确报告实际结束的会话。
+真实 TTY 通过 prompt_toolkit `bottom_toolbar` 在编辑期间保持下边界，提交后再落稳定 scrollback 边界；
+非 TTY 保留内置 input 回退。最终验收 420 passed、2 skipped，覆盖率 82%；7363 行生产 Python 源码，
+Loop 仍无改动。

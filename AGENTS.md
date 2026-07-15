@@ -94,8 +94,8 @@ python -m assistant_agent
 - M10a 已完成：统一工具参数校验与结构化结果；大文件分页/流式搜索；Shell/Git 有界捕获与受限 Artifact；文件原子写；MCP structuredContent 保真。
 - M10b 已完成：严格 RunState、双槽原子 RunStore、模型/审批/工具边界 checkpoint；已完成工具不重放，started 副作用需 retry/skip/abort；预算/熔断/权限/摘要跨进程恢复；`runs`/`resume`、Session 幂等同步和 trace/session/run/call 日志标识落地，还清 D8。
 - M10c 决策完成：暂不进行全栈 async 重构；D18 保留，后续优先独立评估 Windows Job Object / POSIX process group 的跨平台进程监管。
-- M11a 已完成：ToolDisplay 语义摘要、normal/verbose/quiet、统一终端脱敏、15 FPS 流式 Markdown、`/display` 与 `run --quiet`；normal 过程文本仅在活动区显示，最终回答才落屏；Write/Edit 提供权限前有界代码预览/结构化 diff；Console renderer 按职责拆分，还清 D19，未修改内核 Loop。
-- 418 个测试通过（2 个平台能力测试跳过），覆盖率 80%，ruff/mypy 全绿；7342 行生产 Python 源码 + 1366 行 eval 基础设施。
+- M11a 已完成：ToolDisplay 语义摘要、normal/verbose/quiet、统一终端脱敏、15 FPS 流式 Markdown、`/display` 与 `run --quiet`；normal 过程文本仅在活动区显示，最终回答才落屏；Write/Edit 提供权限前有界代码预览/结构化 diff；输入区全宽分隔并显示会话启停 ID；Console renderer 按职责拆分，还清 D19，未修改内核 Loop。
+- 420 个测试通过（2 个平台能力测试跳过），覆盖率 82%，ruff/mypy 全绿；7363 行生产 Python 源码 + 1366 行 eval 基础设施。
 
 第三阶段总规划见 `docs/phase3-trustworthy-agent-plan.md`；M9a-M10c 方案/决策已归档到
 `docs/archive/phase3/`，还清 D8/D9/D13/D14/D15/D16/D17。剩余工作按技术债和真实触发信号立项，

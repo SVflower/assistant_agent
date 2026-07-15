@@ -145,8 +145,7 @@ def chat(
                 provider=rt.config.active, model=rt.config.active_provider.model
             )
             store.save(session, [])
-            if console.display_mode == "verbose":
-                console.info(f"新会话 {session.id}。输入 /help 查看命令，exit/quit 退出。")
+            console.info(f"新会话 {session.id}。输入 / 查看命令，exit/quit 退出。")
 
         unfinished = [
             item
@@ -213,8 +212,8 @@ def chat(
                 if coordinator is not None:
                     console.error("为避免 Session/Run 分叉，已停止当前 chat；请按 Run ID 恢复。")
                     break
-    # 单一出口打印一次；带前导换行，Ctrl+C/D 中断后也能干净换行
-    console.info("\n再见。")
+    # 单一出口打印一次；ctx.session 会随 /clear 更新，显示实际结束的会话。
+    console.info(f"\n已结束会话 {ctx.session.id}。")
 
 
 @app.command()

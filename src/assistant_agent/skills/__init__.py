@@ -10,7 +10,7 @@
 
 from __future__ import annotations
 
-from assistant_agent.skills.store import SkillMeta, SkillStore
+from assistant_agent.skills.store import SkillMeta, SkillSource, SkillStore
 from assistant_agent.skills.tool import LoadSkillTool
 
-__all__ = ["LoadSkillTool", "SkillMeta", "SkillStore"]
+__all__ = ["LoadSkillTool", "SkillMeta", "SkillSource", "SkillStore"]

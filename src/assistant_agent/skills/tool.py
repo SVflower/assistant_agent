@@ -10,6 +10,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from assistant_agent.tools.base import Tool, ToolContext, ToolResult
+from assistant_agent.tools.permissions import Capability, PermissionRequest
 
 if TYPE_CHECKING:
     from assistant_agent.skills.store import SkillStore
@@ -48,3 +49,22 @@ class LoadSkillTool(Tool):
             available = ", ".join(m.name for m in self._store.list()) or "（无）"
             return ToolResult.error(f"未知技能：{name}。可用技能：{available}")
         return ToolResult.ok(body)
+
+    def permission_requests(
+        self, args: dict[str, Any], ctx: ToolContext
+    ) -> list[PermissionRequest]:
+        name = args.get("name")
+        if not isinstance(name, str) or not name.strip():
+            return []
+        meta = self._store.get_meta(name.strip())
+        if meta is None:
+            return []
+        return [
+            PermissionRequest(
+                self.name,
+                Capability.SKILL_LOAD,
+                f"{meta.source}/{meta.name}",
+                "Skill 内容会作为不可信指示进入模型上下文",
+                metadata={"source": meta.source, "trusted": meta.trusted},
+            )
+        ]

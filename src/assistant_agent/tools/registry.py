@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import time
 from typing import Any
 
@@ -91,6 +92,32 @@ def _limit_result_output(result: ToolResult, ctx: ToolContext) -> tuple[ToolResu
     )
 
 
+def _finish_denied(
+    name: str,
+    args: dict[str, Any],
+    result: ToolResult,
+    ctx: ToolContext,
+    start: float,
+) -> ToolResult:
+    """统一收尾未执行的权限拒绝，并保留可审计 tool_call 事件。"""
+    wall_duration_ms = int((time.perf_counter() - start) * 1000)
+    approval_wait_ms = ctx.consume_approval_wait()
+    limited, original_output, truncated = _limit_result_output(result, ctx)
+    ctx.logger.tool_call(
+        name=name,
+        args=args,
+        duration_ms=max(wall_duration_ms - approval_wait_ms, 0),
+        status="denied",
+        output=original_output,
+        approval_wait_ms=approval_wait_ms or None,
+        truncated=truncated,
+        wall_duration_ms=wall_duration_ms,
+        execution_duration_ms=max(wall_duration_ms - approval_wait_ms, 0),
+        returned_output_len=len(limited.output),
+    )
+    return limited
+
+
 class ToolRegistry:
     """工具集合。负责注册、按名查找、生成给模型的 schema、执行调用。"""
 
@@ -119,11 +146,6 @@ class ToolRegistry:
 
         执行前后计时，把工具调用作为结构化事件写入 ctx.logger（默认 NullLogger 无副作用）。
         """
-        if ctx.budget is not None:
-            exhausted = ctx.budget.try_consume_call()
-            if exhausted is not None:
-                return _budget_error(exhausted, ctx.budget)
-
         tool = self._tools.get(name)
         if tool is None:
             result = ToolResult.error(f"未知工具：{name}。可用工具：{', '.join(self.names())}")
@@ -131,6 +153,40 @@ class ToolRegistry:
             return limited
         ctx.reset_approval_wait()
         start = time.perf_counter()
+        try:
+            requests = tool.permission_requests(args, ctx)
+            for pre_observer in ctx.pre_tool_observers:
+                reason = pre_observer.pre_tool_use(
+                    name, copy.deepcopy(args), copy.deepcopy(requests)
+                )
+                if reason:
+                    result = ToolResult(
+                        output=f"[permission_denied] 权限拒绝：{reason}",
+                        is_error=True,
+                        executed=False,
+                    )
+                    return _finish_denied(name, args, result, ctx, start)
+        except Exception as exc:
+            result = ToolResult(
+                output=f"[permission_denied] 权限检查失败，已拒绝执行：{exc}",
+                is_error=True,
+                executed=False,
+            )
+            return _finish_denied(name, args, result, ctx, start)
+
+        if not ctx.request_permissions(requests):
+            result = ToolResult(
+                output="[permission_denied] 权限拒绝：工具动作未获授权",
+                is_error=True,
+                executed=False,
+            )
+            return _finish_denied(name, args, result, ctx, start)
+
+        if ctx.budget is not None:
+            exhausted = ctx.budget.try_consume_call()
+            if exhausted is not None:
+                return _budget_error(exhausted, ctx.budget)
+
         try:
             result = tool.run(args, ctx)
         except Exception as exc:  # 工具实现的兜底，绝不让循环崩
@@ -140,6 +196,18 @@ class ToolRegistry:
         execution_duration_ms = max(wall_duration_ms - approval_wait_ms, 0)
 
         result, original_output, truncated = _limit_result_output(result, ctx)
+
+        for post_observer in ctx.post_tool_observers:
+            try:
+                post_observer.post_tool_use(
+                    name,
+                    copy.deepcopy(args),
+                    copy.deepcopy(requests),
+                    copy.deepcopy(result),
+                )
+            except Exception as exc:
+                # Post observer 只观察；失败不能覆盖真实工具结果。
+                ctx.logger.observer_error(phase="post", tool=name, error=str(exc))
 
         ctx.logger.tool_call(
             name=name,

@@ -6,9 +6,19 @@ from pathlib import Path
 from typing import Any
 
 from assistant_agent.tools.base import Tool, ToolContext, ToolResult
+from assistant_agent.tools.permissions import Capability, PermissionRequest
 
 # 单次读取的最大字符数，避免把超大文件灌进上下文
 _MAX_READ_CHARS = 100_000
+
+
+def _path_request(
+    tool: str, capability: Capability, path_value: Any, risk: str
+) -> list[PermissionRequest]:
+    if not isinstance(path_value, (str, Path)) or not str(path_value):
+        return []
+    target = str(Path(path_value).expanduser().resolve())
+    return [PermissionRequest(tool, capability, target, risk)]
 
 
 def _within_workspace(path: Path, workspace_root: Path) -> bool:
@@ -53,6 +63,13 @@ class ReadFileTool(Tool):
             text = text[:_MAX_READ_CHARS] + f"\n\n[已截断，仅显示前 {_MAX_READ_CHARS} 字符]"
         return ToolResult.ok(text)
 
+    def permission_requests(
+        self, args: dict[str, Any], ctx: ToolContext
+    ) -> list[PermissionRequest]:
+        return _path_request(
+            self.name, Capability.FILESYSTEM_READ, args.get("path"), "读取文件内容"
+        )
+
 
 class WriteFileTool(Tool):
     name = "write_file"
@@ -76,22 +93,19 @@ class WriteFileTool(Tool):
         content = args.get("content", "")
         path = Path(path_str)
 
-        # 工作区范围：区内写直接放行；区外写需确认（防"自己动别处文件"）。
-        # 区内的可见/回滚靠流式显示 + git，不逐个弹窗。
-        if not _within_workspace(path, ctx.workspace_root):
-            allowed = ctx.request_confirm(
-                "write_outside_workspace",
-                f"即将写入工作区外的文件：\n  {path.resolve()}",
-            )
-            if not allowed:
-                return ToolResult.error(f"用户拒绝写入工作区外：{path}")
-
         try:
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(content, encoding="utf-8")
         except OSError as exc:
             return ToolResult.error(f"写入失败：{exc}")
         return ToolResult.ok(f"已写入 {path}（{len(content)} 字符）")
+
+    def permission_requests(
+        self, args: dict[str, Any], ctx: ToolContext
+    ) -> list[PermissionRequest]:
+        return _path_request(
+            self.name, Capability.FILESYSTEM_WRITE, args.get("path"), "覆盖或创建文件"
+        )
 
 
 class _EditError(Exception):
@@ -128,16 +142,6 @@ def _read_for_edit(path: Path) -> str:
         raise _EditError(f"无法以 UTF-8 读取（可能是二进制文件）：{path}") from exc
 
 
-def _confirm_if_outside(path: Path, ctx: ToolContext) -> bool:
-    """编辑区外文件需确认（对齐 write_file 的工作区范围）。"""
-    if _within_workspace(path, ctx.workspace_root):
-        return True
-    return ctx.request_confirm(
-        "write_outside_workspace",
-        f"即将编辑工作区外的文件：\n  {path.resolve()}",
-    )
-
-
 class EditFileTool(Tool):
     name = "edit_file"
     description = (
@@ -169,8 +173,6 @@ class EditFileTool(Tool):
         if "old_string" not in args or "new_string" not in args:
             return ToolResult.error("缺少参数 old_string 或 new_string")
         path = Path(path_str)
-        if not _confirm_if_outside(path, ctx):
-            return ToolResult.error(f"用户拒绝编辑工作区外：{path}")
         try:
             content = _read_for_edit(path)
             new_content, n = _apply_one(
@@ -182,6 +184,13 @@ class EditFileTool(Tool):
         except OSError as exc:
             return ToolResult.error(f"写入失败：{exc}")
         return ToolResult.ok(f"已编辑 {path}：替换 {n} 处")
+
+    def permission_requests(
+        self, args: dict[str, Any], ctx: ToolContext
+    ) -> list[PermissionRequest]:
+        return _path_request(
+            self.name, Capability.FILESYSTEM_WRITE, args.get("path"), "编辑文件内容"
+        )
 
 
 class MultiEditTool(Tool):
@@ -222,8 +231,6 @@ class MultiEditTool(Tool):
         if not isinstance(edits, list) or not edits:
             return ToolResult.error("缺少参数 edits（需至少一处替换）")
         path = Path(path_str)
-        if not _confirm_if_outside(path, ctx):
-            return ToolResult.error(f"用户拒绝编辑工作区外：{path}")
         try:
             content = _read_for_edit(path)
             total = 0
@@ -243,6 +250,13 @@ class MultiEditTool(Tool):
         except OSError as exc:
             return ToolResult.error(f"写入失败：{exc}")
         return ToolResult.ok(f"已编辑 {path}：{len(edits)} 处替换，共 {total} 处生效")
+
+    def permission_requests(
+        self, args: dict[str, Any], ctx: ToolContext
+    ) -> list[PermissionRequest]:
+        return _path_request(
+            self.name, Capability.FILESYSTEM_WRITE, args.get("path"), "批量编辑文件内容"
+        )
 
 
 class ListDirTool(Tool):
@@ -276,3 +290,10 @@ class ListDirTool(Tool):
             return ToolResult.ok(f"{path} 为空目录")
         lines = [f"{'[dir] ' if e.is_dir() else '[file]'} {e.name}" for e in entries]
         return ToolResult.ok("\n".join(lines))
+
+    def permission_requests(
+        self, args: dict[str, Any], ctx: ToolContext
+    ) -> list[PermissionRequest]:
+        return _path_request(
+            self.name, Capability.FILESYSTEM_READ, args.get("path") or ".", "列出目录内容"
+        )

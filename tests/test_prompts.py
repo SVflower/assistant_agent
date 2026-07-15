@@ -43,6 +43,8 @@ def test_prompt_encodes_two_layers():
     # 层2：危险操作交给系统确认，不自然语言问
     assert "危险操作" in SYSTEM_PROMPT
     assert "不要用自然语言问" in SYSTEM_PROMPT
+    assert "不受 OS 沙箱隔离" in SYSTEM_PROMPT
+    assert "由系统自动拦截" not in SYSTEM_PROMPT
 
 
 def test_interactive_mode_allows_clarification():

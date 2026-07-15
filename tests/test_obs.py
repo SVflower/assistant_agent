@@ -145,13 +145,14 @@ def test_write_failure_is_non_fatal(tmp_path):
 def test_registry_execute_logs_tool_call_ok(tmp_path):
     f = tmp_path / "n.txt"
     f.write_text("hi", encoding="utf-8")
-    ctx = ToolContext(logger=_logger(tmp_path / "logs"))
+    ctx = ToolContext(logger=_logger(tmp_path / "logs"), workspace_root=tmp_path)
     result = build_default_registry().execute("read_file", {"path": str(f)}, ctx)
     assert not result.is_error
 
     events = _read_events(tmp_path / "logs")
-    assert len(events) == 1
-    e = events[0]
+    assert [event["type"] for event in events] == ["permission_decision", "tool_call"]
+    assert events[0]["matched_rules"] == []
+    e = events[-1]
     assert e["type"] == "tool_call" and e["tool"] == "read_file" and e["status"] == "ok"
     assert e["duration_ms"] >= 0
 
@@ -222,6 +223,9 @@ class _ConfirmingTool(Tool):
         ctx.request_confirm("run_shell", "确认？")
         return ToolResult.ok("done")
 
+    def permission_requests(self, args, ctx):
+        return []
+
 
 def _registry_with(tool: Tool) -> ToolRegistry:
     reg = ToolRegistry()
@@ -261,6 +265,9 @@ class _DoubleConfirmingTool(Tool):
         ctx.request_confirm("second", "确认 2？")
         return ToolResult.ok("done")
 
+    def permission_requests(self, args, ctx):
+        return []
+
 
 def test_approval_wait_accumulates_multiple_confirms(tmp_path):
     def slow_confirm(_m: str) -> str:
@@ -277,7 +284,7 @@ def test_no_confirm_omits_approval_wait(tmp_path):
     """普通工具（不请求确认）的事件不含 approval_wait_ms。"""
     f = tmp_path / "n.txt"
     f.write_text("hi", encoding="utf-8")
-    ctx = ToolContext(logger=_logger(tmp_path / "logs"))
+    ctx = ToolContext(logger=_logger(tmp_path / "logs"), workspace_root=tmp_path)
     build_default_registry().execute("read_file", {"path": str(f)}, ctx)
     e = _read_events(tmp_path / "logs")[0]
     assert "approval_wait_ms" not in e
@@ -296,6 +303,9 @@ class _BigOutputTool(Tool):
 
     def run(self, args: dict, ctx: ToolContext) -> ToolResult:
         return ToolResult.ok("x" * 100)
+
+    def permission_requests(self, args, ctx):
+        return []
 
 
 def test_output_truncated_when_over_limit(tmp_path):
@@ -347,13 +357,13 @@ def test_registry_total_output_budget_truncates_and_exhausts(tmp_path):
     assert budget.used_output_chars == 40
 
 
-def test_unknown_tool_consumes_call_budget(tmp_path):
+def test_unknown_tool_does_not_consume_call_budget(tmp_path):
     budget = ToolBudget(max_calls=1)
     ctx = ToolContext(logger=_logger(tmp_path / "logs"), budget=budget)
     result = build_default_registry().execute("missing", {}, ctx)
 
     assert result.is_error
-    assert budget.used_calls == 1
+    assert budget.used_calls == 0
     assert budget.used_output_chars == len(result.output)
 
 

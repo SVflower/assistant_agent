@@ -60,8 +60,8 @@ class Console:
     def set_context_limit(self, limit: int) -> None:
         self._context_limit = limit
 
-    def banner(self, provider_name: str, model: str) -> None:
-        self._console.print(build_banner(provider_name, model, os.getcwd()))
+    def banner(self, provider_name: str, model: str, permission_mode: str) -> None:
+        self._console.print(build_banner(provider_name, model, os.getcwd(), permission_mode))
 
     def user_echo(self, task: str) -> None:
         self._console.print(f"[bold green]你:[/bold green] {task}")

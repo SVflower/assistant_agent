@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from assistant_agent.tools.base import Tool, ToolContext, ToolResult
+from assistant_agent.tools.permissions import Capability, PermissionRequest
 
 # 默认跳过的目录：体积大或与源码无关，搜进去既慢又是噪音。
 _IGNORED_DIRS = {
@@ -101,6 +102,16 @@ class CodeSearchTool(Tool):
         if truncated:
             output += f"\n[已截断，仅显示前 {max_results} 条匹配]"
         return ToolResult.ok(output)
+
+    def permission_requests(
+        self, args: dict[str, Any], ctx: ToolContext
+    ) -> list[PermissionRequest]:
+        root = Path(args.get("path") or ".").expanduser().resolve()
+        return [
+            PermissionRequest(
+                self.name, Capability.FILESYSTEM_READ, str(root), "递归读取并搜索目录内容"
+            )
+        ]
 
 
 def _iter_files(root: Path, glob: str | None):

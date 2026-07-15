@@ -13,6 +13,7 @@ import sys
 from typing import Any
 
 from assistant_agent.tools.base import NO_USER_AVAILABLE, Tool, ToolContext, ToolResult
+from assistant_agent.tools.permissions import Capability, PermissionRequest
 
 
 class AskUserTool(Tool):
@@ -51,3 +52,15 @@ class AskUserTool(Tool):
 
         choice = ctx.ask(question, [str(o) for o in options])
         return ToolResult.ok(f"用户选择：{choice}")
+
+    def permission_requests(
+        self, args: dict[str, Any], ctx: ToolContext
+    ) -> list[PermissionRequest]:
+        return [
+            PermissionRequest(
+                self.name,
+                Capability.USER_INTERACTION,
+                "current_user",
+                "向当前用户请求需求澄清",
+            )
+        ]

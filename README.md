@@ -70,7 +70,9 @@ assistant-agent run "..." --config /path/to/config.yaml
 
 把某类任务的做法手册写成 `SKILL.md`，放到 `./.assistant_agent/skills/<名>/`
 （项目级）或 `~/.assistant_agent/skills/<名>/`（个人级），Agent 会自动发现。
-渐进披露：启动只注入技能的 name/description（省 token），模型判断相关时才
+个人 Skill 默认受信；项目/自定义 Skill 会在元数据进入模型上下文前聚合确认，也可通过
+`skills.trusted_project_skills` 按名称显式信任。渐进披露：启动只注入已授权技能的
+name/description（省 token），模型判断相关时才
 `load_skill` 加载正文照做；正文可指向脚本/参考文件，用现有工具读或跑。
 对话中输入 `/skills` 查看已发现的技能。格式与 Claude Code 的 SKILL.md 兼容。
 
@@ -96,11 +98,12 @@ mcp:
     playwright:
       command: npx
       args: ["-y", "@playwright/mcp@latest"]
-      auto_approve: false   # 每次调用都需确认（安全默认）
+      auto_approve: false   # true 表示信任该 server 的全部当前工具（高风险）
 ```
 
 其工具以 `mcp__<server>__<tool>` 注册，与内置工具同流（审计/预算/确认）。
-每个 MCP 工具默认逐次确认，"永久允许"按 server+tool 粒度记忆，不会一次放行全部。
+每个 MCP 工具默认逐次确认，参数会递归脱敏并限长；"永久允许"按 server、tool 和精确参数
+记忆，不会扩散到其他调用。未信任 server 的 annotations 不能降低权限等级。
 用 `include_tools`/`exclude_tools`、`max_tools`、`max_total_tools` 控制接入的工具集。
 远程 server 用 `type: http` + `url`（Streamable HTTP），headers 支持 `${VAR}` 注入 token：
 
@@ -115,6 +118,14 @@ mcp:
 ```
 
 对话中输入 `/mcp` 查看已接入的 server 与工具。session/协议头/重连由 SDK 代管，调用不自动重放。
+
+## 权限边界
+
+所有内置和 MCP 工具都在 Registry 执行前经过同一套 `deny -> ask -> allow` 权限策略。
+默认 `permissions.mode: workspace`：工作区内置文件读写允许，区外访问、任意 Shell、网络和
+未信任 MCP/项目 Skill 需要确认；非交互模式无法确认时会拒绝。另有 `readonly`、`strict`、
+`unrestricted` 模式及 capability 规则。该机制是可审计的应用层权限门，不是 OS 沙箱；
+获准进程仍拥有启动 Agent 的系统用户权限。
 
 ## 开发
 
@@ -142,9 +153,8 @@ ui/       终端输入输出（Rich 流式渲染）
 
 扩展点：换模型动 `config.yaml`；加能力优先在 `tools/` 加文件并在 `registry.py` 注册，或接 `skills/`（SKILL.md）与 `mcp/`（外部 server）——内核 `agent/loop.py` 通常不必动（确需演进时先确认）。
 
-第三阶段“可信执行与质量闭环”已启动，M9a 硬正确性与工程基线完成：模型请求有最终上下文硬封套，
-会话路径受限且原子保存，Runtime/MCP 失败会回滚，模型切换同步摘要器与会话元数据；下一项是 M9b
-统一权限与信任边界。当前 258 个测试、覆盖率 71%、4051 行 Python 源码。详见
+第三阶段“可信执行与质量闭环”实施中：M9a 硬正确性与工程基线、M9b 统一权限与信任边界已完成；
+下一项是 M9c Agent 行为 Eval 与 CI 质量闭环。当前 281 个测试、覆盖率 73%、4699 行 Python 源码。详见
 [第三阶段规划](docs/phase3-trustworthy-agent-plan.md)。
 
 详见 [DESIGN.md](DESIGN.md)。

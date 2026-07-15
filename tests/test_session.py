@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 
 import pytest
 
@@ -16,6 +17,7 @@ def _store(tmp_path) -> SessionStore:
 def test_new_session_id_unique_and_sortable():
     ids = {new_session_id() for _ in range(20)}
     assert len(ids) == 20  # 不撞
+    assert all(re.fullmatch(r"\d{8}-\d{6}-[0-9a-f]{8}", session_id) for session_id in ids)
 
 
 def test_save_load_roundtrip(tmp_path):

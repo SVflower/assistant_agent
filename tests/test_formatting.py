@@ -2,12 +2,23 @@
 
 from __future__ import annotations
 
+from rich.console import Console
+
 from assistant_agent.ui.formatting import (
+    build_banner,
     format_context,
     format_elapsed,
     format_usage,
     truncate,
 )
+
+
+def test_banner_discloses_permission_mode_and_no_os_sandbox():
+    console = Console(record=True, width=100)
+    console.print(build_banner("provider", "model", "/workspace", "workspace"))
+    output = console.export_text()
+    assert "workspace" in output
+    assert "无 OS 沙箱" in output
 
 
 def test_format_usage_sums_in_out():

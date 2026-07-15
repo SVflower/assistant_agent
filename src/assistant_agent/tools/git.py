@@ -13,7 +13,9 @@ import subprocess
 from typing import Any
 
 from assistant_agent.tools.base import Tool, ToolContext, ToolResult
+from assistant_agent.tools.permissions import PermissionRequest
 from assistant_agent.tools.shell import _decode
+from assistant_agent.tools.shell_policy import shell_permission_requests
 
 # 只读子命令白名单
 _ALLOWED = {"status", "diff", "log", "show", "branch"}
@@ -88,3 +90,11 @@ class GitTool(Tool):
             parts.append(f"stderr:\n{stderr.rstrip()}")
         # 非零退出（如非 git 仓库）不当工具错误，交模型判断
         return ToolResult.ok("\n".join(parts))
+
+    def permission_requests(
+        self, args: dict[str, Any], ctx: ToolContext
+    ) -> list[PermissionRequest]:
+        subcommand = str(args.get("subcommand") or "<missing>")
+        extra = str(args.get("args") or "").strip()
+        target = f"git {subcommand}{' ' + extra if extra else ''}"
+        return shell_permission_requests(target, self.name)

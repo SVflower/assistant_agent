@@ -10,10 +10,13 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Callable
 from typing import Any
 
+from assistant_agent.obs import sanitize_for_display
 from assistant_agent.tools.base import Tool, ToolContext, ToolResult
+from assistant_agent.tools.permissions import Capability, PermissionRequest
 
 #: caller(server, raw_tool, args, timeout) -> CallToolResult 形态对象（有 content/isError），
 #: 协议错误应抛异常（含超时 TimeoutError）。
@@ -67,12 +70,6 @@ class MCPTool(Tool):
         return self._input_schema
 
     def run(self, args: dict[str, Any], ctx: ToolContext) -> ToolResult:
-        # 权限：MCP 工具默认都要确认，category 按 server+tool 细分（不共用，防一次放行全部）。
-        if not self._auto_approve:
-            category = f"mcp:{self._server}:{self._raw_tool}"
-            message = f"允许调用外部 MCP 工具 {self.name}？（server={self._server}）"
-            if not ctx.request_confirm(category, message):
-                return ToolResult.error(f"用户拒绝调用 MCP 工具 {self.name}")
         # 同步桥调用；协议错误（含超时）由 caller 抛出，统一转 error。
         try:
             result = self._caller(self._server, self._raw_tool, args, self._timeout)
@@ -83,3 +80,34 @@ class MCPTool(Tool):
         text, is_error = extract_content(result)
         # 工具执行错误：isError=True，文本回喂模型让它换做法。
         return ToolResult(output=text, is_error=is_error)
+
+    def permission_requests(
+        self, args: dict[str, Any], ctx: ToolContext
+    ) -> list[PermissionRequest]:
+        safe_args = json.dumps(
+            sanitize_for_display(args), ensure_ascii=False, sort_keys=True, default=str
+        )
+        if len(safe_args) > 1000:
+            safe_args = safe_args[:1000] + f"…(+{len(safe_args) - 1000} chars)"
+        target = f"{self._server}/{self._raw_tool} args={safe_args}"
+        common = {"trusted_server": self._auto_approve, "args": args}
+        requests = [
+            PermissionRequest(
+                self.name,
+                Capability.MCP_CALL,
+                target,
+                "外部 MCP server 可能产生副作用；server 元数据默认不可信",
+                metadata=common,
+            )
+        ]
+        if not self._auto_approve:
+            requests.append(
+                PermissionRequest(
+                    self.name,
+                    Capability.NETWORK_ACCESS,
+                    self._server,
+                    "未信任 MCP server 可能访问开放网络或外部系统",
+                    metadata=common,
+                )
+            )
+        return requests

@@ -13,6 +13,14 @@ from pathlib import Path
 from typing import Any, Literal
 
 from assistant_agent.obs import NullLogger
+from assistant_agent.tools.observers import PostToolUseObserver, PreToolUseObserver
+from assistant_agent.tools.permissions import (
+    Capability,
+    PermissionDecision,
+    PermissionRequest,
+    PermissionScope,
+)
+from assistant_agent.tools.policy import PermissionPolicy
 
 # 确认结果：允许一次 / 本会话永远允许这类 / 拒绝。
 ConfirmChoice = Literal["allow", "always", "deny"]
@@ -70,10 +78,16 @@ class ToolContext:
     ask: Callable[[str, list[str]], str] = lambda _q, _opts: NO_USER_AVAILABLE
     # 本会话内"永远允许"的类别集合（如 "run_shell"）。由 request_confirm 维护。
     always_allowed: set[str] = field(default_factory=set)
+    # M9b：精确会话授权。旧 always_allowed 暂留作兼容，不参与新策略。
+    permission_grants: set[PermissionScope] = field(default_factory=set)
     # 工作区根目录：写在此目录树内直接放行，写到外面需确认（默认启动时的 cwd）。
     workspace_root: Path = field(default_factory=lambda: Path.cwd().resolve())
     # 事件日志器（可观测/审计）。默认 NullLogger（零副作用）；main 注入真正的 EventLogger。
     logger: NullLogger = field(default_factory=NullLogger)
+    permission_policy: PermissionPolicy = field(default_factory=PermissionPolicy)
+    interactive: bool = True
+    pre_tool_observers: list[PreToolUseObserver] = field(default_factory=list)
+    post_tool_observers: list[PostToolUseObserver] = field(default_factory=list)
     # 单个工具输出写入上下文的最大字符数（0=不截断）。
     max_output_chars: int = 0
     # 当前任务预算；由 AgentLoop 在每次 run() 开始时安装，结束时恢复。
@@ -109,6 +123,76 @@ class ToolContext:
             return True
         self.logger.confirm(category=category, decision=choice, remembered=False)
         return choice == "allow"
+
+    def request_permissions(self, requests: list[PermissionRequest]) -> bool:
+        """合并权限请求并执行一次确认；deny 优先，ask 在非交互模式下拒绝。"""
+        if not requests:
+            return True
+        decisions = [
+            self.permission_policy.decide(
+                request,
+                workspace_root=self.workspace_root,
+                grants=self.permission_grants,
+            )
+            for request in requests
+        ]
+        denied = next((decision for decision in decisions if decision.effect == "deny"), None)
+        if denied is not None:
+            self._audit_permissions(requests, decisions, "deny", denied.reason, denied.remembered)
+            return False
+        asks = [
+            (request, decision)
+            for request, decision in zip(requests, decisions, strict=True)
+            if decision.effect == "ask"
+        ]
+        if not asks:
+            remembered = bool(decisions) and all(decision.remembered for decision in decisions)
+            self._audit_permissions(requests, decisions, "allow", "策略自动允许", remembered)
+            return True
+        if not self.interactive:
+            self._audit_permissions(requests, decisions, "deny", "非交互模式无法请求授权", False)
+            return False
+
+        lines = ["即将执行需要授权的工具动作："]
+        lines.extend(
+            f"- {request.capability.value}: {request.target}\n  风险：{request.risk}"
+            for request, _decision in asks
+        )
+        start = time.perf_counter()
+        choice = self.confirm("\n".join(lines))
+        self._approval_wait_ms += int((time.perf_counter() - start) * 1000)
+        if choice == "always":
+            self.permission_grants.update(request.scope for request, _decision in asks)
+            self._audit_permissions(
+                requests, decisions, "always", "用户允许并记住精确作用域", False
+            )
+            return True
+        self._audit_permissions(requests, decisions, choice, "用户确认结果", False)
+        return choice == "allow"
+
+    def _audit_permissions(
+        self,
+        requests: list[PermissionRequest],
+        decisions: list[PermissionDecision],
+        decision: str,
+        reason: str,
+        remembered: bool,
+    ) -> None:
+        self.logger.permission_decision(
+            mode=self.permission_policy.mode,
+            tool=requests[0].tool,
+            capabilities=[request.capability.value for request in requests],
+            targets=[request.target for request in requests],
+            decision=decision,
+            reason=reason,
+            remembered=remembered,
+            matched_rules=[
+                f"{item.matched_rule.effect}:{item.matched_rule.capability.value}:"
+                f"{item.matched_rule.tool}:{item.matched_rule.target}"
+                for item in decisions
+                if item.matched_rule is not None
+            ],
+        )
 
 
 @dataclass
@@ -156,3 +240,16 @@ class Tool(abc.ABC):
                 "parameters": self.parameters,
             },
         }
+
+    def permission_requests(
+        self, args: dict[str, Any], ctx: ToolContext
+    ) -> list[PermissionRequest]:
+        """执行前声明能力。未知扩展默认要求进程级授权，不能因漏声明而放行。"""
+        return [
+            PermissionRequest(
+                tool=self.name,
+                capability=Capability.PROCESS_EXECUTE,
+                target=self.name or "unknown",
+                risk="未知扩展工具可能产生外部副作用",
+            )
+        ]

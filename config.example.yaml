@@ -59,12 +59,26 @@ agent:
     summary_model: ""        # 摘要用的 provider 名；空=用当前对话模型
 
 tools:
-  # 危险 shell 操作（删除/覆盖/移动等）执行前是否要求用户确认
+  # [已废弃] 兼容旧配置；统一权限边界始终启用，此值不能再关闭保护。
   confirm_dangerous_shell: true
   # shell 命令超时（秒）
   shell_timeout: 60
   # 单个工具结果返回 UI/上下文的最大字符数；0=不截断
   max_output_chars: 4000
+
+permissions:
+  # 应用层权限策略：readonly / workspace（推荐）/ strict / unrestricted。
+  # 它决定是否执行或询问，但不是 OS 沙箱；获准进程仍拥有当前用户的系统权限。
+  mode: workspace
+  # 显式规则固定按 deny -> ask -> allow 优先级匹配。
+  rules: []
+  # 额外敏感目录；~/.ssh、~/.aws、~/.gnupg 始终默认拒绝，无需重复填写。
+  sensitive_paths: []
+  # rules 示例：
+  # - effect: deny
+  #   capability: network.access
+  #   target: "*"
+  #   tool: "*"
 
 logging:
   # 结构化事件日志与工具审计。日志只落本地，随 .assistant_agent/ gitignore 不入库。
@@ -82,6 +96,9 @@ skills:
   enabled: true
   # 技能目录；留空用默认：./.assistant_agent/skills 与 ~/.assistant_agent/skills
   dirs: []
+  # 项目/自定义 Skill 默认不进入模型上下文；可按 name 显式信任。
+  # 个人目录 ~/.assistant_agent/skills 默认受信。
+  trusted_project_skills: []
 
 mcp:
   # 是否连接 MCP server 并把其工具注册进来（工具名形如 mcp__<server>__<tool>）。
@@ -97,7 +114,7 @@ mcp:
   #     env: {}                           # 值支持 ${VAR} 从环境插值，密钥不落配置
   #     enabled: true
   #     timeout: 30                       # 单次工具调用超时（秒）
-  #     auto_approve: false               # false=每次调用都需确认（安全默认）
+  #     auto_approve: false               # true=信任该 server 的全部当前工具（高风险）
   #     max_tools: 40                     # 该 server 工具数上限
   #     include_tools: []                 # 白名单；空=全部（再受上限约束）
   #     exclude_tools: []                 # 黑名单
@@ -106,5 +123,5 @@ mcp:
   #     url: "https://mcp.example.com/mcp"
   #     headers:                          # 值支持 ${VAR} 插值，token 从环境注入不落配置
   #       Authorization: "Bearer ${MCP_TOKEN}"
-  #     auto_approve: false               # 远程工具尤其建议保持确认
+  #     auto_approve: false               # 远程工具尤其不建议信任整个 server
   #     timeout: 30                       # session/协议头/重连由 SDK 代管；调用不自动重放

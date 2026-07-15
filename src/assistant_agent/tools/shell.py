@@ -7,35 +7,18 @@
 from __future__ import annotations
 
 import locale
-import re
 import subprocess
 import sys
 from typing import Any
 
 from assistant_agent.tools.base import Tool, ToolContext, ToolResult
-
-# 危险操作的启发式匹配。命中则在执行前要求确认。
-# 宁可多问一次，也不要漏过破坏性命令。
-_DANGEROUS_PATTERNS: list[re.Pattern[str]] = [
-    re.compile(r"\brm\b"),
-    re.compile(r"\brmdir\b"),
-    re.compile(r"\bmv\b"),
-    re.compile(r"\bdd\b"),
-    re.compile(r"\bmkfs\b"),
-    re.compile(r"\btruncate\b"),
-    re.compile(r"(?<!>)>\s*[^>\s|]"),  # 重定向覆盖（> file，但排除 >> 追加）
-    re.compile(r"\bgit\s+(reset|clean|checkout\s+--|push\s+--force|push\s+-f)"),
-    re.compile(r"\b(shutdown|reboot|kill|killall|pkill)\b"),
-    re.compile(r"\b(chmod|chown)\b.*-R"),
-    re.compile(r"\bdel\b", re.IGNORECASE),  # Windows
-    re.compile(r"\bformat\b", re.IGNORECASE),  # Windows
-    re.compile(r"Remove-Item", re.IGNORECASE),  # PowerShell
-]
+from assistant_agent.tools.permissions import PermissionRequest
+from assistant_agent.tools.shell_policy import shell_permission_requests
 
 
 def is_dangerous(command: str) -> bool:
-    """判断命令是否命中危险模式。"""
-    return any(p.search(command) for p in _DANGEROUS_PATTERNS)
+    """兼容入口：不在严格只读集合中的命令都视为有风险。"""
+    return len(shell_permission_requests(command)) > 1
 
 
 def _decode(raw: bytes | None) -> str:
@@ -78,11 +61,6 @@ class ShellTool(Tool):
         if not command or not command.strip():
             return ToolResult.error("缺少参数 command")
 
-        if ctx.confirm_dangerous_shell and is_dangerous(command):
-            allowed = ctx.request_confirm("run_shell", f"即将执行可能有风险的命令：\n  {command}")
-            if not allowed:
-                return ToolResult.error(f"用户拒绝执行命令：{command}")
-
         try:
             completed = subprocess.run(
                 command,
@@ -111,3 +89,11 @@ class ShellTool(Tool):
         output = "\n".join(parts)
         # 非零退出码不当作工具错误：把结果交给模型判断如何应对。
         return ToolResult.ok(output)
+
+    def permission_requests(
+        self, args: dict[str, Any], ctx: ToolContext
+    ) -> list[PermissionRequest]:
+        command = args.get("command")
+        if not isinstance(command, str) or not command.strip():
+            return []
+        return shell_permission_requests(command, self.name)

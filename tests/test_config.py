@@ -146,6 +146,20 @@ tools:
         load_config(_write(tmp_path, yaml_text))
 
 
+def test_permission_config_validates_mode_and_capability(tmp_path):
+    invalid_mode = _VALID_YAML + "\npermissions:\n  mode: unsafe\n"
+    with pytest.raises(ConfigError):
+        load_config(_write(tmp_path, invalid_mode))
+
+    invalid_capability = (
+        _VALID_YAML
+        + "\npermissions:\n  rules:\n"
+        + "    - effect: allow\n      capability: everything\n"
+    )
+    with pytest.raises(ConfigError):
+        load_config(_write(tmp_path, invalid_capability))
+
+
 def test_legacy_tool_output_limit_migrates(tmp_path):
     config = load_config(
         _write(

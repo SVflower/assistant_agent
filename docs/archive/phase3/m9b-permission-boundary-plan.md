@@ -1,6 +1,6 @@
 # M9b 计划：统一权限与信任边界
 
-> 状态：待用户审阅。上位规划见 `docs/phase3-trustworthy-agent-plan.md`。
+> 状态：已完成（2026-07-15）。上位规划见 `docs/phase3-trustworthy-agent-plan.md`。
 > 本里程碑原则上不修改 `agent/loop.py`。
 
 ## 1. 目标
@@ -208,8 +208,8 @@ skills:
 
 新增同步接口：
 
-- `PreToolUse.on_pre_tool(requests, args) -> allow | deny`：可附拒绝原因，运行在 Policy 前；deny 后不执行。
-- `PostToolUse.on_post_tool(requests, result)`：只观察，异常记录但不覆盖原结果。
+- `PreToolUse.pre_tool_use(requests, args) -> allow | deny`：可附拒绝原因，运行在 Policy 前；deny 后不执行。
+- `PostToolUse.post_tool_use(requests, result)`：只观察，异常记录但不覆盖原结果。
 
 logger 新增 `permission_decision`，字段包含 mode、tool、capabilities、脱敏 targets、decision、reason、
 remembered、matched_rule；原 `confirm` 事件保留一版兼容后逐步淘汰。任何日志都不记录原始密钥参数。
@@ -292,3 +292,13 @@ remembered、matched_rule；原 `confirm` 事件保留一版兼容后逐步淘�
 4. P4：UI/prompt/docs、审计事件、全量验收、技术债更新、状态同步和归档提交。
 
 每步保持可测试；P1 完成前不删除旧 Tool 内确认，P2 统一切换后再移除，避免中间状态无保护。
+
+## 16. 实施结果
+
+- P1-P4 全部完成，未修改 `agent/loop.py`；Registry 在预算消费与 Tool.run 前强制门控。
+- 默认 `workspace`，支持四种模式、显式规则、敏感目录硬拒绝和 capability/tool/target 精确会话授权。
+- Shell 黑名单已退出授权决策；解释器、脚本、组合命令、联网/安装命令统一按广泛副作用处理。
+- 项目/自定义 Skill 在授权前不进入 prompt；MCP 参数确认递归脱敏并限长，server trust 有高风险提示。
+- 验收实测：281 tests、覆盖率 73%、Ruff/mypy/架构测试全绿；Python 源码 4699 行。
+- 验收复跑发现并修复 Session ID 仅 16 bit 随机后缀导致的真实碰撞，提升为 32 bit。
+- D14 已还清。明确剩余边界：当前仍无 OS 级沙箱，获准进程继承宿主用户权限。

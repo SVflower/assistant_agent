@@ -5,5 +5,6 @@
 """
 
 from assistant_agent.obs.logger import EventLogger, NullLogger, create_logger
+from assistant_agent.obs.redaction import sanitize_for_display
 
-__all__ = ["EventLogger", "NullLogger", "create_logger"]
+__all__ = ["EventLogger", "NullLogger", "create_logger", "sanitize_for_display"]

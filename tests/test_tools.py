@@ -13,7 +13,7 @@ from assistant_agent.tools.file_ops import (
     ReadFileTool,
     WriteFileTool,
 )
-from assistant_agent.tools.registry import build_default_registry
+from assistant_agent.tools.registry import ToolRegistry, build_default_registry
 from assistant_agent.tools.shell import ShellTool, _decode, is_dangerous
 
 
@@ -25,6 +25,12 @@ def _delete_command(path) -> str:
     if os.name == "nt":
         return f'del /Q "{path}"'
     return f"rm -f {shlex.quote(str(path))}"
+
+
+def _execute(tool, args, ctx):
+    registry = ToolRegistry()
+    registry.register(tool)
+    return registry.execute(tool.name, args, ctx)
 
 
 # ---- file_ops ----
@@ -66,7 +72,8 @@ def test_write_outside_workspace_confirmed(tmp_path):
     ws = tmp_path / "proj"
     ws.mkdir()
     outside = tmp_path / "outside.txt"
-    r = WriteFileTool().run(
+    r = _execute(
+        WriteFileTool(),
         {"path": str(outside), "content": "x"},
         _ctx(workspace_root=ws, confirm=lambda _m: "allow"),
     )
@@ -79,12 +86,13 @@ def test_write_outside_workspace_denied(tmp_path):
     ws = tmp_path / "proj"
     ws.mkdir()
     outside = tmp_path / "outside.txt"
-    r = WriteFileTool().run(
+    r = _execute(
+        WriteFileTool(),
         {"path": str(outside), "content": "x"},
         _ctx(workspace_root=ws),  # 默认 confirm 返回 deny
     )
     assert r.is_error
-    assert "工作区外" in r.output
+    assert "权限拒绝" in r.output
     assert not outside.exists()
 
 
@@ -166,12 +174,13 @@ def test_edit_outside_workspace_denied(tmp_path):
     ws.mkdir()
     outside = tmp_path / "o.py"
     outside.write_text("a\n", encoding="utf-8")
-    r = EditFileTool().run(
+    r = _execute(
+        EditFileTool(),
         {"path": str(outside), "old_string": "a", "new_string": "b"},
         _ctx(workspace_root=ws),  # 默认 deny
     )
     assert r.is_error
-    assert "工作区外" in r.output
+    assert "权限拒绝" in r.output
     assert outside.read_text(encoding="utf-8") == "a\n"  # 未改
 
 
@@ -223,8 +232,8 @@ def test_is_dangerous():
     assert is_dangerous("git push --force")
     assert is_dangerous("echo hi > file.txt")
     assert not is_dangerous("ls -la")
-    assert not is_dangerous("echo hi >> file.txt")  # 追加不算危险
-    assert not is_dangerous("pytest")
+    assert is_dangerous("echo hi >> file.txt")
+    assert is_dangerous("pytest")
 
 
 def test_shell_runs_safe_command():
@@ -235,7 +244,8 @@ def test_shell_runs_safe_command():
 
 def test_shell_dangerous_denied_by_default():
     # 默认 confirm 回调返回 False（拒绝）
-    result = ShellTool().run(
+    result = _execute(
+        ShellTool(),
         {"command": "rm -rf /tmp/whatever"},
         _ctx(confirm_dangerous_shell=True),
     )
@@ -246,7 +256,8 @@ def test_shell_dangerous_denied_by_default():
 def test_shell_dangerous_allowed_when_confirmed(tmp_path):
     target = tmp_path / "to_delete.txt"
     target.write_text("x", encoding="utf-8")
-    result = ShellTool().run(
+    result = _execute(
+        ShellTool(),
         {"command": _delete_command(target)},
         _ctx(confirm_dangerous_shell=True, confirm=lambda _msg: "allow"),
     )
@@ -254,8 +265,8 @@ def test_shell_dangerous_allowed_when_confirmed(tmp_path):
     assert not target.exists()
 
 
-def test_shell_always_allow_skips_second_prompt(tmp_path):
-    """选择 always 后，同类危险操作本会话不再询问。"""
+def test_shell_always_allow_is_exact_command_scoped(tmp_path):
+    """永久允许只覆盖精确命令，不扩散到同类但不同目标。"""
     calls = {"n": 0}
 
     def confirm(_msg: str) -> str:
@@ -267,24 +278,24 @@ def test_shell_always_allow_skips_second_prompt(tmp_path):
     f2 = tmp_path / "b.txt"
     f1.write_text("x", encoding="utf-8")
     f2.write_text("x", encoding="utf-8")
-    ShellTool().run({"command": _delete_command(f1)}, ctx)
-    ShellTool().run({"command": _delete_command(f2)}, ctx)
-    # 只在第一次询问过，第二次因 always 记忆而跳过
-    assert calls["n"] == 1
+    _execute(ShellTool(), {"command": _delete_command(f1)}, ctx)
+    _execute(ShellTool(), {"command": _delete_command(f2)}, ctx)
+    assert calls["n"] == 2
     assert not f1.exists()
     assert not f2.exists()
-    assert "run_shell" in ctx.always_allowed
+    assert ctx.permission_grants
 
 
-def test_shell_confirm_disabled_runs_dangerous(tmp_path):
+def test_legacy_shell_confirm_flag_cannot_disable_permission_boundary(tmp_path):
     target = tmp_path / "del.txt"
     target.write_text("x", encoding="utf-8")
-    result = ShellTool().run(
+    result = _execute(
+        ShellTool(),
         {"command": _delete_command(target)},
         _ctx(confirm_dangerous_shell=False),
     )
-    assert not result.is_error
-    assert not target.exists()
+    assert result.is_error
+    assert target.exists()
 
 
 def test_shell_interactive_command_does_not_hang():

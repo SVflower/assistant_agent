@@ -2,7 +2,7 @@
 
 > AI 迭代开发中，债务会隐形复利（LLM 在每个决策点埋入未言明的假设）。
 > 这里显式追踪，防止"上次说的债"下次忘。每次里程碑评审更新本表。
-> 最后更新：2026-07-14（M9a 完成；还清 D13/D15/D17，第三阶段规划见
+> 最后更新：2026-07-15（M9b 完成；还清 D14，第三阶段规划见
 > [可信执行与质量闭环](phase3-trustworthy-agent-plan.md)。）
 
 ## 状态说明
@@ -23,7 +23,7 @@
 | D11 | **三个文件越过行数软线** | `agent/context.py`(342)、`agent/loop.py`(351)、`ui/console.py`(303) | 🟢 | M9a 的封套与协议块逻辑使 context 越软线；loop/console 仍低于硬线 500，仅警告。职责仍内聚，不为行数机械拆分 | 触发信号：相关文件逼近 400 或再增加独立职责时，分别抽预算封套编排、循环阶段或流式 renderer；当前保留软线评审 |
 | D12 | **摘要压缩为整段、无选择性/检索** | `agent/compaction.py` | 🟢 | M8b 先做整段摘要（最旧轮压成要点）。工具结果选择性压缩、语义检索式记忆（RAG/向量）、跨会话记忆均未做 | 信号驱动的未来方向：长会话里"早期某具体事实被摘要糊掉、后续又要精确引用"反复出现时，再考虑选择性保留或检索式记忆。当前整段摘要够用 |
 | D13 | ~~**上下文预算不是最终硬保证**~~ ✅ 已还清（M9a） | `agent/token_budget.py`、`agent/context.py` | ✅ | 最终封套出口强制 `used <= window`；超大用户输入在 provider 调用前稳定拒绝，摘要受硬上限并为最新任务让位；估算器可替换且失败回退保守口径 | 258 测试基线覆盖超大消息、摘要、坏 checkpoint 与不调用 client |
-| D14 | **权限边界可被 Shell/区外读取绕过** | `tools/shell.py`、`tools/file_ops.py`、`agent/prompts.py` | 🔴 | Shell 仅靠危险正则；Python/PowerShell 等价写入、curl/pip 网络行为可免确认，区外读取也不受控；提示词却声称系统自动拦截 | M9b：Registry 强制 PermissionPolicy，统一 deny/ask/allow、读写/网络/进程 capability；提示词明确无真沙箱 |
+| D14 | ~~**权限边界可被 Shell/区外读取绕过**~~ ✅ 已还清（M9b） | `tools/permissions.py`、`tools/policy.py`、`tools/registry.py` | ✅ | Registry 在预算与 Tool.run 前强制统一门控；文件/进程/网络/MCP/Skill capability 独立决策；未知 Tool 默认 ask；Shell 仅证明极小只读集合，其余保守声明广泛能力；区外读写和敏感目录受控；提示词/banner 明确无 OS 沙箱 | 281 测试覆盖优先级、非交互拒绝、精确会话授权、observer fail-closed、Shell/Git 绕过、Skill/MCP 信任与脱敏 |
 | D15 | ~~**会话存储与 Runtime 失败清理不够安全**~~ ✅ 已还清（M9a） | `session/store.py`、`mcp/manager.py`、`cli/setup.py` | ✅ | Session ID 校验 + confinement；同目录临时文件、fsync、`os.replace` 原子保存；MCP initialize 与 Runtime 构造失败逆序清理 | 故障注入测试验证旧文件保留、partial stack/MCP/logger 关闭 |
 | D16 | **工具 I/O 不适合大文件与无界输出** | `tools/file_ops.py`、`tools/shell.py`、`tools/git.py` | 🟡 | read_file 无范围分页；截断后无法缩小范围重试；Shell/Git 先完整 capture 再截断，极端输出可先占满内存；文件写入非磁盘原子 | M10a：范围读取、artifact/分页、来源端限量、原子文件写、统一参数校验与结构化错误 |
 | D17 | ~~**模型切换后的运行状态不一致**~~ ✅ 已还清（M9a） | `agent/loop.py`、`cli/commands.py`、`session/store.py` | ✅ | 默认 Compactor 跟随新 client，固定摘要 provider 不变；Session 元数据与 `model_switch` 审计同步；resume 明确沿用当前配置 | M9a 回归测试覆盖 |

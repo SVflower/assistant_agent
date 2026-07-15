@@ -6,10 +6,16 @@ discover 只读 frontmatter（Level 1，便宜）；get_body 按需读正文（L
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+import re
+from dataclasses import dataclass, replace
 from pathlib import Path
+from typing import Literal
 
 import yaml
+
+SkillSource = Literal["project", "personal", "configured"]
+_VALID_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
+_CONTROL_CHARS = re.compile(r"[\x00-\x1f\x7f]+")
 
 
 @dataclass(frozen=True)
@@ -19,6 +25,8 @@ class SkillMeta:
     name: str
     description: str
     path: Path  # 该技能的 SKILL.md 路径
+    source: SkillSource = "configured"
+    trusted: bool = False
 
 
 def _split_frontmatter(text: str) -> tuple[dict[str, object], str]:
@@ -56,20 +64,36 @@ class SkillStore:
         self._metas = metas
 
     @classmethod
-    def discover(cls, dirs: list[Path]) -> SkillStore:
+    def discover(
+        cls,
+        dirs: list[Path],
+        *,
+        sources: list[SkillSource] | None = None,
+        trusted_names: set[str] | None = None,
+    ) -> SkillStore:
         """扫描目录列表，每个 <dir>/<skill-name>/SKILL.md 解析为一条元数据。
 
         坏文件（缺 name/description、frontmatter 非法）跳过，绝不抛。
         目录不存在直接略过。同名保留先出现者。
         """
         metas: dict[str, SkillMeta] = {}
-        for base in dirs:
+        if sources is not None and len(sources) != len(dirs):
+            raise ValueError("sources 与 dirs 数量必须一致")
+        trusted_names = trusted_names or set()
+        for index, base in enumerate(dirs):
             if not base.is_dir():
                 continue
+            source = sources[index] if sources is not None else "configured"
             for skill_md in sorted(base.glob("*/SKILL.md")):
-                meta = _parse_skill_file(skill_md)
+                meta = _parse_skill_file(
+                    skill_md,
+                    source=source,
+                    trusted=source == "personal",
+                )
                 if meta is None:
                     continue
+                if meta.name in trusted_names:
+                    meta = replace(meta, trusted=True)
                 metas.setdefault(meta.name, meta)
         return cls(metas)
 
@@ -89,8 +113,13 @@ class SkillStore:
         _, body = _split_frontmatter(text)
         return body.strip()
 
+    def get_meta(self, name: str) -> SkillMeta | None:
+        return self._metas.get(name)
 
-def _parse_skill_file(path: Path) -> SkillMeta | None:
+
+def _parse_skill_file(
+    path: Path, *, source: SkillSource = "configured", trusted: bool = False
+) -> SkillMeta | None:
     """解析单个 SKILL.md 为元数据。缺 name/description 或读失败返回 None。"""
     try:
         text = path.read_text(encoding="utf-8")
@@ -99,8 +128,17 @@ def _parse_skill_file(path: Path) -> SkillMeta | None:
     data, _ = _split_frontmatter(text)
     name = data.get("name")
     description = data.get("description")
-    if not isinstance(name, str) or not name.strip():
+    if not isinstance(name, str) or not _VALID_NAME.fullmatch(name.strip()):
         return None
     if not isinstance(description, str) or not description.strip():
         return None
-    return SkillMeta(name=name.strip(), description=description.strip(), path=path)
+    clean_description = _CONTROL_CHARS.sub(" ", description).strip()[:256]
+    if not clean_description:
+        return None
+    return SkillMeta(
+        name=name.strip(),
+        description=clean_description,
+        path=path,
+        source=source,
+        trusted=trusted,
+    )

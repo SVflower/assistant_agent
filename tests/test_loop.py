@@ -451,6 +451,9 @@ class _FixedOutputTool(Tool):
     def run(self, args: dict, ctx: ToolContext) -> ToolResult:
         return ToolResult.ok("x" * 100)
 
+    def permission_requests(self, args, ctx):
+        return []
+
 
 def test_total_output_budget_truncates_then_stops():
     registry = ToolRegistry()

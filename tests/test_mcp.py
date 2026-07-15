@@ -12,6 +12,7 @@ from assistant_agent.config.schema import MCPConfig, MCPServerConfig
 from assistant_agent.mcp import MCPManager, MCPTool, extract_content
 from assistant_agent.mcp.manager import _interpolate_env, _sanitize, _Server
 from assistant_agent.tools.base import ToolContext
+from assistant_agent.tools.registry import ToolRegistry
 
 
 # ---- fake MCP 类型 ----
@@ -107,28 +108,45 @@ def _tool(caller, *, auto_approve=False, timeout=5.0, server="srv", raw="do"):
     )
 
 
+def _execute(tool, args, ctx):
+    registry = ToolRegistry()
+    registry.register(tool)
+    return registry.execute(tool.name, args, ctx)
+
+
 def test_run_requires_confirm_and_denies():
     calls = []
     tool = _tool(lambda *a: calls.append(a))
     ctx = ToolContext(confirm=lambda _m: "deny")
-    res = tool.run({}, ctx)
+    res = _execute(tool, {}, ctx)
     assert res.is_error and "拒绝" in res.output and not calls  # 拒绝时不真正调用
 
 
 def test_run_confirm_category_is_server_tool_scoped():
     ctx = ToolContext(confirm=lambda _m: "always")
     tool_a = _tool(lambda *a: _FakeCallResult([_FakeContent("text", "A")]), raw="ta")
-    tool_a.run({}, ctx)
-    # server+tool 粒度：对 ta 永久允许后 category 为 mcp:srv:ta，不放行同 server 别的工具
-    assert "mcp:srv:ta" in ctx.always_allowed
-    assert "mcp:srv:tb" not in ctx.always_allowed
+    _execute(tool_a, {}, ctx)
+    scopes = {scope.target for scope in ctx.permission_grants}
+    assert any(target.startswith("srv/ta ") for target in scopes)
+    assert not any(target.startswith("srv/tb ") for target in scopes)
 
 
 def test_run_auto_approve_skips_confirm():
     tool = _tool(lambda *a: _FakeCallResult([_FakeContent("text", "ok")]), auto_approve=True)
     ctx = ToolContext(confirm=lambda _m: "deny")  # 即便回调拒绝，auto_approve 也跳过
-    res = tool.run({}, ctx)
+    res = _execute(tool, {}, ctx)
     assert not res.is_error and res.output == "ok"
+
+
+def test_permission_target_redacts_and_limits_nested_args():
+    tool = _tool(lambda *a: None)
+    requests = tool.permission_requests(
+        {"nested": {"api_token": "secret-value"}, "payload": "x" * 2000}, ToolContext()
+    )
+    target = requests[0].target
+    assert "secret-value" not in target
+    assert "REDACTED" in target
+    assert len(target) < 1100
 
 
 def test_run_protocol_exception_becomes_error():

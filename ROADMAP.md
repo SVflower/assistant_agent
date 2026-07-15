@@ -2,18 +2,18 @@
 
 > 开工蓝本。第一阶段（MVP）已完成，见 [DESIGN.md](DESIGN.md) 第 8 节。
 > 本文档规划第二阶段起的里程碑，每个里程碑只列可清晰验收的目标。
-> 最后更新：2026-07-14
+> 最后更新：2026-07-15
 
 ---
 
-## 项目当前状态（截至 2026-07-14）
+## 项目当前状态（截至 2026-07-15）
 
 **一句话**：从"能跑的 MVP"长成了一个功能相当完整、多平台实测、可观测且运行时预算可控、全程守调研→方案→测试→验收纪律的本地 Agent。
 
 **已具备能力**：
 - **模型**：后端可切换（云端 OpenAI 兼容 / Anthropic / 本地 LM Studio·Ollama·vLLM），config/`--provider`/对话内 `/model` 三种切法，切换保留上下文。
 - **交互**：流式输出 + 思考显示 + spinner + 耗时/token（跨轮累计）+ 上下文占用%；Ctrl+C 中断。
-- **安全/控制**：两层用户选择（层1 澄清 ask_user / 层2 权限确认，多选+永久允许）；工作区写入范围（区外确认）；重复动作熔断；用尽轮数优雅续跑。
+- **安全/控制**：Registry 强制统一权限门（deny→ask→allow）；readonly/workspace/strict/unrestricted 四模式；文件/进程/网络/MCP/Skill capability 独立决策；精确会话授权；项目 Skill 与 MCP 信任边界；应用层审计明确不等于 OS 沙箱。
 - **记忆**：token 感知截断（上下文工程）；会话持久化（JSON，`/sessions`、`--resume`、`/clear`）。
 - **工具**：读/写/局部编辑(edit_file/multi_edit)/列目录/shell/代码检索/git 只读/用户澄清。
 - **命令层**：slash 命令系统（`/help /model /sessions /clear /context /exit`，本地拦截不花 token）。
@@ -25,15 +25,15 @@
 - **MCP（M7b/M7c）**：MCP client（stdio + HTTP 两种 transport）——外部 server 工具接入，命名空间 `mcp__<server>__<tool>`；同步桥（守护线程常驻 loop + run_coroutine_threadsafe）；每工具主动确认（category 按 server+tool 细分）；工具白/黑名单 + 每 server/全局数量上限防 schema 撑爆；HTTP 走 Streamable HTTP，session/协议头/重连交 SDK 代管、调用层不自动重放；`/mcp` 命令；`cli/setup.py` Runtime 统管生命周期（还清 D7）。
 - **上下文进化（M8a/M8b）**：M8a 统一预算口径——可用消息预算 = 窗口 − system − tools schema − reserved_output，`/context` 分项显示真实占用（还 D10）；M8b 摘要压缩替代硬截断——双历史（raw + checkpoint + tail）、按完整用户轮分组、checkpoint 随 Session 持久化（resume 不重复摘要）、摘要 token 独立计入 usage、摘要失败降级硬截断，默认关闭时上下文逐字节等于现状。
 
-**质量**：258 测试、覆盖率 71%、4051 行 Python 源码；架构适应度测试（依赖分层 + 行数分级软/硬）+ 技术债册 + DoD + 里程碑工作流全在；CI 已加入 format/lint/mypy/coverage 与 Windows/Linux、Python 3.11/3.13 矩阵。
+**质量**：281 测试、覆盖率 73%、4699 行 Python 源码；架构适应度测试（依赖分层 + 行数分级软/硬）+ 技术债册 + DoD + 里程碑工作流全在；CI 已加入 format/lint/mypy/coverage 与 Windows/Linux、Python 3.11/3.13 矩阵。
 
 **边界（明确未做）**：子 Agent 编排、真沙箱、Web GUI、rewind/recap、非交互 init、PyPI 分发。
 
-**下一阶段**：第三阶段“可信执行与质量闭环”已启动；M9a 硬正确性与工程基线完成，下一项为
-M9b 统一权限与信任边界。见 [第三阶段规划](docs/phase3-trustworthy-agent-plan.md)。
+**下一阶段**：第三阶段“可信执行与质量闭环”实施中；M9a 硬正确性与 M9b 统一权限边界完成，
+下一项为 M9c Agent 行为 Eval 与 CI 质量闭环。见 [第三阶段规划](docs/phase3-trustworthy-agent-plan.md)。
 
-**剩余技术债**：8 项（D5/D6/D8/D9/D11/D12/D14/D16）。M9a 已还清 D13（上下文硬线）、
-D15（会话/Runtime 安全）、D17（模型切换状态）；D14 纳入 M9b，D16 纳入 M10a。详见
+**剩余技术债**：7 项（D5/D6/D8/D9/D11/D12/D16）。M9a 已还清 D13/D15/D17，M9b 已还清
+D14（统一权限与信任边界）；D16 纳入 M10a。详见
 [技术债登记册](docs/TECH_DEBT.md)。
 
 ---
@@ -102,7 +102,7 @@ D15（会话/Runtime 安全）、D17（模型切换状态）；D14 纳入 M9b，
 | 里程碑 | 主题 | 状态 |
 |--------|------|------|
 | M9a | 硬正确性与工程基线 | ✅ · [方案](docs/archive/phase3/m9a-hard-correctness-plan.md) |
-| M9b | 统一权限与信任边界 | 总规划就绪，待细化 |
+| M9b | 统一权限与信任边界 | ✅ · [方案](docs/archive/phase3/m9b-permission-boundary-plan.md) |
 | M9c | Agent 行为 Eval 与 CI 质量闭环 | 总规划就绪，待细化 |
 | M10a | 工具契约与大文件/大输出工程 | 总规划就绪，待细化 |
 | M10b | 步骤级 Checkpoint 与可恢复执行 | 总规划就绪，待细化 |

@@ -8,6 +8,7 @@ from assistant_agent.agent.prompts import build_system_prompt
 from assistant_agent.skills.store import SkillStore, _split_frontmatter
 from assistant_agent.skills.tool import LoadSkillTool
 from assistant_agent.tools.base import ToolContext
+from assistant_agent.tools.registry import ToolRegistry
 
 
 def _write_skill(base: Path, name: str, frontmatter: str, body: str = "正文内容") -> None:
@@ -73,6 +74,26 @@ def test_discover_dedup_first_wins(tmp_path):
     assert metas[0].description == "项目级"
 
 
+def test_discover_marks_source_and_trust(tmp_path):
+    project = tmp_path / "project"
+    personal = tmp_path / "personal"
+    _write_skill(project, "project-skill", "name: project-skill\ndescription: 项目")
+    _write_skill(personal, "personal-skill", "name: personal-skill\ndescription: 个人")
+    store = SkillStore.discover([project, personal], sources=["project", "personal"])
+    metas = {meta.name: meta for meta in store.list()}
+    assert metas["project-skill"].source == "project"
+    assert not metas["project-skill"].trusted
+    assert metas["personal-skill"].trusted
+
+
+def test_discover_rejects_prompt_shaping_name_and_strips_controls(tmp_path):
+    _write_skill(tmp_path, "bad", 'name: "bad name"\ndescription: nope')
+    _write_skill(tmp_path, "good", 'name: good\ndescription: "hello\\tworld"')
+    metas = SkillStore.discover([tmp_path]).list()
+    assert [meta.name for meta in metas] == ["good"]
+    assert metas[0].description == "hello world"
+
+
 # ---- 加载正文（Level 2）----
 
 
@@ -124,6 +145,16 @@ def test_load_skill_tool_rejects_path_traversal(tmp_path):
     tool = LoadSkillTool(SkillStore.discover([tmp_path]))
     result = tool.run({"name": "../../etc/passwd"}, _ctx())
     assert result.is_error
+
+
+def test_untrusted_skill_cannot_load_noninteractively(tmp_path):
+    _write_skill(tmp_path, "s", "name: s\ndescription: d", body="不可信正文")
+    tool = LoadSkillTool(SkillStore.discover([tmp_path], sources=["project"]))
+    registry = ToolRegistry()
+    registry.register(tool)
+    result = registry.execute("load_skill", {"name": "s"}, ToolContext(interactive=False))
+    assert result.is_error and not result.executed
+    assert "不可信正文" not in result.output
 
 
 # ---- prompt 注入（Level 1）----

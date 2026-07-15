@@ -6,6 +6,7 @@ import subprocess
 
 from assistant_agent.tools.base import ToolContext
 from assistant_agent.tools.git import GitTool
+from assistant_agent.tools.permissions import Capability
 
 
 def _ctx() -> ToolContext:
@@ -72,6 +73,21 @@ def test_git_write_subcommand_rejected(tmp_path):
 def test_git_missing_subcommand():
     r = GitTool().run({}, _ctx())
     assert r.is_error
+
+
+def test_permission_analysis_rejects_write_and_external_diff_flags():
+    tool = GitTool()
+    ctx = _ctx()
+    safe = tool.permission_requests({"subcommand": "status", "args": "--short"}, ctx)
+    assert [request.capability for request in safe] == [Capability.PROCESS_EXECUTE]
+
+    for args in ("--output=result.patch", "--ext-diff", "--no-index a b"):
+        requests = tool.permission_requests({"subcommand": "diff", "args": args}, ctx)
+        assert {request.capability for request in requests} == {
+            Capability.PROCESS_EXECUTE,
+            Capability.FILESYSTEM_WRITE,
+            Capability.NETWORK_ACCESS,
+        }
 
 
 def test_git_non_repo_dir(tmp_path):

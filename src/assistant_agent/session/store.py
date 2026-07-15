@@ -86,7 +86,7 @@ def _now_iso() -> str:
 
 def new_session_id() -> str:
     """时间戳 + 短随机后缀：可读、可排序、不撞。"""
-    return f"{datetime.now():%Y%m%d-%H%M%S}-{secrets.token_hex(2)}"
+    return f"{datetime.now():%Y%m%d-%H%M%S}-{secrets.token_hex(4)}"
 
 
 class SessionStore:

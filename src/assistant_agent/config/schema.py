@@ -6,6 +6,8 @@
 
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel, Field, model_validator
 
 
@@ -76,13 +78,39 @@ class AgentConfig(BaseModel):
 class ToolsConfig(BaseModel):
     """工具行为与安全设置。"""
 
-    confirm_dangerous_shell: bool = Field(default=True, description="危险 shell 操作前是否要求确认")
+    confirm_dangerous_shell: bool = Field(
+        default=True,
+        description="已废弃兼容字段；统一权限边界始终启用，不能用此字段关闭",
+    )
     shell_timeout: int = Field(default=60, gt=0, description="shell 命令超时（秒）")
     max_output_chars: int = Field(
         default=4000,
         ge=0,
         description="单个工具结果返回 UI/上下文的最大字符数；0=不截断",
     )
+
+
+class PermissionRuleConfig(BaseModel):
+    effect: Literal["allow", "ask", "deny"]
+    capability: Literal[
+        "filesystem.read",
+        "filesystem.write",
+        "process.execute",
+        "network.access",
+        "mcp.call",
+        "skill.load",
+        "user.interaction",
+    ]
+    target: str = "*"
+    tool: str = "*"
+
+
+class PermissionsConfig(BaseModel):
+    """M9b 应用层权限策略；不等同于 OS 沙箱。"""
+
+    mode: Literal["readonly", "workspace", "strict", "unrestricted"] = "workspace"
+    rules: list[PermissionRuleConfig] = Field(default_factory=list)
+    sensitive_paths: list[str] = Field(default_factory=list)
 
 
 class UIConfig(BaseModel):
@@ -114,6 +142,10 @@ class SkillsConfig(BaseModel):
     dirs: list[str] = Field(
         default_factory=list,
         description="技能目录；留空用默认（项目与个人的 .assistant_agent/skills）",
+    )
+    trusted_project_skills: list[str] = Field(
+        default_factory=list,
+        description="显式信任的项目/自定义 Skill 名称；未列出的内容进入提示词前需确认",
     )
 
 
@@ -178,6 +210,7 @@ class AppConfig(BaseModel):
     providers: dict[str, ProviderConfig] = Field(..., min_length=1)
     agent: AgentConfig = Field(default_factory=AgentConfig)
     tools: ToolsConfig = Field(default_factory=ToolsConfig)
+    permissions: PermissionsConfig = Field(default_factory=PermissionsConfig)
     ui: UIConfig = Field(default_factory=UIConfig)
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
     skills: SkillsConfig = Field(default_factory=SkillsConfig)

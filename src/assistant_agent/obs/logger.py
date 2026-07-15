@@ -14,71 +14,14 @@ NullLogger 为默认注入值（禁用/未配置时零副作用），也用于�
 from __future__ import annotations
 
 import json
-import re
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from assistant_agent.obs.redaction import redact_text, sanitize_args, truncate_text
+
 if TYPE_CHECKING:
     from assistant_agent.config.schema import LoggingConfig
-
-# 疑似敏感的参数键名（小写子串匹配）：命中则整体遮蔽其值。
-_SECRET_KEY_HINTS = ("key", "token", "password", "passwd", "secret", "credential", "auth")
-
-# 疑似密钥的值模式：只匹配带已知前缀的形态（sk-/sk-ant-/ghp_/AKIA/xox…），
-# 尽力而为、非穷尽。刻意不匹配"任意 32+ 长串"——那会大面积误伤长代码/数据正文。
-_SECRET_VALUE_RE = re.compile(
-    r"(sk-[A-Za-z0-9_\-]{6,}"
-    r"|gh[pousr]_[A-Za-z0-9]{16,}"
-    r"|AKIA[0-9A-Z]{12,}"
-    r"|xox[baprs]-[A-Za-z0-9-]{10,})"
-)
-
-_REDACTED = "***REDACTED***"
-
-
-def _redact_str(value: str) -> str:
-    """遮蔽字符串里疑似密钥的片段。"""
-    return _SECRET_VALUE_RE.sub(_REDACTED, value)
-
-
-def _truncate(value: str, max_chars: int) -> str:
-    """超长截断并标记省略了多少字符。"""
-    if max_chars > 0 and len(value) > max_chars:
-        return value[:max_chars] + f"…(+{len(value) - max_chars} chars)"
-    return value
-
-
-def _key_is_secret(key: str) -> bool:
-    return any(hint in key.lower() for hint in _SECRET_KEY_HINTS)
-
-
-def _sanitize_value(value: Any, max_chars: int) -> Any:
-    """递归脱敏 + 截断，覆盖嵌套结构（如 multi_edit.edits[].new_string）。
-
-    - dict：敏感键名整体遮蔽其值，其余递归。
-    - list/tuple：逐元素递归。
-    - str：遮蔽疑似密钥片段再截断。
-    - 其他标量：原样。
-    """
-    if isinstance(value, dict):
-        return {
-            k: (_REDACTED if _key_is_secret(str(k)) else _sanitize_value(v, max_chars))
-            for k, v in value.items()
-        }
-    if isinstance(value, (list, tuple)):
-        return [_sanitize_value(v, max_chars) for v in value]
-    if isinstance(value, str):
-        return _truncate(_redact_str(value), max_chars)
-    return value
-
-
-def _sanitize_args(args: dict[str, Any], max_chars: int) -> dict[str, Any]:
-    """对工具参数做递归脱敏 + 截断。顶层保持 dict 语义，深层交给 _sanitize_value。"""
-    return {
-        key: (_REDACTED if _key_is_secret(key) else _sanitize_value(val, max_chars))
-        for key, val in args.items()
-    }
 
 
 class NullLogger:
@@ -118,6 +61,21 @@ class NullLogger:
     ) -> None: ...
 
     def confirm(self, *, category: str, decision: str, remembered: bool) -> None: ...
+
+    def permission_decision(
+        self,
+        *,
+        mode: str,
+        tool: str,
+        capabilities: list[str],
+        targets: list[str],
+        decision: str,
+        reason: str,
+        remembered: bool,
+        matched_rules: list[str],
+    ) -> None: ...
+
+    def observer_error(self, *, phase: str, tool: str, error: str) -> None: ...
 
 
 class EventLogger(NullLogger):
@@ -184,7 +142,7 @@ class EventLogger(NullLogger):
         )
 
     def task(self, text: str) -> None:
-        self._write({"type": "task", "text": _truncate(text, self._max_chars)})
+        self._write({"type": "task", "text": truncate_text(text, self._max_chars)})
 
     def tool_call(
         self,
@@ -220,8 +178,8 @@ class EventLogger(NullLogger):
         if truncated:
             event["truncated"] = True
         if self._log_tool_io:
-            event["args"] = _sanitize_args(args, self._max_chars)
-            event["output"] = _truncate(_redact_str(output), self._max_chars)
+            event["args"] = sanitize_args(args, self._max_chars)
+            event["output"] = truncate_text(redact_text(output), self._max_chars)
         self._write(event)
 
     def budget_exhausted(self, *, reason: str, limit: int, used: int, skipped_calls: int) -> None:
@@ -242,6 +200,44 @@ class EventLogger(NullLogger):
                 "category": category,
                 "decision": decision,
                 "remembered": remembered,
+            }
+        )
+
+    def permission_decision(
+        self,
+        *,
+        mode: str,
+        tool: str,
+        capabilities: list[str],
+        targets: list[str],
+        decision: str,
+        reason: str,
+        remembered: bool,
+        matched_rules: list[str],
+    ) -> None:
+        self._write(
+            {
+                "type": "permission_decision",
+                "mode": mode,
+                "tool": tool,
+                "capabilities": capabilities,
+                "targets": [
+                    truncate_text(redact_text(target), self._max_chars) for target in targets
+                ],
+                "decision": decision,
+                "reason": reason,
+                "remembered": remembered,
+                "matched_rules": matched_rules,
+            }
+        )
+
+    def observer_error(self, *, phase: str, tool: str, error: str) -> None:
+        self._write(
+            {
+                "type": "observer_error",
+                "phase": phase,
+                "tool": tool,
+                "error": truncate_text(redact_text(error), self._max_chars),
             }
         )
 

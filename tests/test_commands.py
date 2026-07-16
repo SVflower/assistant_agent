@@ -85,6 +85,12 @@ def test_bare_slash_shows_help(tmp_path):
     assert "可用命令" in ctx.console.text()
 
 
+def test_registry_exposes_command_descriptions_for_input_menu():
+    descriptions = dict(build_default_slash_registry().descriptions())
+    assert descriptions["/clear"] == "开新会话（清空上下文）"
+    assert descriptions["/model"] == "切换模型（保留上下文）"
+
+
 def test_unknown_command(tmp_path):
     ctx = _ctx(tmp_path)
     build_default_slash_registry().dispatch("/bogus", ctx)

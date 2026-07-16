@@ -62,6 +62,10 @@ class SlashRegistry:
     def names(self) -> list[str]:
         return list(self._cmds)
 
+    def descriptions(self) -> list[tuple[str, str]]:
+        """返回 UI 可消费的命令名和说明，不暴露 handler。"""
+        return [(f"/{cmd.name}", cmd.description) for cmd in self._cmds.values()]
+
     def dispatch(self, text: str, ctx: ChatContext) -> None:
         """处理一条以 / 开头的输入。未知命令给友好提示，绝不进 ReAct。"""
         body = text[1:] if text.startswith("/") else text

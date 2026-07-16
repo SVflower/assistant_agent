@@ -47,7 +47,8 @@ class Console:
         # 上下文窗口预算，用于结尾显示"上下文占用 %"（由 main 按 config 注入）。
         self._context_limit = 0
         self._model_label = "model"
-        self._chat_prompt_session: Any = None
+        self._chat_prompt: Any = None
+        self._slash_commands: list[tuple[str, str]] = []
         # 当前活动的 Live spinner（render_stream 期间）。confirm 需要在提示前停掉它，
         # 否则 spinner 占着终端，确认输入提示不可见、无法输入 → 卡死。
         self._active_live: Any = None
@@ -63,6 +64,11 @@ class Console:
 
     def set_model_label(self, model: str) -> None:
         self._model_label = model
+
+    def set_slash_commands(self, commands: list[tuple[str, str]]) -> None:
+        self._slash_commands = list(commands)
+        if self._chat_prompt is not None:
+            self._chat_prompt.set_commands(self._slash_commands)
 
     @property
     def display_mode(self) -> DisplayMode:
@@ -102,6 +108,11 @@ class Console:
     def chat_input(self) -> str:
         """读取普通聊天输入，使用与任务回显一致的回合边界。"""
         self._console.print()
+        if sys.stdin.isatty() and sys.stdout.isatty():
+            value = self._read_chat_line()
+            if value:
+                self._print_chat_submission(value)
+            return value
         self._print_input_rule()
         value = self._read_chat_line()
         self._print_input_rule(style="dim")
@@ -111,26 +122,22 @@ class Console:
         if not (sys.stdin.isatty() and sys.stdout.isatty()):
             return self.input("[bold cyan]› [/bold cyan]")
 
-        from prompt_toolkit import PromptSession
-        from prompt_toolkit.styles import Style
+        from assistant_agent.ui.chat_prompt import ChatPrompt
 
-        if self._chat_prompt_session is None:
-            self._chat_prompt_session = PromptSession()
-        width = max(self._console.width - 1, 1)
-        return self._chat_prompt_session.prompt(
-            [("class:prompt", "› ")],
-            bottom_toolbar=[("class:bottom-toolbar", "─" * width)],
-            style=Style.from_dict(
-                {
-                    "prompt": "bold #00afff",
-                    "bottom-toolbar": "noreverse bg:default #666666",
-                }
-            ),
-        )
+        if self._chat_prompt is None:
+            self._chat_prompt = ChatPrompt(self._slash_commands)
+        return self._chat_prompt.read()
 
     def _print_input_rule(self, *, style: str = "cyan") -> None:
         width = max(self._console.width - 1, 1)
         self._console.print("─" * width, style=style)
+
+    def _print_chat_submission(self, value: str) -> None:
+        width = max(self._console.width - 1, 1)
+        line = Text("› ", style="bold #b0b0b0 on #303030")
+        line.append(value, style="#f0f0f0 on #303030")
+        line.truncate(width, overflow="ellipsis", pad=True)
+        self._console.print(line)
 
     def render_stream(self, events: Iterator[StepEvent]) -> None:
         """消费一次任务的流式事件并渲染。

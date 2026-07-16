@@ -175,6 +175,7 @@ def chat(
             mcp_service=rt.mcp_service,
         )
         registry = build_default_slash_registry()
+        console.set_slash_commands(registry.descriptions())
 
         while True:
             try:
@@ -216,6 +217,8 @@ def chat(
                     break
     # 单一出口打印一次；ctx.session 会随 /clear 更新，显示实际结束的会话。
     console.info(f"\n已结束会话 {ctx.session.id}。")
+    console.info("恢复此会话：")
+    console.info(f"assistant-agent chat --resume {ctx.session.id}")
 
 
 @app.command()

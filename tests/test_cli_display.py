@@ -3,12 +3,22 @@
 from __future__ import annotations
 
 import sys
+from io import StringIO
+from threading import Thread
+from time import sleep
 
+import pytest
+from prompt_toolkit.completion import CompleteEvent
+from prompt_toolkit.document import Document
+from prompt_toolkit.input.defaults import create_pipe_input
+from prompt_toolkit.output.base import Size
+from prompt_toolkit.output.vt100 import Vt100_Output
 from rich.console import Console as RichConsole
 
 from assistant_agent.agent.events import StepEvent
 from assistant_agent.tools.display import call_display, result_display, safe_text
 from assistant_agent.tools.result import ToolResult
+from assistant_agent.ui.chat_prompt import ChatPrompt, SlashCommandCompleter
 from assistant_agent.ui.console import Console
 from assistant_agent.ui.conversation_renderer import ConversationRenderer
 from assistant_agent.ui.markdown_stream import StreamingMarkdownRenderer
@@ -417,22 +427,146 @@ def test_scoped_confirmation_exposes_tool_and_server_session_choices(monkeypatch
     assert "本会话信任 playwright" in output
 
 
-def test_chat_input_uses_live_bottom_rule_in_tty(monkeypatch):
-    class FakePromptSession:
-        kwargs = None
-
-        def prompt(self, _message, **kwargs):
-            self.kwargs = kwargs
+def test_chat_input_uses_compact_prompt_in_tty(monkeypatch):
+    class FakeChatPrompt:
+        def read(self):
             return "hello"
 
     console = Console()
     console._console = RichConsole(record=True, width=64)
-    session = FakePromptSession()
-    console._chat_prompt_session = session
+    console._chat_prompt = FakeChatPrompt()
     monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
     monkeypatch.setattr(sys.stdout, "isatty", lambda: True)
 
     assert console.chat_input() == "hello"
-    assert session.kwargs is not None
-    toolbar = session.kwargs["bottom_toolbar"]
-    assert toolbar == [("class:bottom-toolbar", "─" * 63)]
+    output = console._console.export_text()
+    assert "› hello" in output
+    assert "查看命令" not in output and "Ctrl+C 退出" not in output
+
+
+def test_chat_prompt_renders_compact_four_line_layout_and_reads_input():
+    stdout = StringIO()
+    output = Vt100_Output(
+        stdout,
+        lambda: Size(rows=24, columns=80),
+        enable_cpr=False,
+    )
+    with create_pipe_input() as pipe:
+        prompt = ChatPrompt(input=pipe, output=output)
+        pipe.send_text("hello\r")
+        assert prompt.read() == "hello"
+
+    rendered = stdout.getvalue()
+    assert "─" in rendered
+    assert "› " in rendered
+    assert "? / 查看命令" in rendered
+    assert "Ctrl+C 退出" in rendered
+
+
+def test_chat_prompt_requires_second_ctrl_c_and_shows_exit_hint():
+    stdout = StringIO()
+    output = Vt100_Output(
+        stdout,
+        lambda: Size(rows=24, columns=80),
+        enable_cpr=False,
+    )
+    with create_pipe_input() as pipe:
+
+        def press_twice():
+            pipe.send_text("\x03")
+            sleep(0.05)
+            pipe.send_text("\x03")
+
+        sender = Thread(target=press_twice)
+        sender.start()
+        with pytest.raises(KeyboardInterrupt):
+            ChatPrompt(input=pipe, output=output).read()
+        sender.join()
+
+    assert stdout.getvalue().count("Ctrl+C") >= 2
+
+
+def test_chat_prompt_first_ctrl_c_clears_existing_input():
+    stdout = StringIO()
+    output = Vt100_Output(
+        stdout,
+        lambda: Size(rows=24, columns=80),
+        enable_cpr=False,
+    )
+    with create_pipe_input() as pipe:
+        pipe.send_text("draft\x03hello\r")
+        assert ChatPrompt(input=pipe, output=output).read() == "hello"
+
+
+def test_slash_command_completer_matches_only_leading_command_prefix():
+    completer = SlashCommandCompleter(
+        [("/clear", "新会话"), ("/context", "查看上下文"), ("/model", "切换模型")]
+    )
+
+    def complete(text):
+        document = Document(text, cursor_position=len(text))
+        return list(completer.get_completions(document, CompleteEvent(text_inserted=True)))
+
+    assert [(item.text, item.display_meta_text) for item in complete("/c")] == [
+        ("/clear", "新会话"),
+        ("/context", "查看上下文"),
+    ]
+    assert complete("") == []
+    assert complete("hello /") == []
+    assert complete("/clear now") == []
+
+
+def test_chat_prompt_shows_command_menu_and_enter_chooses_current_item():
+    stdout = StringIO()
+    output = Vt100_Output(
+        stdout,
+        lambda: Size(rows=24, columns=100),
+        enable_cpr=False,
+    )
+    with create_pipe_input() as pipe:
+
+        def type_command():
+            pipe.send_text("/cl")
+            sleep(0.05)
+            pipe.send_text("\r")
+
+        sender = Thread(target=type_command)
+        sender.start()
+        result = ChatPrompt(
+            [("/clear", "Clear current session"), ("/context", "Show context usage")],
+            input=pipe,
+            output=output,
+        ).read()
+        sender.join()
+
+    rendered = stdout.getvalue()
+    assert result == "/clear"
+    assert "/clear" in rendered and "Clear current session" in rendered
+
+
+def test_chat_prompt_arrow_key_selects_another_command():
+    stdout = StringIO()
+    output = Vt100_Output(
+        stdout,
+        lambda: Size(rows=24, columns=100),
+        enable_cpr=False,
+    )
+    with create_pipe_input() as pipe:
+
+        def select_second_command():
+            pipe.send_text("/")
+            sleep(0.05)
+            pipe.send_text("\x1b[B")
+            sleep(0.02)
+            pipe.send_text("\r")
+
+        sender = Thread(target=select_second_command)
+        sender.start()
+        result = ChatPrompt(
+            [("/clear", "Clear current session"), ("/context", "Show context usage")],
+            input=pipe,
+            output=output,
+        ).read()
+        sender.join()
+
+    assert result == "/context"

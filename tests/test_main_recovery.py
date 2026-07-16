@@ -131,6 +131,7 @@ def test_chat_reports_current_session_when_exiting_after_clear(tmp_path, monkeyp
     assert opened is not None and cleared is not None and closed is not None
     assert opened.group(1) != cleared.group(1)
     assert closed.group(1) == cleared.group(1)
+    assert f"assistant-agent chat --resume {cleared.group(1)}" in result.output
 
 
 def test_chat_quiet_mode_keeps_slash_control_feedback(tmp_path, monkeypatch):

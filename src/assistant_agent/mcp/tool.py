@@ -18,10 +18,11 @@ from typing import Any
 from assistant_agent.obs import sanitize_for_display
 from assistant_agent.tools.base import Tool, ToolContext, ToolResult
 from assistant_agent.tools.permissions import Capability, PermissionRequest, PermissionScope
+from assistant_agent.tools.validation import build_validator, validate_arguments
 
 #: caller(server, raw_tool, args, timeout) -> CallToolResult 形态对象（有 content/isError），
 #: 协议错误应抛异常（含超时 TimeoutError）。
-Caller = Callable[[str, str, dict[str, Any], float], Any]
+Caller = Callable[[str, str, dict[str, Any], float, dict[str, Any]], Any]
 
 _MAX_DESC = 1024
 
@@ -67,6 +68,9 @@ class MCPTool(Tool):
         timeout: float,
         auto_approve: bool,
         output_schema: dict[str, Any] | None = None,
+        annotations: dict[str, Any] | None = None,
+        trusted_readonly: bool = False,
+        outcome_unknown_on_transport_error: bool = True,
     ) -> None:
         self._server = server
         self.name = registered_name
@@ -77,6 +81,12 @@ class MCPTool(Tool):
         self._timeout = timeout
         self._auto_approve = auto_approve
         self._output_schema = output_schema
+        self._output_validator = (
+            build_validator(f"{registered_name} output", output_schema) if output_schema else None
+        )
+        self._annotations = annotations or {}
+        self._trusted_readonly = trusted_readonly
+        self._outcome_unknown_on_transport_error = outcome_unknown_on_transport_error
 
     @property
     def parameters(self) -> dict[str, Any]:
@@ -84,22 +94,41 @@ class MCPTool(Tool):
 
     def run(self, args: dict[str, Any], ctx: ToolContext) -> ToolResult:
         # 同步桥调用；协议错误（含超时）由 caller 抛出，统一转 error。
+        correlation = ctx.logger.correlation_context()
+        if ctx.current_call_id:
+            correlation["call_id"] = ctx.current_call_id
+        call_hint = f"（call_id={ctx.current_call_id}）" if ctx.current_call_id else ""
         try:
-            result = self._caller(self._server, self._raw_tool, args, self._timeout)
+            result = self._caller(self._server, self._raw_tool, args, self._timeout, correlation)
         except TimeoutError:
+            if self._outcome_unknown_on_transport_error:
+                return ToolResult.error(
+                    f"MCP 工具 {self.name} 调用超时{call_hint}，执行结果未知；"
+                    "请先查询状态，禁止直接重试",
+                    code="mcp_outcome_unknown",
+                    retryable=False,
+                    metadata={"correlation": correlation},
+                )
             return ToolResult.error(
                 f"MCP 工具 {self.name} 调用超时（>{self._timeout}s）",
                 code="timeout",
-                retryable=True,
+                retryable=self._trusted_readonly,
             )
         except Exception as exc:  # 协议/连接错误 = 我方通道
+            if self._outcome_unknown_on_transport_error:
+                return ToolResult.error(
+                    f"MCP 工具 {self.name} 连接中断{call_hint}，执行结果未知：{exc}；请先查询状态",
+                    code="mcp_outcome_unknown",
+                    retryable=False,
+                    metadata={"correlation": correlation},
+                )
             return ToolResult.error(
                 f"MCP 工具 {self.name} 调用失败：{exc}",
                 code="mcp_transport_error",
-                retryable=True,
+                retryable=self._trusted_readonly,
             )
         text, is_error, structured = extract_result(result)
-        metadata: dict[str, Any] = {}
+        metadata: dict[str, Any] = {"mcp_annotations": self._annotations}
         if structured is not None:
             metadata["structured_content"] = structured
         if self._output_schema is not None:
@@ -107,9 +136,32 @@ class MCPTool(Tool):
                 self._output_schema, ensure_ascii=False, sort_keys=True, default=str
             )
             metadata["output_schema_hash"] = hashlib.sha256(payload.encode()).hexdigest()[:16]
-        # 工具执行错误：isError=True，文本回喂模型让它换做法。
+        # MCP 错误结果不要求满足成功 outputSchema；先保留 server 原始错误。
         if is_error:
-            return ToolResult.error(text, code="mcp_tool_error", retryable=True, metadata=metadata)
+            return ToolResult.error(
+                text,
+                code="mcp_tool_error",
+                retryable=self._trusted_readonly,
+                metadata=metadata,
+            )
+        if self._output_validator is not None:
+            if structured is None:
+                return ToolResult.error(
+                    f"MCP 工具 {self.name} 声明了 outputSchema，但未返回 structuredContent",
+                    code="mcp_contract_error",
+                    retryable=False,
+                    metadata=metadata,
+                )
+            validation_error = validate_arguments(self._output_validator, structured)
+            if validation_error is not None:
+                message, details = validation_error
+                metadata["contract_error"] = details
+                return ToolResult.error(
+                    f"MCP 工具 {self.name} 输出契约不匹配：{message}",
+                    code="mcp_contract_error",
+                    retryable=False,
+                    metadata=metadata,
+                )
         return ToolResult.ok(text, metadata=metadata)
 
     def permission_requests(
@@ -123,6 +175,8 @@ class MCPTool(Tool):
         target = f"{self._server}/{self._raw_tool}"
         common = {
             "trusted_server": self._auto_approve,
+            "trusted_readonly": self._trusted_readonly,
+            "mcp_annotations": self._annotations,
             "args": args,
             "display_target": f"{target} args={safe_args}",
             "broader_scope_label": f"本会话信任 {self._server}",

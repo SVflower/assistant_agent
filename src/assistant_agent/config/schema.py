@@ -211,6 +211,18 @@ class SkillsConfig(BaseModel):
     )
 
 
+class MCPToolPolicyConfig(BaseModel):
+    """客户端明确赋予单个 MCP 工具的执行语义，不参与权限放行。"""
+
+    replay: Literal["default", "safe_readonly", "requires_decision"] = Field(
+        default="default", description="进程恢复时是否可自动重放"
+    )
+    outcome_on_transport_error: Literal["default", "unknown"] = Field(
+        default="default", description="发送后传输失败是否视为结果未知"
+    )
+    timeout: int | None = Field(default=None, ge=1, description="覆盖 server 的单次调用超时")
+
+
 class MCPServerConfig(BaseModel):
     """单个 MCP server 连接设置（stdio 本地 / http 远程）。"""
 
@@ -237,6 +249,14 @@ class MCPServerConfig(BaseModel):
     timeout: int = Field(default=30, ge=1, description="单次工具调用超时（秒）")
     auto_approve: bool = Field(
         default=False, description="为 true 时该 server 工具跳过危险确认（默认都需确认）"
+    )
+    trust_tool_annotations: bool = Field(
+        default=False,
+        description="是否信任该 server 的只读 annotation；高风险 annotation 始终生效",
+    )
+    tool_policies: dict[str, MCPToolPolicyConfig] = Field(
+        default_factory=dict,
+        description="按原始 MCP 工具名覆盖恢复、失败结果和超时语义",
     )
     max_tools: int = Field(default=40, ge=1, description="该 server 注册的工具数上限")
     include_tools: list[str] = Field(

@@ -2,8 +2,8 @@
 
 > AI 迭代开发中，债务会隐形复利（LLM 在每个决策点埋入未言明的假设）。
 > 这里显式追踪，防止"上次说的债"下次忘。每次里程碑评审更新本表。
-> 最后更新：2026-07-15（M11b/M11c 联网与扩展自助管理完成；方案见
-> [M11b/M11c 归档](archive/phase4/m11b-m11c-network-and-mcp-self-service-plan.md)。）
+> 最后更新：2026-07-16（M12a 通用 MCP 运行时安全语义完成；方案见
+> [M12a](m12a-mcp-runtime-safety-plan.md)。）
 
 ## 状态说明
 - 🔴 高：影响正确性/安全，或脆弱的关键路径
@@ -20,7 +20,7 @@
 | D8 | ~~**日志按会话/模型维度的缺口**~~ ✅ 已还清（M10b） | `obs/logger.py`、`cli/recovery.py` | ✅ | `trace_id`（进程）、`session_id`（聊天）、`run_id`（任务）拆分；`/clear` 重新绑定 Session；`model_switch` 更新后续事件模型；tool_call 带 run/call/provider/model；恢复与 checkpoint 有独立事件 | 新旧 JSONL 字段兼容；日志仍是尽力而为的观测，不参与 checkpoint 正确性 |
 | D9 | ~~**无行为级 eval 任务集**~~ ✅ 已还清（M9c） | `evals/`、`tests/test_evals.py` | ✅ | 版本化 YAML case + fixture confinement + scripted/real runner + 可解释 scorer + JSONL/Markdown 报告 + A/B compare；14 个 deterministic case 进入 CI，真实 provider 轨道不进 PR 硬门 | 303 测试基线覆盖 loader/scorer/runner/report/CLI、权限/预算/终止和 Runtime/UI 补测；方案见 [归档计划](archive/phase3/m9c-agent-evals-plan.md) |
 | D10 | ~~**上下文预算未计入工具 schema**~~ ✅ 已还清（M8a）| `agent/context.py`、`agent/loop.py` | ✅ | M8a 统一预算口径：可用消息预算 = 窗口 − system − tools schema − reserved_output。tools schema 由 loop（持 registry）估算注入 context（context 保持被动、不反依赖 registry）；reserved_output 默认 1024 保证回复空间；`/context` 分项显示真实占用。实测内置工具 schema 3208 token 现已计入（原完全不计）。**两开销默认归零时预算与旧行为逐字节一致（回归保护）** |
-| D11 | **九个文件越过行数软线** | `agent/context.py`(342)、`agent/loop.py`(419)、`agent/recovery.py`(452)、`cli/setup.py`(369)、`config/schema.py`(302)、`main.py`(319)、`mcp/manager.py`(317)、`obs/logger.py`(349)、`tools/registry.py`(378) | 🟢 | 全部低于硬线 500；M11c 将扩展控制面拆到 `cli/extensions.py`，使 `cli/commands.py` 394→162 行；其余主要是内聚状态机、声明式 schema 或协议编排，不为 300 软线机械切碎 | 任一文件继续增加独立职责或逼近硬线时再拆；`setup.py` 下一次增加 runtime 类型时优先拆装配器；Loop 禁止放宽硬线 |
+| D11 | **九个文件越过行数软线** | `agent/context.py`(342)、`agent/loop.py`(419)、`agent/recovery.py`(452)、`cli/setup.py`(369)、`config/schema.py`(322)、`main.py`(322)、`mcp/manager.py`(372)、`obs/logger.py`(361)、`tools/registry.py`(379) | 🟢 | 全部低于硬线 500；M11c 将扩展控制面拆到 `cli/extensions.py`，使 `cli/commands.py` 394→162 行；M12a 的 manager 增量仍属连接/发现内聚职责，但已接近 400 行 | `mcp/manager.py` 下次增加健康/重连职责时先拆 discovery/policy；其他文件新增独立职责或逼近硬线时再拆；Loop 禁止放宽硬线 |
 | D12 | **摘要压缩为整段、无选择性/检索** | `agent/compaction.py` | 🟢 | M8b 先做整段摘要（最旧轮压成要点）。工具结果选择性压缩、语义检索式记忆（RAG/向量）、跨会话记忆均未做 | 信号驱动的未来方向：长会话里"早期某具体事实被摘要糊掉、后续又要精确引用"反复出现时，再考虑选择性保留或检索式记忆。当前整段摘要够用 |
 | D13 | ~~**上下文预算不是最终硬保证**~~ ✅ 已还清（M9a） | `agent/token_budget.py`、`agent/context.py` | ✅ | 最终封套出口强制 `used <= window`；超大用户输入在 provider 调用前稳定拒绝，摘要受硬上限并为最新任务让位；估算器可替换且失败回退保守口径 | 258 测试基线覆盖超大消息、摘要、坏 checkpoint 与不调用 client |
 | D14 | ~~**权限边界可被 Shell/区外读取绕过**~~ ✅ 已还清（M9b） | `tools/permissions.py`、`tools/policy.py`、`tools/registry.py` | ✅ | Registry 在预算与 Tool.run 前强制统一门控；文件/进程/网络/MCP/Skill capability 独立决策；未知 Tool 默认 ask；Shell 仅证明极小只读集合，其余保守声明广泛能力；区外读写和敏感目录受控；提示词/banner 明确无 OS 沙箱 | 281 测试覆盖优先级、非交互拒绝、精确会话授权、observer fail-closed、Shell/Git 绕过、Skill/MCP 信任与脱敏 |
@@ -30,6 +30,7 @@
 | D18 | **Shell 超时未终止完整子进程树** | `tools/process.py` | 🟡 | timeout 会 kill/wait 直接 `Popen` 进程，但 `shell=True` 命令派生的子进程可能继续存活；当前不应宣称具备进程树级取消 | M10c 决定不以全栈 async 重构解决；后续独立立项 ProcessSupervisor，Windows Job Object / POSIX process group 经跨平台故障测试后才可还清 |
 | D19 | ~~**CLI 展示透传执行载荷，缺少语义摘要和详细度分层**~~ ✅ 已还清（M11a） | `tools/display.py`、`ui/`、`agent/events.py` | ✅ | ToolDisplay 语义摘要；normal/verbose/quiet；quiet 仅隐藏 Agent 轨迹、不隐藏 slash 控制面；normal 临时活动区不沉淀工具间旁白；Write/Edit 权限前有界预览与整块背景；全宽输入边界与会话启停 ID；参数、metadata、模型文本统一终端脱敏；15 FPS 流式 Markdown；错误自动展开 | 423 测试覆盖模式矩阵、quiet slash、写入/diff 背景/截断/脱敏、确认顺序、会话生命周期、过程丢弃/最终单次提交、碎片 Markdown、ANSI/密钥、工具 metadata；方案见 [归档计划](archive/phase4/m11a-cli-conversation-ui-plan.md) |
 | D20 | **MCP stdio stderr 单次长运行缺少在线硬上限** | `mcp/manager.py` | 🟢 | stderr 已与统一审计和 artifact 分离并落入 workspace 诊断目录，但 SDK 直接把子进程 fd 指向文件；退出前无法可靠轮转，异常 server 长时间刷 stderr 仍可能增长 | 后续结合 D18 ProcessSupervisor 统一实现 pipe drain、在线限流与跨平台进程树监管；当前文档不宣称 stderr 已硬限流 |
+| D21 | **MCP server 缺少运行期健康状态与熔断** | `mcp/manager.py`、`cli/extensions.py` | 🟡 | M12a 已保证写调用传输失败不重放，但 server 死亡后后续调用仍逐次触发 transport error；`/mcp doctor` 也不展示最近成功、连续失败或 breaker 状态 | 出现长会话 server 崩溃/重复失败时立项：先拆 manager discovery/policy，再实现调用前受控重连、连续失败熔断和 health 展示；发送后绝不重放 |
 
 ## 已还清（保留记录）
 - **任务级工具资源无边界** → M6.5 增加单次输出、累计输出、工具调用总数预算；多 tool-call 批次补齐结果后终止。✅ 2026-07-14

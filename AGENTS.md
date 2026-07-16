@@ -50,6 +50,8 @@ python -m assistant_agent
 ## 约定
 
 - 工具实现放 `tools/`，继承 `base.py` 的基类，在 `registry.py` 注册。
+- 自研 MCP 统一放在 `D:\Dev\mcp\<server_name>`，独立管理源码、测试和依赖；Agent 仓库只保留
+  MCP client、配置和接入文档，不内嵌业务 MCP 源码或测试。
 - shell 工具：删除/覆盖/移动等危险操作前必须向用户确认；普通命令直接执行。
 - 上下文管理要做长度感知截断——本地模型上下文窗口比云端小得多。
 - 错误处理要对"笨模型"健壮：本地小模型的工具调用格式经常不规范，解析要容错、要重试。
@@ -84,7 +86,7 @@ python -m assistant_agent
 
 ## 当前状态
 
-**第一至第四阶段已完成**。里程碑详情见 ROADMAP.md。
+**第一至第五阶段已完成**。里程碑详情见 ROADMAP.md。
 - 第一阶段：配置/模型抽象/工具/ReAct 循环/CLI，加流式输出、会话持久化、工具集扩展（edit/multi_edit/code_search/git 只读）、模型切换、循环工程与写入安全、slash 命令、init 向导，全部落地。
 - **第二阶段 M6/M6.5/M7a/M7b/M7c/M8a/M8b 已完成**：结构化日志与工具审计；任务级工具调用/累计输出预算与批次协议完整终止；Agent Skills 系统（SKILL.md 发现 + 渐进披露 + load_skill）；MCP client（stdio + HTTP 两种 transport）——外部 server 工具接入 + 同步桥 + 命名空间 + 每工具确认 + 过滤/上限 + HTTP 委托 SDK 管 session/重连不重放 + cli/setup.py Runtime，还清 D7；上下文进化——M8a 预算口径计入 tools schema + reserved（还 D10），M8b 摘要压缩替代硬截断（双历史 + checkpoint 持久化 + 按轮分组 + 降级兜底，默认关闭时逐字节等于现状）。
 - 双后端实测通过：云端 DeepSeek + 本地 LM Studio，切换只改 `config.yaml`，业务代码零改动。
@@ -96,8 +98,12 @@ python -m assistant_agent
 - M10c 决策完成：暂不进行全栈 async 重构；D18 保留，后续优先独立评估 Windows Job Object / POSIX process group 的跨平台进程监管。
 - M11a 已完成：ToolDisplay 语义摘要、normal/verbose/quiet、统一终端脱敏、15 FPS 流式 Markdown、`/display` 与 `run --quiet`；normal 过程文本仅在活动区显示，最终回答才落屏；Write/Edit 提供权限前有界代码预览/结构化 diff，并用整块代码底色和增删行背景区分；输入区全宽分隔并显示会话启停 ID；Console renderer 按职责拆分，还清 D19，未修改内核 Loop。
 - M11b/M11c 已完成：结构化 Web 搜索与安全抓取；Skill user/project 安装管理；MCP 原子配置、隔离探测、会话级 server/tool 信任、最小子进程环境和 workspace 产物治理；Playwright MCP 与 Skill 的真实安装/使用/卸载闭环通过，未修改内核 Loop。
-- 467 个测试通过（3 个平台能力测试跳过），覆盖率 82%，ruff/mypy 全绿；9119 行生产 Python 源码 + 1366 行 eval 基础设施。
+- M12a 已完成：通用 MCP 关联 ID 透传、受信 annotations、per-tool 恢复/超时策略、写调用 unknown
+  保护、输出契约校验和非敏感环境字面量配置；任意业务 MCP 均外置接入，未修改内核 Loop。
+- 483 个测试通过（3 个平台能力测试跳过），覆盖率 82%，ruff/mypy 全绿；9433 行生产 Python
+  源码 + 1366 行 eval 基础设施。
 
 第三阶段总规划见 `docs/phase3-trustworthy-agent-plan.md`；M9a-M10c 方案/决策已归档到
 `docs/archive/phase3/`，还清 D8/D9/D13/D14/D15/D16/D17。剩余工作按技术债和真实触发信号立项，
-不自动进入全栈 async 重构。M11a-M11c 方案已归档到 `docs/archive/phase4/`。
+不自动进入全栈 async 重构。M11a-M11c 方案已归档到 `docs/archive/phase4/`；M12a 方案见
+`docs/m12a-mcp-runtime-safety-plan.md`。

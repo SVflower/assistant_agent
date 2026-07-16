@@ -143,6 +143,14 @@ mcp:
   #     enabled: true
   #     timeout: 30                       # 单次工具调用超时（秒）
   #     auto_approve: false               # true=信任该 server 的全部当前工具（高风险）
+  #     trust_tool_annotations: false     # 仅自有、固定版本 server 可设 true；第三方默认不信只读声明
+  #     tool_policies:                    # 执行/恢复语义，不覆盖 permissions 的 deny/ask
+  #       read_data:
+  #         replay: safe_readonly         # 仅确定无副作用时配置
+  #         timeout: 15                   # 可按工具覆盖 server timeout
+  #       change_data:
+  #         replay: requires_decision
+  #         outcome_on_transport_error: unknown  # 断线后先查状态，禁止直接重试
   #     max_tools: 40                     # 该 server 工具数上限
   #     include_tools: []                 # 白名单；空=全部（再受上限约束）
   #     exclude_tools: []                 # 黑名单

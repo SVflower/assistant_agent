@@ -18,6 +18,9 @@ from assistant_agent.obs import NullLogger
 
 _ENV_REFERENCE = re.compile(r"^(?:[^$]*\$\{[A-Za-z_][A-Za-z0-9_]*\}[^$]*)+$")
 _SECRET_LIKE = re.compile(r"(?i)(?:sk-[a-z0-9_-]{12,}|gh[ps]_[a-z0-9]{12,}|bearer\s+[^$\s]+)")
+_SECRET_KEY = re.compile(
+    r"(?i)(?:token|secret|password|passwd|api[_-]?key|authorization|cookie|credential)"
+)
 
 
 class MCPConfigureError(RuntimeError):
@@ -138,9 +141,14 @@ class MCPService:
 
 
 def _validate_secret_references(server: MCPServerConfig) -> None:
-    for key, value in [*server.env.items(), *server.headers.items()]:
+    for key, value in server.env.items():
+        if not value or _ENV_REFERENCE.fullmatch(value):
+            continue
+        if _SECRET_KEY.search(key) or _SECRET_LIKE.search(value):
+            raise MCPConfigureError(f"{key} 疑似密钥，必须使用 ${{ENV_VAR}} 引用，不能写入明文值")
+    for key, value in server.headers.items():
         if value and not _ENV_REFERENCE.fullmatch(value):
-            raise MCPConfigureError(f"{key} 必须使用 ${{ENV_VAR}} 引用，不能写入明文值")
+            raise MCPConfigureError(f"HTTP header {key} 必须使用 ${{ENV_VAR}} 引用，不能写入明文值")
     values = [server.command, server.url, *server.args]
     if any(_SECRET_LIKE.search(value) for value in values):
         raise MCPConfigureError("command/args/url 中疑似包含明文密钥")

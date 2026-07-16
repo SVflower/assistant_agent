@@ -168,7 +168,8 @@ def _replay_policy(requests: list[PermissionRequest], ctx: ToolContext) -> Repla
         return "safe_readonly"
     if requests and all(
         request.metadata.get("trusted_readonly") is True
-        and request.capability in {Capability.FILESYSTEM_READ, Capability.PROCESS_EXECUTE}
+        and request.capability
+        in {Capability.FILESYSTEM_READ, Capability.PROCESS_EXECUTE, Capability.MCP_CALL}
         for request in requests
     ):
         return "safe_readonly"

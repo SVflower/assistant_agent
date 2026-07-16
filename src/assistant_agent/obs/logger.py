@@ -42,6 +42,9 @@ class NullLogger:
 
     def bind_session(self, session_id: str | None) -> None: ...
 
+    def correlation_context(self) -> dict[str, str]:
+        return {}
+
     def run_start(self, *, run_id: str, provider: str, model: str, task: str) -> None: ...
 
     def run_resume(
@@ -127,6 +130,15 @@ class EventLogger(NullLogger):
     def _path(self) -> Path:
         """当天日志文件路径（按天分卷，简单有界）。"""
         return self._dir / f"{datetime.now():%Y-%m-%d}.jsonl"
+
+    def correlation_context(self) -> dict[str, str]:
+        """供扩展协议透传稳定关联 ID，不暴露 logger 私有字段。"""
+        values = {
+            "trace_id": self._trace_id,
+            "session_id": self._session_id,
+            "run_id": self._run_id,
+        }
+        return {key: value for key, value in values.items() if isinstance(value, str) and value}
 
     def _write(self, event: dict[str, Any]) -> None:
         """补齐关联标识并追加一行。写入失败非致命，静默吞掉。"""

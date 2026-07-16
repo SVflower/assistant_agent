@@ -8,7 +8,7 @@ from typing import Any
 
 import pytest
 
-from assistant_agent.config.schema import MCPConfig, MCPServerConfig
+from assistant_agent.config.schema import MCPConfig, MCPServerConfig, MCPToolPolicyConfig
 from assistant_agent.mcp import MCPManager, MCPTool, extract_content
 from assistant_agent.mcp.manager import (
     _interpolate_env,
@@ -32,11 +32,13 @@ class _FakeTool:
         description: str = "desc",
         schema: dict | None = None,
         output_schema: dict | None = None,
+        annotations: dict | None = None,
     ) -> None:
         self.name = name
         self.description = description
         self.inputSchema = schema or {"type": "object", "properties": {}}
         self.outputSchema = output_schema
+        self.annotations = annotations
 
 
 class _FakeList:
@@ -79,7 +81,8 @@ class _FakeSession:
     async def list_tools(self) -> _FakeList:
         return _FakeList(self._tools)
 
-    async def call_tool(self, name: str, args: dict) -> Any:
+    async def call_tool(self, name: str, args: dict, *, meta: dict | None = None) -> Any:
+        self.last_meta = meta
         if self._call_delay:
             await asyncio.sleep(self._call_delay)
         if self._call_exc is not None:
@@ -122,7 +125,17 @@ def test_extract_structured_only_is_not_empty():
 
 
 # ---- MCPTool.run 权限与错误通道 ----
-def _tool(caller, *, auto_approve=False, timeout=5.0, server="srv", raw="do"):
+def _tool(
+    caller,
+    *,
+    auto_approve=False,
+    timeout=5.0,
+    server="srv",
+    raw="do",
+    trusted_readonly=False,
+    outcome_unknown=True,
+    output_schema=None,
+):
     return MCPTool(
         server=server,
         registered_name=f"mcp__{server}__{raw}",
@@ -132,6 +145,9 @@ def _tool(caller, *, auto_approve=False, timeout=5.0, server="srv", raw="do"):
         caller=caller,
         timeout=timeout,
         auto_approve=auto_approve,
+        trusted_readonly=trusted_readonly,
+        outcome_unknown_on_transport_error=outcome_unknown,
+        output_schema=output_schema,
     )
 
 
@@ -166,6 +182,28 @@ def test_run_session_tool_grant_ignores_argument_changes():
     assert not _execute(tool, {"target": "second"}, ctx).is_error
     assert len(prompts) == 1
     assert "first" in prompts[0]
+
+
+def test_run_forwards_stable_correlation_metadata():
+    captured = {}
+
+    class CorrelationLogger(NullLogger):
+        def correlation_context(self):
+            return {"trace_id": "trace-1", "session_id": "session-1", "run_id": "run-1"}
+
+    def caller(_server, _tool_name, _args, _timeout, meta):
+        captured.update(meta)
+        return _FakeCallResult([_FakeContent("text", "ok")])
+
+    tool = _tool(caller, auto_approve=True)
+    result = tool.run({}, ToolContext(logger=CorrelationLogger(), current_call_id="call-1"))
+    assert result.code == "ok"
+    assert captured == {
+        "trace_id": "trace-1",
+        "session_id": "session-1",
+        "run_id": "run-1",
+        "call_id": "call-1",
+    }
 
 
 def test_run_server_session_grant_covers_other_tools_only_on_same_server():
@@ -221,7 +259,7 @@ def test_run_protocol_exception_becomes_error():
 
     tool = _tool(boom, auto_approve=True)
     res = tool.run({}, ToolContext())
-    assert res.is_error and "调用失败" in res.output
+    assert res.is_error and res.code == "mcp_outcome_unknown" and res.retryable is False
 
 
 def test_run_timeout_becomes_error():
@@ -229,8 +267,20 @@ def test_run_timeout_becomes_error():
         raise TimeoutError()
 
     tool = _tool(slow, auto_approve=True)
-    res = tool.run({}, ToolContext())
-    assert res.is_error and "超时" in res.output
+    res = tool.run({}, ToolContext(current_call_id="call-timeout"))
+    assert res.is_error and res.code == "mcp_outcome_unknown" and res.retryable is False
+    assert "call_id=call-timeout" in res.output
+    assert res.metadata["correlation"]["call_id"] == "call-timeout"
+
+
+def test_trusted_readonly_transport_error_is_retryable():
+    def boom(*_args):
+        raise RuntimeError("reset")
+
+    tool = _tool(boom, trusted_readonly=True, outcome_unknown=False)
+    result = tool.run({}, ToolContext())
+    assert result.code == "mcp_transport_error"
+    assert result.retryable is True
 
 
 def test_run_tool_iserror_feeds_back():
@@ -241,6 +291,16 @@ def test_run_tool_iserror_feeds_back():
     res = tool.run({}, ToolContext())
     assert res.is_error and res.output == "bad args"  # 执行错误回喂模型
     assert res.code == "mcp_tool_error"
+
+
+def test_iserror_does_not_require_success_output_schema():
+    tool = _tool(
+        lambda *_args: _FakeCallResult([_FakeContent("text", "business rejected")], is_error=True),
+        output_schema={"type": "object", "required": ["ok"]},
+    )
+    result = tool.run({}, ToolContext())
+    assert result.code == "mcp_tool_error"
+    assert "business rejected" in result.output
 
 
 def test_run_preserves_structured_content_and_output_schema_hash():
@@ -260,6 +320,20 @@ def test_run_preserves_structured_content_and_output_schema_hash():
     assert result.metadata["structured_content"] == {"value": 42}
     assert len(result.metadata["output_schema_hash"]) == 16
     assert "42" in result.output
+
+
+def test_output_schema_mismatch_is_contract_error():
+    tool = _tool(
+        lambda *_args: _FakeCallResult([], structured={"value": "wrong"}),
+        output_schema={
+            "type": "object",
+            "properties": {"value": {"type": "integer"}},
+            "required": ["value"],
+        },
+    )
+    result = tool.run({}, ToolContext())
+    assert result.code == "mcp_contract_error"
+    assert result.retryable is False
 
 
 # ---- helper ----
@@ -307,6 +381,64 @@ def test_discover_include_exclude():
     assert [t.name for t in tools] == ["mcp__web__nav"]
 
 
+def test_untrusted_readonly_annotation_does_not_lower_replay_risk():
+    cfg = MCPServerConfig(command="x", trust_tool_annotations=False)
+    manager = _mgr({"web": cfg})
+    server = _inject(
+        manager,
+        "web",
+        _FakeSession([_FakeTool("read", annotations={"readOnlyHint": True})]),
+    )
+    tool = manager._discover("web", cfg, server, set(), budget=0)[0]
+    request = tool.permission_requests({}, ToolContext())[0]
+    assert request.metadata["trusted_readonly"] is False
+
+
+def test_trusted_annotations_and_policy_control_tool_semantics():
+    cfg = MCPServerConfig(
+        command="x",
+        trust_tool_annotations=True,
+        tool_policies={
+            "write": MCPToolPolicyConfig(
+                replay="requires_decision", outcome_on_transport_error="unknown", timeout=90
+            )
+        },
+    )
+    manager = _mgr({"owned": cfg})
+    server = _inject(
+        manager,
+        "owned",
+        _FakeSession(
+            [
+                _FakeTool("read", annotations={"readOnlyHint": True}),
+                _FakeTool("write", annotations={"destructiveHint": True}),
+            ]
+        ),
+    )
+    read, write = manager._discover("owned", cfg, server, set(), budget=0)
+    assert read.permission_requests({}, ToolContext())[0].metadata["trusted_readonly"] is True
+    assert write.permission_requests({}, ToolContext())[0].metadata["trusted_readonly"] is False
+    assert write._timeout == 90
+
+
+def test_destructive_annotation_overrides_erroneous_readonly_policy():
+    cfg = MCPServerConfig(
+        command="x",
+        auto_approve=True,
+        tool_policies={"write": MCPToolPolicyConfig(replay="safe_readonly")},
+    )
+    manager = _mgr({"owned": cfg})
+    server = _inject(
+        manager,
+        "owned",
+        _FakeSession([_FakeTool("write", annotations={"destructiveHint": True})]),
+    )
+    tool = manager._discover("owned", cfg, server, set(), budget=0)[0]
+    request = tool.permission_requests({}, ToolContext())[0]
+    assert request.metadata["trusted_readonly"] is False
+    assert request.metadata["trusted_server"] is False
+
+
 def test_discover_per_server_cap():
     cfg = MCPServerConfig(command="x", max_tools=1)
     m = _mgr({"web": cfg})
@@ -331,9 +463,10 @@ def test_sync_bridge_call_and_close():
     )
     _inject(m, "web", session)
     # 真实同步桥：起 loop 线程，把 call_tool 投进去
-    result = m._call_tool("web", "do", {}, 5.0)
+    result = m._call_tool("web", "do", {}, 5.0, {"call_id": "call-1"})
     text, is_error = extract_content(result)
     assert text == "done" and not is_error
+    assert session.last_meta == {"call_id": "call-1"}
     m.close()  # 干净关闭不抛
     assert m._loop is None
 
@@ -495,5 +628,6 @@ def test_http_reconnect_no_replay(monkeypatch):
 
     tool = _tool(exploding, auto_approve=True, server="h", raw="write_file")
     res = tool.run({"path": "x"}, ToolContext())
-    assert res.is_error and "调用失败" in res.output
+    assert res.is_error and res.code == "mcp_outcome_unknown"
+    assert res.retryable is False
     assert calls["n"] == 1  # 只调一次，绝无自动重试

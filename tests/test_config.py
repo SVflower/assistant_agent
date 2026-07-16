@@ -135,6 +135,32 @@ def test_runtime_budget_defaults(tmp_path):
     assert config.web.max_response_bytes == 2_000_000
 
 
+def test_mcp_per_tool_policy_parses_and_defaults_fail_closed(tmp_path):
+    yaml_text = (
+        _VALID_YAML
+        + """
+mcp:
+  servers:
+    records:
+      command: records-mcp
+      trust_tool_annotations: true
+      tool_policies:
+        read_record:
+          replay: safe_readonly
+          timeout: 10
+        update_record:
+          replay: requires_decision
+          outcome_on_transport_error: unknown
+"""
+    )
+    config = load_config(_write(tmp_path, yaml_text))
+    server = config.mcp.servers["records"]
+    assert server.trust_tool_annotations is True
+    assert server.tool_policies["read_record"].timeout == 10
+    assert server.tool_policies["update_record"].replay == "requires_decision"
+    assert server.auto_approve is False
+
+
 def test_web_config_override_and_validation(tmp_path):
     yaml_text = (
         _VALID_YAML

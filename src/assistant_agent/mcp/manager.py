@@ -257,8 +257,11 @@ class MCPManager:
             if raw_name in exclude:
                 continue
             input_schema = raw.inputSchema or {"type": "object", "properties": {}}
+            output_schema = getattr(raw, "outputSchema", None)
             try:
                 build_validator(f"mcp__{name}__{raw_name}", input_schema)
+                if output_schema is not None:
+                    build_validator(f"mcp__{name}__{raw_name} output", output_schema)
             except ToolSchemaError as exc:
                 self.warnings.append(f"MCP 工具 {name}/{raw_name} schema 无效，已跳过：{exc}")
                 continue
@@ -278,6 +281,24 @@ class MCPManager:
                 registered = f"{registered}_{suffix}"
             used_names.add(registered)
             server.tool_names.append(raw_name)
+            annotations = _tool_annotations(getattr(raw, "annotations", None))
+            policy = cfg.tool_policies.get(raw_name)
+            replay = policy.replay if policy is not None else "default"
+            destructive = annotations.get("destructiveHint") is True
+            trusted_readonly = replay == "safe_readonly" or (
+                replay == "default"
+                and cfg.trust_tool_annotations
+                and annotations.get("readOnlyHint") is True
+                and not destructive
+            )
+            if replay == "requires_decision" or destructive:
+                trusted_readonly = False
+            outcome_unknown = not trusted_readonly
+            if policy is not None and policy.outcome_on_transport_error == "unknown":
+                outcome_unknown = True
+            timeout = float(
+                policy.timeout if policy is not None and policy.timeout else cfg.timeout
+            )
             out.append(
                 MCPTool(
                     server=name,
@@ -286,17 +307,27 @@ class MCPManager:
                     description=raw.description or "",
                     input_schema=input_schema,
                     caller=self._call_tool,
-                    timeout=float(cfg.timeout),
-                    auto_approve=cfg.auto_approve,
-                    output_schema=getattr(raw, "outputSchema", None),
+                    timeout=timeout,
+                    auto_approve=cfg.auto_approve and not destructive,
+                    output_schema=output_schema,
+                    annotations=annotations,
+                    trusted_readonly=trusted_readonly,
+                    outcome_unknown_on_transport_error=outcome_unknown,
                 )
             )
         return out
 
-    def _call_tool(self, server: str, raw_tool: str, args: dict[str, Any], timeout: float) -> Any:
+    def _call_tool(
+        self,
+        server: str,
+        raw_tool: str,
+        args: dict[str, Any],
+        timeout: float,
+        meta: dict[str, Any] | None = None,
+    ) -> Any:
         """MCPTool.run 的同步桥入口：把 call_tool 投进 loop 线程等结果。"""
         session = self._servers[server].session
-        return self._submit(session.call_tool(raw_tool, args), timeout=timeout)
+        return self._submit(session.call_tool(raw_tool, args, meta=meta or None), timeout=timeout)
 
     def server_summary(self) -> list[tuple[str, list[str]]]:
         """(server 名, 其原始工具名列表) 列表，供 /mcp 展示。"""
@@ -315,3 +346,27 @@ def _managed_args(command: str, args: list[str], artifact_dir: Path) -> list[str
         "--output-max-size",
         str(100 * 1024 * 1024),
     ]
+
+
+def _tool_annotations(value: Any) -> dict[str, Any]:
+    """兼容 SDK Pydantic 模型与测试字典，只保留稳定的 MCP annotation 字段。"""
+    if value is None:
+        return {}
+    if hasattr(value, "model_dump"):
+        raw = value.model_dump(by_alias=True, exclude_none=True)
+    elif isinstance(value, dict):
+        raw = value
+    else:
+        raw = {
+            key: getattr(value, key)
+            for key in (
+                "title",
+                "readOnlyHint",
+                "destructiveHint",
+                "idempotentHint",
+                "openWorldHint",
+            )
+            if getattr(value, key, None) is not None
+        }
+    allowed = {"title", "readOnlyHint", "destructiveHint", "idempotentHint", "openWorldHint"}
+    return {key: raw[key] for key in allowed if key in raw}

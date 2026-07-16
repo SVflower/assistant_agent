@@ -154,6 +154,21 @@ def test_mcp_service_add_remove_manifest_and_secret_rejection(tmp_path, monkeypa
             MCPServerConfig(command="x", env={"TOKEN": "plain-secret"}),
             verify=True,
         )
+    with pytest.raises(MCPConfigureError, match="HTTP header"):
+        service.add(
+            "header-secret",
+            MCPServerConfig(command="x", headers={"X-Auth": "plain-secret"}),
+            verify=True,
+        )
+
+    literal = MCPServerConfig(
+        command="x",
+        env={"BASE_URL": "https://api.example.com", "READ_ONLY": "true"},
+        headers={"Authorization": "Bearer ${API_TOKEN}"},
+    )
+    result = service.add("literal", literal, verify=True)
+    assert result.tools == ("mcp__literal__tool",)
+    assert service.store.get("literal", "user").env["BASE_URL"] == "https://api.example.com"
 
 
 def test_mcp_service_enable_and_trust_are_scope_specific(tmp_path, monkeypatch):

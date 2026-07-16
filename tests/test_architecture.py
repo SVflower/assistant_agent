@@ -109,6 +109,14 @@ def test_tools_do_not_depend_on_agent_or_ui():
         assert "ui" not in layers, f"{path.name} 不应依赖 ui"
 
 
+def test_business_mcp_servers_are_external():
+    """业务 MCP 必须独立部署，Agent 仓库只实现通用 MCP client。"""
+    project_root = SRC.parents[1]
+    assert not (project_root / "mcp_servers").exists(), (
+        "业务 MCP 不得内嵌在 Agent 仓库；请迁移到独立 MCP 工作区"
+    )
+
+
 def test_file_size_budget():
     """单文件行数分级：超软线仅警告（交人评审），超硬线才失败（防膨胀）。
 

@@ -13,7 +13,7 @@
 **已具备能力**：
 - **模型**：后端可切换（云端 OpenAI 兼容 / Anthropic / 本地 LM Studio·Ollama·vLLM），config/`--provider`/对话内 `/model` 三种切法，切换保留上下文。
 - **交互**：15 FPS 流式 Markdown + 语义工具摘要 + normal/verbose/quiet + `/display`/`run --quiet`；normal 过程文本只在活动区显示、最终回答才落屏；Write/Edit 权限前有界代码预览/结构化 diff，代码底板与增删行背景明确分区；全宽输入边界与会话启停 ID；思考状态、耗时/token、上下文占用与 Ctrl+C 中断。
-- **安全/控制**：Registry 强制统一权限门（deny→ask→allow）；readonly/workspace/strict/unrestricted 四模式；文件/进程/网络/MCP/Skill capability 独立决策；精确会话授权；项目 Skill 与 MCP 信任边界；应用层审计明确不等于 OS 沙箱。
+- **安全/控制**：Registry 强制统一权限门（deny→ask→allow）；四种权限模式与独立 capability；第一次 Ctrl+C 可恢复暂停、第二次强制取消；Windows Job Object/POSIX process group 清理受管进程树；Host/Confined/Container 三种 Workspace，其中容器默认无网络、非 root 且受资源限制。
 - **记忆/恢复**：token 感知截断与摘要压缩；Session JSON 持久化；步骤级 Run checkpoint、
   `runs`/`resume`、双槽损坏回退和副作用不确定状态人工处置。
 - **工具**：读/写/局部编辑/列目录/shell/代码检索/git 只读/用户澄清，以及带来源的
@@ -34,24 +34,24 @@
   已完成工具不重放，started 副作用需 retry/skip/abort；预算、重复熔断、权限和摘要状态跨进程恢复；
   trace/session/run/call 标识对齐，还清 D8。
 
-**质量**：497 测试通过（3 个平台能力测试跳过）、覆盖率 82%、11078 行生产 Python 源码 +
+**质量**：526 测试通过（5 个平台能力测试跳过）、覆盖率 82%、12146 行生产 Python 源码 +
 1564 行 eval 基础设施，Ruff/mypy 全绿。架构适应度测试（依赖分层 + 行数分级软/硬）、技术债册、
 DoD 和里程碑工作流全在；CI 已加入 format/lint/mypy/coverage/scripted eval/recovery eval 与
 Windows/Linux、Python 3.11/3.13 矩阵。
 
-**边界（明确未做）**：子 Agent 编排、真沙箱、Web GUI、rewind/recap、非交互 init、PyPI 分发。
+**边界（明确未做）**：外置 MCP/自定义 Python Tool 的容器化、远程 Workspace、子 Agent 编排、
+Web GUI、rewind/recap、非交互 init、PyPI 分发。
 
-**阶段状态**：第三阶段“可信执行与质量闭环”已完成。M10c 决定暂不进行全栈 async 重构；
-D18 保留，后续优先按真实需求独立评估跨平台进程监管。见
-[第三阶段规划](docs/phase3-trustworthy-agent-plan.md)与 [M10c 决策](docs/archive/phase3/m10c-async-runtime-decision.md)。
+**阶段状态**：第一至第七阶段已完成。M10c 的“不做全栈 async”决策保持不变；M14 以同步
+RunControl、跨平台 ProcessSupervisor 和 Workspace 抽象补齐受控执行边界并还清 D18。
 
-**当前进展**：M13a 已完成。新增 provider-neutral 的声明式函数工具适配层，从类型注解生成
-Pydantic/JSON Schema，支持 `ToolContext` 注入和权限解析器，并完整复用现有 Registry 安全链路；
-未迁移现有工具、未修改 Loop。见
-[M13a 方案](docs/archive/phase6/m13a-declarative-tool-plan.md)。
+**当前进展**：M14 已完成。任务支持暂停/强制取消和跨进程恢复；内置文件/进程工具统一经过
+Workspace；可仅改配置选择宿主、路径受限或 Docker/Podman 容器执行。容器只覆盖 Shell/Git，
+Web、外置 MCP 和自定义 Python Tool 仍明确位于宿主边界。见
+[M14 方案](docs/archive/phase7/m14-controlled-execution-runtime-plan.md)。
 
-**剩余技术债**：7 项（D5/D6/D11/D12/D18/D20/D21）。M9a 已还清 D13/D15/D17，M9b 已还清
-D14，M9c 已还清 D9，M10a 已还清 D16 并登记 D18，M10b 已还清 D8，M11a 已还清 D19。详见
+**剩余技术债**：6 项（D5/D6/D11/D12/D20/D21）。M9a 已还清 D13/D15/D17，M9b 已还清
+D14，M9c 已还清 D9，M10a 已还清 D16，M10b 已还清 D8，M11a 已还清 D19，M14a 已还清 D18。详见
 [技术债登记册](docs/TECH_DEBT.md)。
 
 ---
@@ -187,6 +187,20 @@ D14，M9c 已还清 D9，M10a 已还清 D16 并登记 D18，M10b 已还清 D8，
 > 未声明权限时沿用未知扩展的保守声明，声明权限后仍由 Registry 强制决策。497 passed、3 skipped、
 > 覆盖率 82%，Ruff/format/mypy 全绿；新增模块 162 行，未修改 Loop，未迁移现有工具。
 
+### 第七阶段（已完成）
+
+| 里程碑 | 主题 | 状态 |
+|--------|------|------|
+| M14a | 可靠中断与跨平台进程树监管 | ✅ · [方案](docs/archive/phase7/m14-controlled-execution-runtime-plan.md) |
+| M14b | 统一 Workspace 执行边界 | ✅ · [方案](docs/archive/phase7/m14-controlled-execution-runtime-plan.md) |
+| M14c | Docker/Podman 可选容器 Workspace | ✅ · [方案](docs/archive/phase7/m14-controlled-execution-runtime-plan.md) |
+
+> **M14 已完成**：RunControl 支持第一次暂停、第二次强制取消；RunState v2 增加 cancelled；
+> ProcessSupervisor 使用 Windows Job Object/POSIX process group 清理受管进程树并还清 D18。
+> 文件/Shell/Git 统一经过 Workspace；容器默认仅挂载当前项目、无网络、非 root、清空 capabilities，
+> 并设置 CPU/内存/PID 限制。526 passed、5 skipped、覆盖率 82%，Ruff/format/mypy 全绿。
+> M14a 经用户授权修改 Loop，M14b/M14c 未修改 Loop。
+
 ## 未来方向（P3，信号驱动，暂不做）
 
 | 方向 | 触发信号 |
@@ -194,7 +208,7 @@ D14，M9c 已还清 D9，M10a 已还清 D16 并登记 D18，M10b 已还清 D8，
 | 拒绝确认时附原因回传模型 | M2.5 尾巴，想让模型据拒绝原因换做法时做 |
 | D5：补 UI 层测试（console/main）| 触及相关改动时补 |
 | D6：provider/model 分层重构 | 同厂商挂 4+ 模型、重复条目变烦时 |
-| 真沙箱（OS 级隔离）| 要跑不可信任务 / 全自动无人值守 / 给别人用时 |
+| 覆盖 MCP/自定义 Tool 的完整隔离或远程 Workspace | 要跑不可信扩展 / 全自动无人值守 / 给别人用时 |
 | 子 Agent 编排、Web GUI、rewind/recap | 需求明确且前置能力成熟时 |
 | 非交互 init、PyPI/pipx 分发、macOS·原生 Linux 真机验证 | 分享/多平台推广时 |
 | D12：选择性/检索式记忆（替代整段摘要）| 长会话里早期具体事实被摘要糊掉、后续又要精确引用时 |

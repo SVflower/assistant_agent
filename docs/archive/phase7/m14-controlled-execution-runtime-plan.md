@@ -1,7 +1,6 @@
 # M14 受控执行运行时方案
 
-> 状态：实施中（2026-07-17）。用户已授权修改 `agent/loop.py`；M14a/M14b 已完成，M14c
-> 待实施。
+> 状态：已完成（2026-07-17）。用户已授权修改 `agent/loop.py`；M14a/M14b/M14c 全部完成。
 
 ## 1. 背景与目标
 
@@ -226,6 +225,24 @@ M14b 原则上不修改 `agent/loop.py`。
 
 容器实现不修改 Agent Loop；真实 Docker 测试标记为平台能力测试，没有 Docker 时 skip，确定性
 单测仍必须覆盖命令构造、挂载、环境和清理策略。
+
+### 7.1 M14c 实施结果
+
+- 新增 `ContainerWorkspace`，支持 Docker/Podman；引擎缺失、启动失败和健康检查失败均稳定报错，
+  不静默回退宿主模式；
+- Shell 字符串通过容器内 `sh -lc`，Git 参数列表直接传给 `exec`，宿主侧始终 `shell=False`；
+- 仅 bind mount 当前 workspace 到 `/workspace`，默认 `--network none`、`--cap-drop ALL`、
+  `no-new-privileges`、非 root，并设置 CPU、内存和 PID 限制；不传入 HOME、SSH、云凭据或
+  Docker socket；
+- timeout/pause/cancel 会销毁整只容器，避免只杀 `docker exec` 客户端后容器内进程继续运行；
+  后续命令按需重建，正常/异常退出统一清理；
+- 文件工具继续操作同一受限宿主 bind mount；Web、外置 MCP 和自定义 Python Tool 明确不受
+  该容器隔离，Runtime 启动时显示边界警告；
+- 容器镜像必须自行包含任务依赖（默认 Python slim 不保证包含 Git）；容器 rootfs 没有承诺
+  跨 Docker storage driver 的可移植磁盘配额，workspace 产物继续受既有权限与 artifact 上限约束；
+- 确定性测试覆盖命令构造、挂载、cwd、健康检查、非 root、资源限制、中断销毁重建和清理失败；
+  本机无 Docker/Podman，真实容器闭环按能力跳过并保留为有镜像环境自动执行的测试；
+- 最终 526 passed、5 skipped、覆盖率 82%，Ruff/format/mypy 全绿；M14c 未修改 Loop。
 
 ## 8. 明确不做
 

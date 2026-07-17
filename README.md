@@ -96,6 +96,23 @@ ui:
 workspace Artifact 返回，文件数由 `tools.max_artifact_files` 限制。预算耗尽时 Agent 会补齐
 当前工具批次的结果并安全终止。
 
+内置工具执行环境由 `sandbox.mode` 选择：`off` 保持宿主兼容；`workspace` 强制文件和 cwd 不越过
+当前项目，但它不是 OS 沙箱；`container` 使用 Docker/Podman，把 Shell/Git 放入临时容器。容器
+默认只挂载当前项目、禁网、非 root、清空 capabilities，并限制 CPU/内存/PID；退出、超时或中断
+会强制销毁。Web、外置 MCP server 和自定义 Python Tool 仍在宿主机运行，不继承容器隔离。
+
+```yaml
+sandbox:
+  mode: container       # off | workspace | container
+  engine: docker        # docker | podman
+  image: python:3.11-slim
+  network: none
+  memory: 1g
+  cpus: 1.0
+  pids_limit: 256
+  user: auto            # 禁止 root
+```
+
 `read_file` 支持 1-based `start_line`/`end_line` 范围读取并返回总行数与下一页提示；
 `code_search` 支持 `context_lines`。所有工具参数会在授权和副作用前按 JSON Schema 校验，
 错误带稳定 code/retryable；write/edit/multi_edit 使用同目录临时文件和原子替换。
@@ -225,11 +242,12 @@ ui/       终端输入输出（Rich 流式渲染）
 
 扩展点：换模型动 `config.yaml`；加能力优先在 `tools/` 加文件并在 `registry.py` 注册，或接 `skills/`（SKILL.md）与 `mcp/`（外部 server）——内核 `agent/loop.py` 通常不必动（确需演进时先确认）。
 
-第三阶段“可信执行与质量闭环”已完成：M9a-M10b 已交付，M10c 决定暂不进行全栈 async 重构，
-D18 进程树终止边界保留待独立立项。第四阶段 M11a-M11c 已完成 CLI 展示、可信联网检索和
+第三阶段“可信执行与质量闭环”已完成：M9a-M10b 已交付，M10c 决定不进行全栈 async 重构。
+第四阶段 M11a-M11c 已完成 CLI 展示、可信联网检索和
 MCP/Skill 自助管理。第五阶段 M12a 已完成 provider-neutral 的 MCP 运行时安全语义；第六阶段
-M13a 已完成声明式工具适配层。当前 497 个测试通过（3 个平台能力测试跳过）、覆盖率 82%、
-11078 行生产 Python 源码 + 1564 行 eval 基础设施。详见
-[M13a 方案](docs/archive/phase6/m13a-declarative-tool-plan.md)。
+M13a 已完成声明式工具适配层；第七阶段 M14 已完成暂停/取消、进程树监管与可选容器 Workspace，
+还清 D18。当前 526 个测试通过（5 个平台能力测试跳过）、覆盖率 82%、12146 行生产 Python
+源码 + 1564 行 eval 基础设施。详见
+[M14 方案](docs/archive/phase7/m14-controlled-execution-runtime-plan.md)。
 
 详见 [DESIGN.md](DESIGN.md)。

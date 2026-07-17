@@ -37,6 +37,8 @@ class ToolRenderer:
             if display.preview is not None:
                 self._console.print(_call_line(action, target))
                 self._print_preview(display.preview)
+            elif display.importance == "external":
+                self._console.print(_decision_line(action, target))
             return label
         if self._mode == "quiet":
             return label
@@ -94,9 +96,9 @@ class ToolRenderer:
 
     def _print_preview(self, preview: ToolPreview) -> None:
         if preview.kind == "code":
-            title = f"  写入预览 · {preview.total_lines} 行"
+            title = f"  准备写入 · {preview.total_lines} 行"
         else:
-            title = f"  拟议变更 · +{preview.added_lines} -{preview.removed_lines}"
+            title = f"  准备修改 · +{preview.added_lines} -{preview.removed_lines}"
         if preview.shown_lines < preview.total_lines:
             title += f" · 显示前 {preview.shown_lines} 行"
         self._console.print(Text(title, style="dim"))
@@ -125,6 +127,15 @@ def _indent(value: str, prefix: str) -> str:
 def _call_line(action: str, target: str) -> Text:
     line = Text("• ", style="cyan")
     line.append(action, style="bold")
+    if target:
+        line.append(" ")
+        line.append(target, style="cyan")
+    return line
+
+
+def _decision_line(action: str, target: str) -> Text:
+    line = Text("◆ ", style="yellow")
+    line.append(f"准备{action}", style="bold yellow")
     if target:
         line.append(" ")
         line.append(target, style="cyan")

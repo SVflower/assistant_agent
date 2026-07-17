@@ -2,8 +2,8 @@
 
 > AI 迭代开发中，债务会隐形复利（LLM 在每个决策点埋入未言明的假设）。
 > 这里显式追踪，防止"上次说的债"下次忘。每次里程碑评审更新本表。
-> 最后更新：2026-07-17（M14 受控执行运行时完成，还清 D18；D20 的 MCP stderr 在线上限
-> 仍保留。方案见 [M14](archive/phase7/m14-controlled-execution-runtime-plan.md)。）
+> 最后更新：2026-07-17（M15 CLI 活性反馈已完成并归档；本期未新增技术债，
+> D5 已补 Activity/Markdown 空闲/renderer/授权分支测试，真实 TTY 与键盘交互仍按触及时手验。）
 
 ## 状态说明
 - 🔴 高：影响正确性/安全，或脆弱的关键路径
@@ -14,7 +14,7 @@
 
 | # | 债务 | 位置 | 级别 | 风险 | 计划 |
 |---|------|------|:---:|------|------|
-| D5 | **UI 交互层测试仍薄** | `ui/console.py`、`main.py` | 🟡 | M11a 已覆盖 renderer/Markdown/展示模式、quiet slash 控制面、写入预览确认顺序，以及 chat 新建→`/clear`→退出的真实会话 ID；真实 SIGINT、TTY Live 与真实键盘行编辑仍主要靠手验 | 不必全补；触及时补 |
+| D5 | **UI 交互层测试仍薄** | `ui/console.py`、`main.py` | 🟡 | M15 补齐 Activity 动态计时/单 Live 生命周期、Markdown 空闲反馈、renderer 阶段与异常清理、授权/继续恢复和 quiet 回归；真实 SIGINT、TTY 自动刷新与真实键盘行编辑仍主要靠手验 | 不必全补；触及时补 |
 | D6 | **provider 与 model 未分层** | `config/schema.py` providers | 🟢 | 一条目=一模型；同厂商多模型要重复写 api_base/api_key（key 可用 ${VAR} 缓解） | **暂不做（YAGNI）**。触发信号：同一厂商挂 **4+ 个模型**、重复条目变烦时，重构成"backends（连接层）+ models（复用 backend）"两层（参考 Codex model_providers）。当前 2-3 模型不值得改 schema |
 | D7 | ~~**main.py 越过行数软线**~~ ✅ 已还清（M7b）| `main.py`(222)、`cli/setup.py` | ✅ | M7b 把 wiring（build_runtime + Runtime 上下文管理器）抽到 `cli/setup.py`，main.py 329→222，回落软线 300 以下。`_interrupt` 保留在 main（信号处理是 CLI 关注点），以 `interrupt_check` 参数注入。**剩 file_ops.py(278)** 仍近软线，触及"读/写/编辑"再分组 |
 | D8 | ~~**日志按会话/模型维度的缺口**~~ ✅ 已还清（M10b） | `obs/logger.py`、`cli/recovery.py` | ✅ | `trace_id`（进程）、`session_id`（聊天）、`run_id`（任务）拆分；`/clear` 重新绑定 Session；`model_switch` 更新后续事件模型；tool_call 带 run/call/provider/model；恢复与 checkpoint 有独立事件 | 新旧 JSONL 字段兼容；日志仍是尽力而为的观测，不参与 checkpoint 正确性 |

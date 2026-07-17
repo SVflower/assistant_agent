@@ -86,7 +86,11 @@ class ManageSkillTool(Tool):
 
     def display_call(self, args: dict[str, Any]) -> ToolDisplay:
         action = "安装 Skill" if args.get("action") == "install" else "卸载 Skill"
-        return ToolDisplay(action, safe_text(args.get("source") or args.get("name") or "", 120))
+        return ToolDisplay(
+            action,
+            safe_text(args.get("source") or args.get("name") or "", 120),
+            importance="external",
+        )
 
 
 class ConfigureMCPServerTool(Tool):
@@ -220,7 +224,9 @@ class ConfigureMCPServerTool(Tool):
 
     def display_call(self, args: dict[str, Any]) -> ToolDisplay:
         action = _ACTION_LABEL.get(str(args.get("action")), "配置")
-        return ToolDisplay(f"MCP {action}", safe_text(args.get("name", ""), 80))
+        return ToolDisplay(
+            f"MCP {action}", safe_text(args.get("name", ""), 80), importance="external"
+        )
 
 
 _ACTION_LABEL = {

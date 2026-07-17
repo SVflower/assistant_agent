@@ -21,7 +21,7 @@ from assistant_agent.tools.result import ToolResult
 from assistant_agent.ui.chat_prompt import ChatPrompt, SlashCommandCompleter
 from assistant_agent.ui.console import Console
 from assistant_agent.ui.conversation_renderer import ConversationRenderer
-from assistant_agent.ui.markdown_stream import StreamingMarkdownRenderer
+from assistant_agent.ui.markdown_stream import StreamingMarkdownRenderer, StreamingMarkdownView
 from assistant_agent.ui.tool_renderer import ToolRenderer
 
 
@@ -91,7 +91,7 @@ def test_normal_write_renderer_shows_redacted_bounded_preview_and_not_result_bod
     renderer = ToolRenderer(owner._console, "normal")
     renderer.call(StepEvent(kind="tool_call", tool_name="write_file", tool_args=args, display=call))
     before = owner.text()
-    assert "写入 tasks.py" in before and "写入预览 · 2 行" in before
+    assert "写入 tasks.py" in before and "准备写入 · 2 行" in before
     assert "print('safe')" in before and "sk-abcdef" not in before and "REDACTED" in before
     renderer.result(
         StepEvent(
@@ -123,7 +123,7 @@ def test_normal_edit_renderer_shows_structured_diff():
     renderer.call(StepEvent(kind="tool_call", tool_name="edit_file", tool_args=args, display=call))
     html = owner._console.export_html(inline_styles=True, clear=False).lower()
     output = owner.text()
-    assert "编辑 index.html" in output and "拟议变更 · +2 -1" in output
+    assert "编辑 index.html" in output and "准备修改 · +2 -1" in output
     assert "-<h1>Old</h1>" in output and "+<h1>New</h1>" in output
     assert "#183c2b" in html and "#4a2429" in html and "#16181d" in html
 
@@ -276,6 +276,63 @@ def test_streaming_markdown_can_discard_non_final_segment():
     renderer.append("准备调用工具")
     renderer.finish(commit=False)
     assert owner.text() == ""
+
+
+def test_streaming_markdown_view_shows_feedback_only_while_stream_is_idle():
+    class Clock:
+        value = 0.0
+
+        def __call__(self):
+            return self.value
+
+    clock = Clock()
+    view = StreamingMarkdownView(clock=clock)
+
+    def render() -> str:
+        console = RichConsole(record=True, width=80)
+        console.print(view)
+        return console.export_text()
+
+    view.update("正在准备文件")
+    assert "模型仍在生成" not in render()
+
+    clock.value = 2.25
+    output = render()
+    assert "正在准备文件" in output
+    assert "模型仍在生成  2.2s" in output
+    assert "Ctrl+C" not in output
+
+    clock.value = 9.0
+    assert "Ctrl+C 可暂停" in render()
+    view.update("收到新内容")
+    assert "模型仍在生成" not in render()
+
+
+def test_streaming_markdown_throttle_does_not_reprocess_full_buffer(monkeypatch):
+    class Clock:
+        value = 1.0
+
+        def __call__(self):
+            return self.value
+
+    owner = _Owner()
+    owner._console = RichConsole(record=True, force_terminal=True, width=80)
+    clock = Clock()
+    renderer = StreamingMarkdownRenderer(owner._console, lambda _live: None, clock=clock)
+    renders = 0
+    original = renderer._render_text
+
+    def counted_render():
+        nonlocal renders
+        renders += 1
+        return original()
+
+    monkeypatch.setattr(renderer, "_render_text", counted_render)
+    renderer.append("a")
+    renderer.append("b")
+    renderer.append("c")
+    renderer.finish()
+    assert renders == 2
 
 
 def test_conversation_normal_avoids_duplicate_tool_body():

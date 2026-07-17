@@ -15,6 +15,7 @@ from rich.text import Text
 
 from assistant_agent.agent.events import StepEvent
 from assistant_agent.tools.base import ConfirmChoice
+from assistant_agent.ui.activity import suspend_active
 from assistant_agent.ui.formatting import (
     build_banner,
     build_providers_table,
@@ -158,9 +159,7 @@ class Console:
         关键：提示前必须停掉正在转的 Live spinner，否则 spinner 占着终端，
         确认提示不可见、无法输入 → 卡死（M2 流式引入的问题）。
         """
-        if self._active_live is not None:
-            self._active_live.stop()
-            self._active_live = None
+        suspend_active(self)
         # 若上一段流式正文停在半行，先补换行，保证提示与输入独占干净的新行，
         # 避免残留文本污染输入、导致选择被误判。
         if not self._at_line_start:
@@ -178,17 +177,15 @@ class Console:
         elif answer == "2":
             choice = "always"
         if choice != "deny":
-            # 放行后到命令真正跑完之间没有 spinner（confirm 已停掉它）。
-            # 补一行静态反馈，避免慢命令期间看着像"卡住无反应"。
-            self._console.print("[dim]执行中…[/dim]")
+            activity = getattr(self, "_activity", None)
+            if activity is not None:
+                activity.resume("执行已授权操作")
             self._at_line_start = True
         return choice
 
     def confirm_scoped(self, message: str, broader_label: str) -> ConfirmChoice:
         """带上级会话 scope 的确认；当前用于 MCP server 会话信任。"""
-        if self._active_live is not None:
-            self._active_live.stop()
-            self._active_live = None
+        suspend_active(self)
         if not self._at_line_start:
             self._console.print()
             self._at_line_start = True
@@ -207,7 +204,9 @@ class Console:
         elif answer == "3":
             choice = "broader"
         if choice != "deny":
-            self._console.print("[dim]执行中…[/dim]")
+            activity = getattr(self, "_activity", None)
+            if activity is not None:
+                activity.resume("执行已授权操作")
             self._at_line_start = True
         return choice
 
@@ -228,9 +227,7 @@ class Console:
 
     def confirm_continue(self, used: int) -> bool:
         """用尽轮数时询问是否继续。注入到 AgentLoop.continue_check。"""
-        if self._active_live is not None:
-            self._active_live.stop()
-            self._active_live = None
+        suspend_active(self)
         answer = (
             self.input(
                 f"[bold yellow]已执行 {used} 轮仍未完成，继续吗？输入 y 继续: [/bold yellow]"
@@ -238,7 +235,12 @@ class Console:
             .strip()
             .lower()
         )
-        return answer in ("y", "yes")
+        allowed = answer in ("y", "yes")
+        if allowed:
+            activity = getattr(self, "_activity", None)
+            if activity is not None:
+                activity.resume("继续处理")
+        return allowed
 
     def ask_question(self, question: str, options: list[str]) -> str:
         """层1 意图澄清：方向键菜单选择，返回用户所选（或"其他"的自由文本）。
@@ -246,9 +248,7 @@ class Console:
         与 confirm 一样：提示前停掉 spinner、补换行，避免占屏/输入污染。
         优先用 questionary 的 ↑/↓ 选择菜单（Claude 风格）；终端不支持时回退到编号输入。
         """
-        if self._active_live is not None:
-            self._active_live.stop()
-            self._active_live = None
+        suspend_active(self)
         if not self._at_line_start:
             self._console.print()
             self._at_line_start = True

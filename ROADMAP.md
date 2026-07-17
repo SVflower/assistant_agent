@@ -34,7 +34,7 @@
   已完成工具不重放，started 副作用需 retry/skip/abort；预算、重复熔断、权限和摘要状态跨进程恢复；
   trace/session/run/call 标识对齐，还清 D8。
 
-**质量**：529 测试通过（5 个平台能力测试跳过）、覆盖率 82%、12166 行生产 Python 源码 +
+**质量**：545 测试通过（5 个平台能力测试跳过）、覆盖率 83%、12350 行生产 Python 源码 +
 1564 行 eval 基础设施，Ruff/mypy 全绿。架构适应度测试（依赖分层 + 行数分级软/硬）、技术债册、
 DoD 和里程碑工作流全在；CI 已加入 format/lint/mypy/coverage/scripted eval/recovery eval 与
 Windows/Linux、Python 3.11/3.13 矩阵。
@@ -42,13 +42,14 @@ Windows/Linux、Python 3.11/3.13 矩阵。
 **边界（明确未做）**：外置 MCP/自定义 Python Tool 的容器化、远程 Workspace、子 Agent 编排、
 Web GUI、rewind/recap、非交互 init、PyPI 分发。
 
-**阶段状态**：第一至第七阶段已完成。M10c 的“不做全栈 async”决策保持不变；M14 以同步
-RunControl、跨平台 ProcessSupervisor 和 Workspace 抽象补齐受控执行边界并还清 D18。
+**阶段状态**：第一至第八阶段已完成。M10c 的
+“不做全栈 async”决策保持不变；M14 以同步 RunControl、跨平台 ProcessSupervisor 和 Workspace
+抽象补齐受控执行边界并还清 D18。
 
-**当前进展**：M14 已完成。任务支持暂停/强制取消和跨进程恢复；内置文件/进程工具统一经过
-Workspace；可仅改配置选择宿主、路径受限或 Docker/Podman 容器执行。容器只覆盖 Shell/Git，
-Web、外置 MCP 和自定义 Python Tool 仍明确位于宿主边界。见
-[M14 方案](docs/archive/phase7/m14-controlled-execution-runtime-plan.md)。
+**当前进展**：M15 已完成并归档。CLI 使用单 Live 动态展示当前
+阶段与等待耗时；流式正文停更 1 秒后显示“模型仍在生成”，覆盖大文件工具参数组装空窗；授权
+放行后恢复活动反馈。normal 只持久展示文件变更预览和外部副作用意图，不展示隐藏推理。见
+[M15 活性反馈方案](docs/archive/phase8/m15-cli-activity-feedback-plan.md)。
 
 **剩余技术债**：6 项（D5/D6/D11/D12/D20/D21）。M9a 已还清 D13/D15/D17，M9b 已还清
 D14，M9c 已还清 D9，M10a 已还清 D16，M10b 已还清 D8，M11a 已还清 D19，M14a 已还清 D18。详见
@@ -200,6 +201,17 @@ D14，M9c 已还清 D9，M10a 已还清 D16，M10b 已还清 D8，M11a 已还清
 > 文件/Shell/Git 统一经过 Workspace；容器默认仅挂载当前项目、无网络、非 root、清空 capabilities，
 > 并设置 CPU/内存/PID 限制。526 passed、5 skipped、覆盖率 82%，Ruff/format/mypy 全绿。
 > M14a 经用户授权修改 Loop，M14b/M14c 未修改 Loop。
+
+### 第八阶段（已完成）
+
+| 里程碑 | 主题 | 状态 |
+|--------|------|------|
+| M15 | CLI 活性反馈与关键动作可见性 | ✅ · [方案](docs/archive/phase8/m15-cli-activity-feedback-plan.md) |
+
+> **M15 已完成**：统一 ActivityController 以单个 Live 展示模型、分析、工具和授权后执行阶段；
+> 当前阶段耗时动态增长，正文停更 1 秒后显示模型仍在生成，连续等待超过 8 秒显示暂停提示。
+> normal 仅落文件变更预览和外部动作意图，quiet 不增加过程输出。545 passed、5 skipped、覆盖率
+> 83%，Ruff/format/mypy 全绿；未修改 Loop。
 
 ## 未来方向（P3，信号驱动，暂不做）
 

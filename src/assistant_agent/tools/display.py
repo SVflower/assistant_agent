@@ -45,6 +45,7 @@ class ToolDisplay:
     summary: str = ""
     detail: str = ""
     preview: ToolPreview | None = None
+    importance: Literal["routine", "change", "external"] = "routine"
 
 
 def safe_text(value: Any, limit: int = 500, *, multiline: bool = False) -> str:
@@ -99,7 +100,17 @@ def call_display(name: str, args: dict[str, Any]) -> ToolDisplay:
         _target(name, args),
         detail=safe_text(detail, 500),
         preview=_write_preview(name, args),
+        importance=_importance(name),
     )
+
+
+def _importance(name: str) -> Literal["routine", "change", "external"]:
+    if name in {"write_file", "edit_file", "multi_edit"}:
+        return "change"
+    routine = {"read_file", "list_dir", "code_search", "git", "ask_user", "load_skill"}
+    if name in routine:
+        return "routine"
+    return "external"
 
 
 def _write_preview(name: str, args: dict[str, Any]) -> ToolPreview | None:

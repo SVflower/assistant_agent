@@ -246,8 +246,9 @@ ui/       终端输入输出（Rich 流式渲染）
 第四阶段 M11a-M11c 已完成 CLI 展示、可信联网检索和
 MCP/Skill 自助管理。第五阶段 M12a 已完成 provider-neutral 的 MCP 运行时安全语义；第六阶段
 M13a 已完成声明式工具适配层；第七阶段 M14 已完成暂停/取消、进程树监管与可选容器 Workspace，
-还清 D18。当前 529 个测试通过（5 个平台能力测试跳过）、覆盖率 82%、12166 行生产 Python
-源码 + 1564 行 eval 基础设施。详见
-[M14 方案](docs/archive/phase7/m14-controlled-execution-runtime-plan.md)。
+还清 D18。第八阶段 M15 已完成统一 CLI 活性反馈、动态阶段计时、正文停更后的模型生成提示、
+授权后恢复动画和关键外部动作摘要。当前 545 个测试通过（5 个平台能力测试跳过）、覆盖率 83%、
+12350 行生产 Python 源码 + 1564 行 eval 基础设施。详见
+[M15 活性反馈方案](docs/archive/phase8/m15-cli-activity-feedback-plan.md)。
 
 详见 [DESIGN.md](DESIGN.md)。

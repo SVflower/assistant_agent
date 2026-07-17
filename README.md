@@ -219,13 +219,17 @@ ui/       终端输入输出（Rich 流式渲染）
 只通过标准 MCP 接入。Agent 的 MCP client 支持稳定调用 ID 透传、受信 tool annotations、按工具
 恢复/超时策略、写调用结果未知保护和结构化输出契约校验。
 
+简单 Python 工具可通过公开的 `@agent_tool` / `FunctionTool` API 从类型注解生成 Schema；注册后仍
+完整经过 Registry 的参数校验、权限、预算、审计、observer 和恢复链路。未声明权限时沿用未知扩展
+工具的保守权限声明，最终行为由统一权限策略决定。
+
 扩展点：换模型动 `config.yaml`；加能力优先在 `tools/` 加文件并在 `registry.py` 注册，或接 `skills/`（SKILL.md）与 `mcp/`（外部 server）——内核 `agent/loop.py` 通常不必动（确需演进时先确认）。
 
 第三阶段“可信执行与质量闭环”已完成：M9a-M10b 已交付，M10c 决定暂不进行全栈 async 重构，
 D18 进程树终止边界保留待独立立项。第四阶段 M11a-M11c 已完成 CLI 展示、可信联网检索和
-MCP/Skill 自助管理。第五阶段 M12a 已完成 provider-neutral 的 MCP 运行时安全语义；业务 MCP 始终
-作为外置 server 接入。当前 483 个测试通过（3 个平台能力测试跳过）、覆盖率 82%、10912 行生产
-Python 源码 + 1564 行 eval 基础设施。详见
-[M12a 方案](docs/m12a-mcp-runtime-safety-plan.md)。
+MCP/Skill 自助管理。第五阶段 M12a 已完成 provider-neutral 的 MCP 运行时安全语义；第六阶段
+M13a 已完成声明式工具适配层。当前 497 个测试通过（3 个平台能力测试跳过）、覆盖率 82%、
+11078 行生产 Python 源码 + 1564 行 eval 基础设施。详见
+[M13a 方案](docs/archive/phase6/m13a-declarative-tool-plan.md)。
 
 详见 [DESIGN.md](DESIGN.md)。

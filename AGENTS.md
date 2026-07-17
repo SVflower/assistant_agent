@@ -86,7 +86,7 @@ python -m assistant_agent
 
 ## 当前状态
 
-**第一至第五阶段已完成**。里程碑详情见 ROADMAP.md。
+**第一至第六阶段已完成**。里程碑详情见 ROADMAP.md。
 - 第一阶段：配置/模型抽象/工具/ReAct 循环/CLI，加流式输出、会话持久化、工具集扩展（edit/multi_edit/code_search/git 只读）、模型切换、循环工程与写入安全、slash 命令、init 向导，全部落地。
 - **第二阶段 M6/M6.5/M7a/M7b/M7c/M8a/M8b 已完成**：结构化日志与工具审计；任务级工具调用/累计输出预算与批次协议完整终止；Agent Skills 系统（SKILL.md 发现 + 渐进披露 + load_skill）；MCP client（stdio + HTTP 两种 transport）——外部 server 工具接入 + 同步桥 + 命名空间 + 每工具确认 + 过滤/上限 + HTTP 委托 SDK 管 session/重连不重放 + cli/setup.py Runtime，还清 D7；上下文进化——M8a 预算口径计入 tools schema + reserved（还 D10），M8b 摘要压缩替代硬截断（双历史 + checkpoint 持久化 + 按轮分组 + 降级兜底，默认关闭时逐字节等于现状）。
 - 双后端实测通过：云端 DeepSeek + 本地 LM Studio，切换只改 `config.yaml`，业务代码零改动。
@@ -100,10 +100,12 @@ python -m assistant_agent
 - M11b/M11c 已完成：结构化 Web 搜索与安全抓取；Skill user/project 安装管理；MCP 原子配置、隔离探测、会话级 server/tool 信任、最小子进程环境和 workspace 产物治理；Playwright MCP 与 Skill 的真实安装/使用/卸载闭环通过，未修改内核 Loop。
 - M12a 已完成：通用 MCP 关联 ID 透传、受信 annotations、per-tool 恢复/超时策略、写调用 unknown
   保护、输出契约校验和非敏感环境字面量配置；任意业务 MCP 均外置接入，未修改内核 Loop。
-- 483 个测试通过（3 个平台能力测试跳过），覆盖率 82%，ruff/mypy 全绿；10912 行生产 Python
+- M13a 已完成：`@agent_tool` + `FunctionTool` 声明式适配层、Pydantic Schema、可选上下文注入和
+  权限解析器；完整复用 Registry 安全链路，未修改内核 Loop。
+- 497 个测试通过（3 个平台能力测试跳过），覆盖率 82%，ruff/mypy 全绿；11078 行生产 Python
   源码 + 1564 行 eval 基础设施。
 
 第三阶段总规划见 `docs/phase3-trustworthy-agent-plan.md`；M9a-M10c 方案/决策已归档到
 `docs/archive/phase3/`，还清 D8/D9/D13/D14/D15/D16/D17。剩余工作按技术债和真实触发信号立项，
-不自动进入全栈 async 重构。M11a-M11c 方案已归档到 `docs/archive/phase4/`；M12a 方案见
-`docs/m12a-mcp-runtime-safety-plan.md`。
+不自动进入全栈 async 重构。M11a-M13a 方案已分别归档到 `docs/archive/phase4/`、
+`docs/archive/phase5/`、`docs/archive/phase6/`。

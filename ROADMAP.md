@@ -2,11 +2,11 @@
 
 > 开工蓝本。第一阶段（MVP）已完成，见 [DESIGN.md](DESIGN.md) 第 8 节。
 > 本文档规划第二阶段起的里程碑，每个里程碑只列可清晰验收的目标。
-> 最后更新：2026-07-16
+> 最后更新：2026-07-17
 
 ---
 
-## 项目当前状态（截至 2026-07-16）
+## 项目当前状态（截至 2026-07-17）
 
 **一句话**：从"能跑的 MVP"长成了一个功能相当完整、多平台实测、可观测且运行时预算可控、全程守调研→方案→测试→验收纪律的本地 Agent。
 
@@ -34,7 +34,7 @@
   已完成工具不重放，started 副作用需 retry/skip/abort；预算、重复熔断、权限和摘要状态跨进程恢复；
   trace/session/run/call 标识对齐，还清 D8。
 
-**质量**：483 测试通过（3 个平台能力测试跳过）、覆盖率 82%、10912 行生产 Python 源码 +
+**质量**：497 测试通过（3 个平台能力测试跳过）、覆盖率 82%、11078 行生产 Python 源码 +
 1564 行 eval 基础设施，Ruff/mypy 全绿。架构适应度测试（依赖分层 + 行数分级软/硬）、技术债册、
 DoD 和里程碑工作流全在；CI 已加入 format/lint/mypy/coverage/scripted eval/recovery eval 与
 Windows/Linux、Python 3.11/3.13 矩阵。
@@ -45,10 +45,10 @@ Windows/Linux、Python 3.11/3.13 矩阵。
 D18 保留，后续优先按真实需求独立评估跨平台进程监管。见
 [第三阶段规划](docs/phase3-trustworthy-agent-plan.md)与 [M10c 决策](docs/archive/phase3/m10c-async-runtime-decision.md)。
 
-**当前进展**：M12a 已完成。MCP client 增加关联 ID `_meta` 透传、受信 annotations、按工具
-恢复/超时语义、写调用结果未知保护、structuredContent 输出契约校验和非敏感环境字面量配置。
-所有业务 MCP 均保持外置，接入新 server 不需要修改 Agent 业务代码。见
-[M12a 方案](docs/m12a-mcp-runtime-safety-plan.md)。
+**当前进展**：M13a 已完成。新增 provider-neutral 的声明式函数工具适配层，从类型注解生成
+Pydantic/JSON Schema，支持 `ToolContext` 注入和权限解析器，并完整复用现有 Registry 安全链路；
+未迁移现有工具、未修改 Loop。见
+[M13a 方案](docs/archive/phase6/m13a-declarative-tool-plan.md)。
 
 **剩余技术债**：7 项（D5/D6/D11/D12/D18/D20/D21）。M9a 已还清 D13/D15/D17，M9b 已还清
 D14，M9c 已还清 D9，M10a 已还清 D16 并登记 D18，M10b 已还清 D8，M11a 已还清 D19。详见
@@ -169,12 +169,23 @@ D14，M9c 已还清 D9，M10a 已还清 D16 并登记 D18，M10b 已还清 D8，
 
 | 里程碑 | 主题 | 状态 |
 |--------|------|------|
-| M12a | 通用 MCP 运行时安全语义 | ✅ · [方案](docs/m12a-mcp-runtime-safety-plan.md) |
+| M12a | 通用 MCP 运行时安全语义 | ✅ · [方案](docs/archive/phase5/m12a-mcp-runtime-safety-plan.md) |
 
 > **M12a 已完成**：稳定 call/trace/session/run ID 通过 MCP `_meta` 透传；受信 tool annotations
 > 与 per-tool policy 控制只读恢复、超时和结果未知语义；structuredContent 按 outputSchema 校验。
 > 配置管理允许非敏感环境字面量，同时继续阻止明文密钥。通用 stdio 握手和工具发现通过，
 > 483 passed、3 skipped、覆盖率 82%，Ruff/mypy 全绿；未修改 Loop，不包含任何业务 MCP 实现。
+
+### 第六阶段（已完成）
+
+| 里程碑 | 主题 | 状态 |
+|--------|------|------|
+| M13a | 声明式工具适配层 | ✅ · [方案](docs/archive/phase6/m13a-declarative-tool-plan.md) |
+
+> **M13a 已完成**：新增 `@agent_tool`、`FunctionTool` 和 `PermissionResolver`；类型注解生成
+> Draft 2020-12 Schema，支持默认值、Literal/Optional/容器、上下文注入和未知字段容忍。
+> 未声明权限时沿用未知扩展的保守声明，声明权限后仍由 Registry 强制决策。497 passed、3 skipped、
+> 覆盖率 82%，Ruff/format/mypy 全绿；新增模块 162 行，未修改 Loop，未迁移现有工具。
 
 ## 未来方向（P3，信号驱动，暂不做）
 

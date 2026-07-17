@@ -100,8 +100,8 @@ python -m assistant_agent
 - M11b/M11c 已完成：结构化 Web 搜索与安全抓取；Skill user/project 安装管理；MCP 原子配置、隔离探测、会话级 server/tool 信任、最小子进程环境和 workspace 产物治理；Playwright MCP 与 Skill 的真实安装/使用/卸载闭环通过，未修改内核 Loop。
 - M12a 已完成：通用 MCP 关联 ID 透传、受信 annotations、per-tool 恢复/超时策略、写调用 unknown
   保护、输出契约校验和非敏感环境字面量配置；任意业务 MCP 均外置接入，未修改内核 Loop。
-- 483 个测试通过（3 个平台能力测试跳过），覆盖率 82%，ruff/mypy 全绿；9433 行生产 Python
-  源码 + 1366 行 eval 基础设施。
+- 483 个测试通过（3 个平台能力测试跳过），覆盖率 82%，ruff/mypy 全绿；10912 行生产 Python
+  源码 + 1564 行 eval 基础设施。
 
 第三阶段总规划见 `docs/phase3-trustworthy-agent-plan.md`；M9a-M10c 方案/决策已归档到
 `docs/archive/phase3/`，还清 D8/D9/D13/D14/D15/D16/D17。剩余工作按技术债和真实触发信号立项，

@@ -224,8 +224,8 @@ ui/       终端输入输出（Rich 流式渲染）
 第三阶段“可信执行与质量闭环”已完成：M9a-M10b 已交付，M10c 决定暂不进行全栈 async 重构，
 D18 进程树终止边界保留待独立立项。第四阶段 M11a-M11c 已完成 CLI 展示、可信联网检索和
 MCP/Skill 自助管理。第五阶段 M12a 已完成 provider-neutral 的 MCP 运行时安全语义；业务 MCP 始终
-作为外置 server 接入。当前 483 个测试通过（3 个平台能力测试跳过）、覆盖率 82%、9433 行生产
-Python 源码 + 1366 行 eval 基础设施。详见
+作为外置 server 接入。当前 483 个测试通过（3 个平台能力测试跳过）、覆盖率 82%、10912 行生产
+Python 源码 + 1564 行 eval 基础设施。详见
 [M12a 方案](docs/m12a-mcp-runtime-safety-plan.md)。
 
 详见 [DESIGN.md](DESIGN.md)。

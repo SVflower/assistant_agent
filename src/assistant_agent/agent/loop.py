@@ -12,10 +12,12 @@ from assistant_agent.agent.events import StepEvent
 from assistant_agent.agent.execution import LoopCursor, execute_tool_batch
 from assistant_agent.agent.prompts import build_system_prompt
 from assistant_agent.agent.recovery import RecoveryChoice, RunCoordinator
+from assistant_agent.agent.run_control import finish_control
 from assistant_agent.agent.run_state import ToolCallState
 from assistant_agent.agent.token_budget import ContextWindowError
 from assistant_agent.config.schema import AppConfig
 from assistant_agent.llm.client import LLMClient, ToolCall
+from assistant_agent.runtime import ControlState, RunControl
 from assistant_agent.tools.base import ToolBudget, ToolContext
 from assistant_agent.tools.registry import ToolRegistry
 
@@ -34,6 +36,7 @@ class AgentLoop:
         tool_context: ToolContext,
         interactive: bool = True,
         interrupt_check: Callable[[], bool] | None = None,
+        run_control: RunControl | None = None,
         continue_check: Callable[[int], bool] | None = None,
         system_prompt: str | None = None,
     ) -> None:
@@ -42,6 +45,8 @@ class AgentLoop:
         self._registry = registry
         self._tool_ctx = tool_context
         self._interrupt_check = interrupt_check
+        self._run_control = run_control or tool_context.run_control
+        self._tool_ctx.run_control = self._run_control
         self._continue_check = continue_check
         self._tool_schemas = registry.schemas()
         tools_tokens = estimate_tools_tokens(self._tool_schemas)
@@ -80,7 +85,12 @@ class AgentLoop:
         return self._tool_schemas
 
     def _interrupted(self) -> bool:
-        return self._interrupt_check is not None and self._interrupt_check()
+        return self._control_state() is not ControlState.RUNNING
+
+    def _control_state(self) -> ControlState:
+        if self._interrupt_check is not None and self._interrupt_check():
+            self._run_control.request_pause()
+        return self._run_control.state
 
     def set_client(self, client: LLMClient) -> None:
         """替换模型客户端，同时保留对话与默认摘要模型跟随语义。"""
@@ -172,6 +182,8 @@ class AgentLoop:
             if coordinator.state.phase == "terminal":
                 if coordinator.state.status == "completed":
                     yield StepEvent(kind="final", text=coordinator.state.terminal_text)
+                elif coordinator.state.status == "cancelled":
+                    yield StepEvent(kind="interrupted", text=coordinator.state.terminal_text)
                 else:
                     yield StepEvent(
                         kind="error",
@@ -227,6 +239,11 @@ class AgentLoop:
                     conversation=self._conversation,
                     coordinator=coordinator,
                 )
+                if outcome.control_state is not ControlState.RUNNING:
+                    if outcome.control_state is ControlState.CANCEL_REQUESTED:
+                        coordinator.batch_completed(self.export_history())
+                    yield self._finish_control(outcome.control_state, coordinator)
+                    return
                 coordinator.batch_completed(self.export_history())
                 if outcome.exhausted_reason is not None:
                     yield self._finish_budget_exhausted(
@@ -243,6 +260,10 @@ class AgentLoop:
             raise RuntimeError("AgentLoop 缺少任务级 ToolBudget")
 
         while True:
+            control_state = self._run_control.state
+            if control_state is not ControlState.RUNNING:
+                yield self._finish_control(control_state, coordinator)
+                return
             if cursor.iteration >= cursor.iteration_budget:
                 if self._continue_check is not None and self._continue_check(cursor.iteration):
                     cursor.iteration_budget += self._config.agent.max_iterations
@@ -278,7 +299,7 @@ class AgentLoop:
             content_parts: list[str] = []
             tool_calls: list[ToolCall] = []
             stream_error: str | None = None
-            interrupted = False
+            interrupted = ControlState.RUNNING
             for event in self._client.complete_stream(
                 messages=request_messages, tools=self._tool_schemas
             ):
@@ -294,14 +315,17 @@ class AgentLoop:
                 elif event.kind == "error":
                     stream_error = event.text
                 if self._interrupted():
-                    interrupted = True
+                    interrupted = self._control_state()
                     break
 
             content = "".join(content_parts)
-            if interrupted or stream_error is not None:
+            if interrupted is not ControlState.RUNNING or stream_error is not None:
                 if content:
                     self._conversation.add_assistant(content)
                 text = "已中断（用户请求停止）" if interrupted else str(stream_error)
+                if interrupted is ControlState.CANCEL_REQUESTED:
+                    yield self._finish_control(interrupted, coordinator, text=text)
+                    return
                 if coordinator is not None:
                     coordinator.pause(
                         text,
@@ -361,6 +385,14 @@ class AgentLoop:
                 conversation=self._conversation,
                 coordinator=coordinator,
             )
+            if outcome.control_state is not ControlState.RUNNING:
+                if (
+                    coordinator is not None
+                    and outcome.control_state is ControlState.CANCEL_REQUESTED
+                ):
+                    coordinator.batch_completed(self.export_history())
+                yield self._finish_control(outcome.control_state, coordinator)
+                return
             if coordinator is not None:
                 coordinator.batch_completed(self.export_history())
             if outcome.exhausted_reason is not None:
@@ -416,4 +448,19 @@ class AgentLoop:
             text=text,
             messages=self.export_history(),
             compaction_checkpoint=self.export_checkpoint(),
+        )
+
+    def _finish_control(
+        self,
+        state: ControlState,
+        coordinator: RunCoordinator | None,
+        *,
+        text: str | None = None,
+    ) -> StepEvent:
+        return finish_control(
+            state,
+            coordinator,
+            messages=self.export_history(),
+            compaction_checkpoint=self.export_checkpoint(),
+            text=text,
         )

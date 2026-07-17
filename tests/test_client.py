@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 from types import SimpleNamespace
 
+from assistant_agent.config.schema import ProviderConfig
 from assistant_agent.llm.client import (
     LLMClient,
     _bypass_proxy_for_local,
@@ -96,3 +97,8 @@ def test_bypass_proxy_ignores_none():
     before = os.environ.get("NO_PROXY", "")
     _bypass_proxy_for_local(None)
     assert os.environ.get("NO_PROXY", "") == before
+
+
+def test_provider_request_timeout_is_forwarded():
+    client = LLMClient(ProviderConfig(model="openai/fake", request_timeout=7))
+    assert client._build_kwargs([], None)["timeout"] == 7

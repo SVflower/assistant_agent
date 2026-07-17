@@ -10,7 +10,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-RunStatus = Literal["running", "paused", "completed", "failed"]
+RunStatus = Literal["running", "paused", "cancelled", "completed", "failed"]
 RunPhase = Literal[
     "model_pending",
     "tools_pending",
@@ -29,7 +29,7 @@ ToolCallStatus = Literal[
 ReplayPolicy = Literal["safe_readonly", "requires_decision"]
 
 _RESOLVED_TOOL_STATUSES = {"completed", "failed", "skipped"}
-_SCHEMA_VERSION: Literal[1] = 1
+_SCHEMA_VERSION: Literal[2] = 2
 
 
 def now_iso() -> str:
@@ -119,7 +119,7 @@ class ToolCallState(StrictStateModel):
 
 
 class RunState(StrictStateModel):
-    schema_version: Literal[1] = _SCHEMA_VERSION
+    schema_version: Literal[2] = _SCHEMA_VERSION
     run_id: str = Field(min_length=1)
     session_id: str | None = None
     task: str
@@ -146,7 +146,7 @@ class RunState(StrictStateModel):
 
     @model_validator(mode="after")
     def _state_is_consistent(self) -> RunState:
-        is_terminal = self.status in {"completed", "failed"}
+        is_terminal = self.status in {"cancelled", "completed", "failed"}
         if is_terminal != (self.phase == "terminal"):
             raise ValueError("completed/failed 与 terminal phase 必须一致")
         if is_terminal and any(
@@ -186,4 +186,8 @@ def migrate_run_document(document: dict[str, Any]) -> dict[str, Any]:
     version = document.get("schema_version")
     if version == _SCHEMA_VERSION:
         return document
+    if version == 1:
+        migrated = dict(document)
+        migrated["schema_version"] = _SCHEMA_VERSION
+        return migrated
     raise ValueError(f"不支持的 RunState schema_version：{version!r}")

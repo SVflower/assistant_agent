@@ -6,7 +6,7 @@ from typing import Any
 
 from assistant_agent.tools.base import Tool, ToolContext, ToolResult
 from assistant_agent.tools.permissions import PermissionRequest
-from assistant_agent.tools.process import _decode, format_process_result, run_bounded_process
+from assistant_agent.tools.process import _decode, format_process_result
 from assistant_agent.tools.shell_policy import shell_permission_requests
 
 
@@ -38,11 +38,12 @@ class ShellTool(Tool):
                 "缺少参数 command", code="invalid_arguments", retryable=True, executed=False
             )
         try:
-            completed = run_bounded_process(
+            completed = ctx.process_supervisor.run(
                 command,
                 shell=True,
                 timeout=ctx.shell_timeout,
                 max_stream_chars=ctx.max_captured_output_chars,
+                control=ctx.run_control,
             )
         except OSError as exc:
             return ToolResult.error(
@@ -54,6 +55,14 @@ class ShellTool(Tool):
                 code="timeout",
                 retryable=True,
                 metadata={"timed_out": True},
+            )
+        if completed.interrupted:
+            cancelled = completed.termination_reason.value == "cancelled"
+            return ToolResult.error(
+                "命令已强制取消" if cancelled else "命令已暂停并终止受管进程树",
+                code="cancelled" if cancelled else "interrupted",
+                retryable=False,
+                metadata={"termination_reason": completed.termination_reason.value},
             )
         output, artifacts, metadata = format_process_result(
             completed,

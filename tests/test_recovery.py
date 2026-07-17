@@ -177,3 +177,12 @@ def test_definition_differences_and_accept(tmp_path):
         provider="p2", model="m2", system_prompt="new", tool_schemas=[{"x": 1}]
     )
     assert coordinator.state.provider == "p2"
+
+
+def test_cancel_is_terminal_and_cannot_resume(tmp_path):
+    coordinator = _coordinator(tmp_path)
+    coordinator.cancel("stopped", messages=[], compaction_checkpoint=None)
+    assert coordinator.state.status == "cancelled"
+    assert coordinator.state.phase == "terminal"
+    loaded = RunCoordinator.load(RunStore(tmp_path), "run-1")
+    assert loaded.state.status == "cancelled"

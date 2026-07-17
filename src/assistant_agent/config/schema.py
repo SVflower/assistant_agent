@@ -23,6 +23,9 @@ class ProviderConfig(BaseModel):
     )
     temperature: float = Field(default=0.7, ge=0.0, le=2.0)
     max_tokens: int = Field(default=4096, gt=0)
+    request_timeout: float = Field(
+        default=120, gt=0, le=3600, description="单次模型请求最大等待秒数"
+    )
 
 
 class CompactionConfig(BaseModel):

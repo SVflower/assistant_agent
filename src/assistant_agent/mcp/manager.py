@@ -11,13 +11,16 @@ import asyncio
 import os
 import re
 import threading
+import time
 from concurrent.futures import Future
+from concurrent.futures import TimeoutError as FutureTimeoutError
 from contextlib import AsyncExitStack
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from assistant_agent.mcp.tool import MCPTool
+from assistant_agent.runtime import RunControl, RunInterrupted
 from assistant_agent.tools.validation import ToolSchemaError, build_validator
 
 if TYPE_CHECKING:
@@ -87,6 +90,7 @@ class MCPManager:
         *,
         artifact_root: Path | None = None,
         stderr_root: Path | None = None,
+        run_control: RunControl | None = None,
     ) -> None:
         if artifact_root is None or stderr_root is None:
             from assistant_agent.config.paths import state_paths
@@ -98,6 +102,7 @@ class MCPManager:
         self._logger = logger
         self._artifact_root = artifact_root.resolve()
         self._stderr_root = stderr_root.resolve()
+        self._run_control = run_control or RunControl()
         self._loop: asyncio.AbstractEventLoop | None = None
         self._thread: threading.Thread | None = None
         self._servers: dict[str, _Server] = {}
@@ -125,15 +130,24 @@ class MCPManager:
         self._loop = loop_holder["loop"]
         return self._loop
 
-    def _submit(self, coro: Any, timeout: float) -> Any:
+    def _submit(self, coro: Any, timeout: float, *, respect_control: bool = True) -> Any:
         """把协程投进 loop 线程并同步等结果。超时则取消并抛 TimeoutError。"""
         loop = self._ensure_loop()
         fut: Future = asyncio.run_coroutine_threadsafe(coro, loop)
-        try:
-            return fut.result(timeout=timeout)
-        except TimeoutError:
-            fut.cancel()  # 通知 loop 侧取消协程，防悬挂请求
-            raise
+        deadline = time.monotonic() + timeout
+        while True:
+            state = self._run_control.state
+            if respect_control and state.value > 0:
+                fut.cancel()
+                raise RunInterrupted(cancelled=self._run_control.cancel_requested)
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                fut.cancel()
+                raise TimeoutError
+            try:
+                return fut.result(timeout=min(0.05, remaining))
+            except FutureTimeoutError:
+                continue
 
     # ---- 连接与发现 ----
 
@@ -222,7 +236,7 @@ class MCPManager:
             return
         for server in self._servers.values():
             try:
-                self._submit(server.stack.aclose(), timeout=10)
+                self._submit(server.stack.aclose(), timeout=10, respect_control=False)
             except Exception:  # 关闭尽力而为，不抛
                 pass
         self._servers.clear()

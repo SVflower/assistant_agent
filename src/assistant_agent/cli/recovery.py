@@ -15,6 +15,7 @@ from assistant_agent.cli.setup import build_runtime
 from assistant_agent.config.loader import ConfigError, load_config
 from assistant_agent.config.paths import resolve_run_dir
 from assistant_agent.obs import sanitize_for_display
+from assistant_agent.runtime import RunControl
 from assistant_agent.session.run_store import RunStore
 from assistant_agent.session.store import Session, SessionStore
 from assistant_agent.ui.console import Console
@@ -29,7 +30,7 @@ def sync_terminal_session(
 ) -> Session | None:
     """把 terminal Run 幂等同步到 Session，再提交 session_synced。"""
     state = coordinator.state
-    if state.status not in {"completed", "failed"} or state.session_id is None:
+    if state.status not in {"cancelled", "completed", "failed"} or state.session_id is None:
         return session
     if session is None:
         try:
@@ -106,7 +107,8 @@ def resume_command(
     config: Path | None,
     provider: str | None,
     *,
-    interrupt_check: Callable[[], bool],
+    interrupt_check: Callable[[], bool] | None,
+    run_control: RunControl | None = None,
     render_streamed: StreamRenderer,
 ) -> None:
     console = Console()
@@ -126,6 +128,7 @@ def resume_command(
         console,
         interactive=preloaded.state.interactive,
         interrupt_check=interrupt_check,
+        run_control=run_control,
         provider=selected,
     ) as runtime:
         coordinator = RunCoordinator.load(runtime.run_store, run_id, logger=runtime.logger)

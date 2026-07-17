@@ -145,3 +145,15 @@ def test_canonical_hash_ignores_mapping_order():
 def test_unknown_schema_version_is_rejected():
     with pytest.raises(ValueError, match="schema_version"):
         migrate_run_document({"schema_version": 99})
+
+
+def test_v1_document_migrates_and_cancelled_is_terminal():
+    state = _state(status="cancelled", phase="terminal")
+    assert state.schema_version == 2
+    legacy = state.model_dump(mode="python")
+    legacy["schema_version"] = 1
+    legacy["status"] = "paused"
+    legacy["phase"] = "model_pending"
+    migrated = migrate_run_document(legacy)
+    assert migrated["schema_version"] == 2
+    assert RunState.model_validate(migrated).status == "paused"

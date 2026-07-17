@@ -175,7 +175,7 @@ class RunStore:
         terminal = [
             item
             for item in self.list()
-            if item.status in {"completed", "failed"}
+            if item.status in {"cancelled", "completed", "failed"}
             and bool(self.load(item.id).document.get("session_synced"))
         ]
         removed: builtins.list[str] = []

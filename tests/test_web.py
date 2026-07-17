@@ -8,6 +8,7 @@ import httpx
 import pytest
 
 from assistant_agent.config.schema import WebConfig
+from assistant_agent.runtime import RunControl
 from assistant_agent.tools.base import ToolContext
 from assistant_agent.tools.permissions import Capability
 from assistant_agent.tools.registry import ToolRegistry
@@ -233,3 +234,15 @@ def test_web_tools_permissions_results_and_display():
     assert "来源: https://example.com/x" in fetched.output
     assert json.dumps(result.metadata["results"], ensure_ascii=False)
     http.close()
+
+
+def test_web_client_rejects_before_request_when_paused():
+    control = RunControl()
+    control.request_pause()
+    client = WebClient(WebConfig(), run_control=control)
+    try:
+        with pytest.raises(WebError) as exc_info:
+            client.fetch("https://example.com")
+        assert exc_info.value.code == "interrupted"
+    finally:
+        client.close()

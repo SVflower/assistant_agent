@@ -318,6 +318,25 @@ class RunCoordinator:
             reason=text,
         )
 
+    def cancel(
+        self,
+        text: str,
+        *,
+        messages: list[dict[str, Any]],
+        compaction_checkpoint: dict[str, Any] | None,
+    ) -> None:
+        """把强制取消保存为不可恢复 terminal Run。"""
+        self.state.messages = messages
+        self.state.compaction_checkpoint = compaction_checkpoint
+        self.state.tool_calls = []
+        self.state.status = "cancelled"
+        self.state.phase = "terminal"
+        self.state.terminal_text = text
+        self.state.session_synced = self.state.session_id is None
+        self._capture_bound_context()
+        self.checkpoint()
+        self._logger.run_end(run_id=self.run_id, status="cancelled", reason=text)
+
     def pause(
         self,
         text: str,
@@ -399,7 +418,7 @@ class RunCoordinator:
         )
 
     def mark_session_synced(self) -> None:
-        if self.state.status not in {"completed", "failed"}:
+        if self.state.status not in {"cancelled", "completed", "failed"}:
             raise ValueError("非 terminal Run 不能标记 Session 已同步")
         self.state.session_synced = True
         self.checkpoint()

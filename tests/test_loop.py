@@ -455,6 +455,66 @@ class _FixedOutputTool(Tool):
         return []
 
 
+class _ControlTool(Tool):
+    description = "test"
+
+    def __init__(self, name: str, action: str, calls: list[str]) -> None:
+        self.name = name
+        self.action = action
+        self.calls = calls
+
+    @property
+    def parameters(self) -> dict:
+        return {"type": "object", "properties": {}}
+
+    def run(self, args, ctx) -> ToolResult:
+        self.calls.append(self.name)
+        if self.action == "pause":
+            ctx.run_control.request_pause()
+        elif self.action == "cancel":
+            ctx.run_control.request_cancel()
+        return ToolResult.ok("done")
+
+    def permission_requests(self, args, ctx):
+        return []
+
+
+def test_pause_inside_batch_stops_before_next_tool():
+    calls: list[str] = []
+    registry = ToolRegistry()
+    registry.register(_ControlTool("first", "pause", calls))
+    registry.register(_ControlTool("second", "", calls))
+    client = FakeStreamClient(
+        [_tools_round(ToolCall("c1", "first", {}), ToolCall("c2", "second", {}))]
+    )
+    loop = AgentLoop(_config(), client, registry, ToolContext())
+
+    events = list(loop.run("pause"))
+
+    assert calls == ["first"]
+    assert events[-1].kind == "interrupted"
+    assert len([item for item in loop.export_history() if item["role"] == "tool"]) == 1
+
+
+def test_cancel_inside_batch_resolves_remaining_tool_calls():
+    calls: list[str] = []
+    registry = ToolRegistry()
+    registry.register(_ControlTool("first", "cancel", calls))
+    registry.register(_ControlTool("second", "", calls))
+    client = FakeStreamClient(
+        [_tools_round(ToolCall("c1", "first", {}), ToolCall("c2", "second", {}))]
+    )
+    loop = AgentLoop(_config(), client, registry, ToolContext())
+
+    events = list(loop.run("cancel"))
+
+    assert calls == ["first"]
+    assert events[-1].kind == "interrupted"
+    tool_messages = [item for item in loop.export_history() if item["role"] == "tool"]
+    assert len(tool_messages) == 2
+    assert "未执行" in tool_messages[-1]["content"]
+
+
 def test_total_output_budget_truncates_then_stops():
     registry = ToolRegistry()
     registry.register(_FixedOutputTool())

@@ -16,6 +16,7 @@ from collections.abc import Callable
 from typing import Any
 
 from assistant_agent.obs import sanitize_for_display
+from assistant_agent.runtime import RunInterrupted
 from assistant_agent.tools.base import Tool, ToolContext, ToolResult
 from assistant_agent.tools.permissions import Capability, PermissionRequest, PermissionScope
 from assistant_agent.tools.validation import build_validator, validate_arguments
@@ -100,6 +101,20 @@ class MCPTool(Tool):
         call_hint = f"（call_id={ctx.current_call_id}）" if ctx.current_call_id else ""
         try:
             result = self._caller(self._server, self._raw_tool, args, self._timeout, correlation)
+        except RunInterrupted as exc:
+            if self._outcome_unknown_on_transport_error:
+                return ToolResult.error(
+                    f"MCP 工具 {self.name} 已收到中断信号{call_hint}，执行结果未知；"
+                    "请先查询状态，禁止直接重试",
+                    code="mcp_outcome_unknown",
+                    retryable=False,
+                    metadata={"correlation": correlation},
+                )
+            return ToolResult.error(
+                str(exc),
+                code="cancelled" if exc.cancelled else "interrupted",
+                retryable=False,
+            )
         except TimeoutError:
             if self._outcome_unknown_on_transport_error:
                 return ToolResult.error(

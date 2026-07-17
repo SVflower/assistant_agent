@@ -10,7 +10,8 @@ from assistant_agent.agent.context import Conversation
 from assistant_agent.agent.events import StepEvent
 from assistant_agent.agent.recovery import RunCoordinator
 from assistant_agent.llm.client import ToolCall
-from assistant_agent.tools.base import ToolContext
+from assistant_agent.runtime import ControlState
+from assistant_agent.tools.base import ToolContext, ToolResult
 from assistant_agent.tools.registry import ToolRegistry
 
 
@@ -40,6 +41,7 @@ class LoopCursor:
 class BatchOutcome:
     exhausted_reason: str | None
     skipped_calls: int
+    control_state: ControlState = ControlState.RUNNING
 
 
 def execute_tool_batch(
@@ -53,7 +55,12 @@ def execute_tool_batch(
     """顺序执行一个批次；已 checkpoint 的结果不重放。"""
     exhausted_reason: str | None = None
     skipped_calls = 0
-    for call in calls:
+    for index, call in enumerate(calls):
+        control_state = ctx.run_control.state
+        if control_state is not ControlState.RUNNING:
+            if control_state is ControlState.CANCEL_REQUESTED:
+                yield from _cancel_pending(calls[index:], conversation, coordinator)
+            return BatchOutcome(exhausted_reason, skipped_calls, control_state)
         if coordinator is not None:
             saved = coordinator.result_for(call.id)
             if saved is not None:
@@ -96,4 +103,35 @@ def execute_tool_batch(
             result_code=result.code,
             result_metadata=result.metadata,
         )
+        control_state = ctx.run_control.state
+        if control_state is not ControlState.RUNNING:
+            if control_state is ControlState.CANCEL_REQUESTED:
+                yield from _cancel_pending(calls[index + 1 :], conversation, coordinator)
+            return BatchOutcome(exhausted_reason, skipped_calls, control_state)
     return BatchOutcome(exhausted_reason, skipped_calls)
+
+
+def _cancel_pending(
+    calls: list[ToolCall],
+    conversation: Conversation,
+    coordinator: RunCoordinator | None,
+) -> Generator[StepEvent, None, None]:
+    """为未开始的批次调用补稳定结果，保证 terminal 历史没有悬空 tool_call。"""
+    for call in calls:
+        result = ToolResult.error(
+            "[cancelled] 任务已强制取消，工具未执行",
+            code="cancelled",
+            retryable=False,
+            executed=False,
+        )
+        if coordinator is not None:
+            coordinator.tool_completed(call.id, result, [], "requires_decision")
+        conversation.add_tool_result(call.id, call.name, result.output)
+        yield StepEvent(
+            kind="tool_result",
+            tool_name=call.name,
+            text=result.output,
+            is_error=True,
+            call_id=call.id,
+            result_code=result.code,
+        )

@@ -28,6 +28,7 @@ from assistant_agent.config.schema import AppConfig, MCPConfig, SkillsConfig, We
 from assistant_agent.llm.client import LLMClient
 from assistant_agent.mcp import MCPManager, MCPService
 from assistant_agent.obs import NullLogger, create_logger, new_trace_id
+from assistant_agent.runtime import ProcessSupervisor, RunControl
 from assistant_agent.session.run_store import RunStore
 from assistant_agent.skills import LoadSkillTool, SkillManager, SkillMeta, SkillSource, SkillStore
 from assistant_agent.tools.base import Tool, ToolContext
@@ -108,11 +109,18 @@ def _start_mcp(
     *,
     artifact_root: Path | None = None,
     stderr_root: Path | None = None,
+    run_control: RunControl | None = None,
 ) -> MCPManager | None:
     """连接 MCP server、注册其工具、打印警告。禁用或无 server 时返回 None。"""
     if not cfg.enabled or not cfg.servers:
         return None
-    manager = MCPManager(cfg, NullLogger(), artifact_root=artifact_root, stderr_root=stderr_root)
+    manager = MCPManager(
+        cfg,
+        NullLogger(),
+        artifact_root=artifact_root,
+        stderr_root=stderr_root,
+        run_control=run_control,
+    )
     try:
         tools = manager.start()
         for tool in tools:
@@ -135,11 +143,13 @@ def _start_mcp(
     return manager
 
 
-def _start_web(cfg: WebConfig, registry: ToolRegistry) -> WebClient | None:
+def _start_web(
+    cfg: WebConfig, registry: ToolRegistry, run_control: RunControl | None = None
+) -> WebClient | None:
     """构造 Web client 并注册工具；不在启动阶段发起网络请求。"""
     if not cfg.enabled:
         return None
-    client = WebClient(cfg)
+    client = WebClient(cfg, run_control=run_control)
     try:
         registry.register(WebSearchTool(client))
         registry.register(FetchURLTool(client))
@@ -184,6 +194,8 @@ class Runtime:
     mcp: MCPManager | None = None
     run_store: RunStore = field(default_factory=RunStore)
     interactive: bool = False
+    run_control: RunControl = field(default_factory=RunControl)
+    process_supervisor: ProcessSupervisor = field(default_factory=ProcessSupervisor)
     _closed: bool = field(default=False, init=False)
 
     def skills_meta(self) -> list[tuple[str, str]]:
@@ -222,6 +234,7 @@ class Runtime:
             self.mcp.close()
         if self.web is not None:
             self.web.close()
+        self.process_supervisor.close()
         self.logger.session_end(reason=reason)
 
 
@@ -230,7 +243,8 @@ def build_runtime(
     console: Console,
     *,
     interactive: bool,
-    interrupt_check: Callable[[], bool],
+    interrupt_check: Callable[[], bool] | None = None,
+    run_control: RunControl | None = None,
     provider: str | None = None,
     max_iterations: int | None = None,
 ) -> Runtime:
@@ -265,6 +279,8 @@ def build_runtime(
         )
 
     client = LLMClient(config.active_provider)
+    control = run_control or RunControl()
+    process_supervisor = ProcessSupervisor()
     registry = build_default_registry()
 
     # 先发现 Skill，但不把未信任项目元数据暴露给模型。
@@ -303,6 +319,8 @@ def build_runtime(
             artifact_root=paths.tool_artifacts,
             permission_policy=_build_permission_policy(config),
             interactive=interactive,
+            run_control=control,
+            process_supervisor=process_supervisor,
         )
 
         skills = skill_store.list()
@@ -312,7 +330,7 @@ def build_runtime(
         skill_meta = [(meta.name, f"[{meta.source}] {meta.description}") for meta in visible_skills]
         system_prompt = build_system_prompt(interactive, skills=skill_meta or None)
 
-        web = _start_web(config.web, registry)
+        web = _start_web(config.web, registry, control)
         extension_tools = [ManageSkillTool(skill_manager), ConfigureMCPServerTool(mcp_service)]
         if not _register_extension_tools(config, registry, system_prompt, extension_tools):
             system_prompt = build_system_prompt(
@@ -331,6 +349,7 @@ def build_runtime(
             registry,
             artifact_root=paths.mcp_artifacts,
             stderr_root=paths.mcp_stderr,
+            run_control=control,
         )
         continue_check = console.confirm_continue if interactive else None
         loop = AgentLoop(
@@ -340,6 +359,7 @@ def build_runtime(
             tool_ctx,
             interactive=interactive,
             interrupt_check=interrupt_check,
+            run_control=control,
             continue_check=continue_check,
             system_prompt=system_prompt,
         )
@@ -359,11 +379,14 @@ def build_runtime(
             mcp=mcp,
             run_store=run_store,
             interactive=interactive,
+            run_control=control,
+            process_supervisor=process_supervisor,
         )
     except BaseException:
         if mcp is not None:
             mcp.close()
         if web is not None:
             web.close()
+        process_supervisor.close()
         logger.session_end(reason="runtime_init_failed")
         raise

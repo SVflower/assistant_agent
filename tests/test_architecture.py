@@ -23,6 +23,7 @@ _LAYER_RANK = {
     "session": 0,
     "obs": 0,
     "llm": 1,
+    "runtime": 1,  # 低层运行控制、进程监管与 Workspace，不依赖 tools/agent/ui
     "web": 1,  # HTTP 搜索/抓取基础设施，只依赖 config 与外部 httpx
     "tools": 2,
     "skills": 2,  # 叶子能力层：SKILL.md 发现 + load_skill 工具，只依赖 tools/base

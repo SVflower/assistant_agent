@@ -9,6 +9,7 @@ from urllib.parse import urljoin, urlparse
 
 import httpx
 
+from assistant_agent.runtime import RunControl
 from assistant_agent.web.extract import extract_html_text
 from assistant_agent.web.security import (
     Resolver,
@@ -62,6 +63,7 @@ class WebClient:
         http_client: httpx.Client | None = None,
         backend: SearchBackend | None = None,
         resolver: Resolver = system_resolver,
+        run_control: RunControl | None = None,
     ) -> None:
         from assistant_agent.web.backends import build_search_backend
 
@@ -70,6 +72,7 @@ class WebClient:
         self._owns_http = http_client is None
         self.backend = backend or build_search_backend(config, self._http)
         self._resolver = resolver
+        self._run_control = run_control or RunControl()
 
     def close(self) -> None:
         if self._owns_http:
@@ -78,6 +81,7 @@ class WebClient:
     def search(
         self, query: str, *, max_results: int | None = None, freshness: str | None = None
     ) -> tuple[list[SearchResult], str]:
+        self._check_control()
         limit = min(max_results or self.config.search.max_results, self.config.search.max_results)
         try:
             rows = self.backend.search(query, limit, freshness)
@@ -95,8 +99,10 @@ class WebClient:
         return rows[:limit], _now()
 
     def fetch(self, url: str) -> FetchedPage:
+        self._check_control()
         current = url
         for redirect_count in range(self.config.max_redirects + 1):
+            self._check_control()
             try:
                 current = validate_public_url(current, self._resolver)
             except URLPolicyError as exc:
@@ -164,6 +170,7 @@ class WebClient:
     def _read_limited(self, response: httpx.Response) -> tuple[bytes, bool]:
         data = bytearray()
         for chunk in response.iter_bytes():
+            self._check_control()
             remaining = self.config.max_response_bytes - len(data)
             if remaining <= 0:
                 return bytes(data), True
@@ -171,6 +178,12 @@ class WebClient:
             if len(chunk) > remaining:
                 return bytes(data), True
         return bytes(data), False
+
+    def _check_control(self) -> None:
+        if self._run_control.cancel_requested:
+            raise WebError("任务已强制取消", code="cancelled", retryable=False)
+        if self._run_control.pause_requested:
+            raise WebError("任务已暂停", code="interrupted", retryable=False)
 
     @property
     def search_target(self) -> str:

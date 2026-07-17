@@ -141,6 +141,7 @@ class LLMClient:
             "messages": messages,
             "temperature": self._provider.temperature,
             "max_tokens": self._provider.max_tokens,
+            "timeout": self._provider.request_timeout,
         }
         if self._provider.api_key:
             kwargs["api_key"] = self._provider.api_key

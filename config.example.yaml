@@ -19,6 +19,7 @@ providers:
     api_base: null
     temperature: 0.7
     max_tokens: 4096
+    request_timeout: 120       # 同步模型请求的最大等待秒数；中断最迟在超时/下一流片段生效
 
   # ---- 本地 LM Studio 示例 ----
   local_lmstudio:
@@ -28,6 +29,7 @@ providers:
     api_base: "http://localhost:1234/v1"
     temperature: 0.7
     max_tokens: 4096
+    request_timeout: 120
 
   # ---- 本地 vLLM 示例 ----
   local_vllm:
@@ -36,6 +38,7 @@ providers:
     api_base: "http://localhost:8000/v1"
     temperature: 0.7
     max_tokens: 4096
+    request_timeout: 120
 
 agent:
   # 单个任务最多允许多少轮模型调用，防止跑飞

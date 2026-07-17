@@ -13,7 +13,7 @@ from typing import Any
 
 from assistant_agent.tools.base import Tool, ToolContext, ToolResult
 from assistant_agent.tools.permissions import PermissionRequest
-from assistant_agent.tools.process import format_process_result, run_bounded_process
+from assistant_agent.tools.process import format_process_result
 from assistant_agent.tools.shell_policy import shell_permission_requests
 
 # 只读子命令白名单
@@ -67,11 +67,12 @@ class GitTool(Tool):
         # 关闭分页器，否则非交互环境可能卡住
         cmd = ["git", "--no-pager", subcommand, *extra]
         try:
-            completed = run_bounded_process(
+            completed = ctx.process_supervisor.run(
                 cmd,
                 shell=False,
                 timeout=ctx.shell_timeout,
                 max_stream_chars=ctx.max_captured_output_chars,
+                control=ctx.run_control,
             )
         except FileNotFoundError:
             return ToolResult.error(
@@ -90,6 +91,14 @@ class GitTool(Tool):
                 code="timeout",
                 retryable=True,
                 metadata={"timed_out": True},
+            )
+        if completed.interrupted:
+            cancelled = completed.termination_reason.value == "cancelled"
+            return ToolResult.error(
+                "git 命令已强制取消" if cancelled else "git 命令已暂停",
+                code="cancelled" if cancelled else "interrupted",
+                retryable=False,
+                metadata={"termination_reason": completed.termination_reason.value},
             )
         output, artifacts, metadata = format_process_result(
             completed,

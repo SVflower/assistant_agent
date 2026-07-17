@@ -8,7 +8,6 @@
 from __future__ import annotations
 
 import signal
-import threading
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
@@ -25,6 +24,7 @@ from assistant_agent.cli.recovery import (
 )
 from assistant_agent.cli.setup import build_runtime
 from assistant_agent.config.loader import ConfigError, load_config
+from assistant_agent.runtime import RunControl
 from assistant_agent.session.store import SessionStore
 from assistant_agent.ui.console import Console
 
@@ -34,8 +34,8 @@ app = typer.Typer(
     add_completion=False,
 )
 
-# 任务执行期间的中断标志。Ctrl+C 时由信号处理器置起，AgentLoop 检查它以干净停止。
-_interrupt = threading.Event()
+# 第一次 Ctrl+C 请求可恢复暂停，第二次升级为强制取消。
+_run_control = RunControl()
 
 
 @contextmanager
@@ -45,10 +45,10 @@ def _interruptible() -> Iterator[None]:
     退出时恢复默认处理器——这样在输入提示符处按 Ctrl+C 仍是正常的退出行为。
     signal.signal 只能在主线程调用（CLI 主流程满足）。
     """
-    _interrupt.clear()
+    _run_control.reset()
     previous = signal.getsignal(signal.SIGINT)
     try:
-        signal.signal(signal.SIGINT, lambda *_: _interrupt.set())
+        signal.signal(signal.SIGINT, lambda *_: _run_control.request_interrupt())
     except ValueError:
         # 非主线程（如测试）无法设信号；此时不启用中断，直接放行。
         yield
@@ -83,7 +83,7 @@ def run(
         config,
         console,
         interactive=False,
-        interrupt_check=_interrupt.is_set,
+        run_control=_run_control,
         provider=provider,
         max_iterations=max_iterations,
     ) as rt:
@@ -120,7 +120,7 @@ def chat(
         config,
         console,
         interactive=True,
-        interrupt_check=_interrupt.is_set,
+        run_control=_run_control,
         provider=provider,
         max_iterations=max_iterations,
     ) as rt:
@@ -207,6 +207,11 @@ def chat(
                     if synced is not None:
                         ctx.session = synced
                     rt.run_store.prune(rt.config.agent.recovery.max_completed_runs)
+                    if coordinator.state.status == "paused":
+                        console.error(
+                            "当前 Run 已暂停。为避免会话分叉，chat 已停止；请按 Run ID 恢复。"
+                        )
+                        break
                 else:
                     ctx.session.compaction_checkpoint = rt.loop.export_checkpoint()
                     store.save(ctx.session, rt.loop.export_history())
@@ -278,7 +283,8 @@ def resume_run(
         run_id,
         config,
         provider,
-        interrupt_check=_interrupt.is_set,
+        interrupt_check=None,
+        run_control=_run_control,
         render_streamed=_run_streamed,
     )
 

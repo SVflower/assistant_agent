@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 from assistant_agent.obs import NullLogger
+from assistant_agent.runtime import ProcessSupervisor, RunControl
 from assistant_agent.tools.display import ToolDisplay, call_display, result_display
 from assistant_agent.tools.observers import PostToolUseObserver, PreToolUseObserver
 from assistant_agent.tools.permissions import (
@@ -89,6 +90,8 @@ class ToolContext:
     logger: NullLogger = field(default_factory=NullLogger)
     permission_policy: PermissionPolicy = field(default_factory=PermissionPolicy)
     interactive: bool = True
+    run_control: RunControl = field(default_factory=RunControl)
+    process_supervisor: ProcessSupervisor = field(default_factory=ProcessSupervisor)
     pre_tool_observers: list[PreToolUseObserver] = field(default_factory=list)
     post_tool_observers: list[PostToolUseObserver] = field(default_factory=list)
     # 单个工具输出写入上下文的最大字符数（0=不截断）。

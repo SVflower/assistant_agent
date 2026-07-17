@@ -31,6 +31,7 @@ from assistant_agent.obs import NullLogger, create_logger, new_trace_id
 from assistant_agent.runtime import (
     BaseWorkspace,
     ConfinedWorkspace,
+    ContainerWorkspace,
     HostWorkspace,
     ProcessSupervisor,
     RunControl,
@@ -165,6 +166,40 @@ def _start_web(
     return client
 
 
+def _start_workspace(
+    config: AppConfig,
+    console: Console,
+    control: RunControl,
+    supervisor: ProcessSupervisor,
+) -> BaseWorkspace:
+    root = Path.cwd()
+    if config.sandbox.mode == "off":
+        return HostWorkspace(root, supervisor=supervisor, control=control)
+    if config.sandbox.mode == "workspace":
+        return ConfinedWorkspace(root, supervisor=supervisor, control=control)
+    workspace = ContainerWorkspace(
+        root,
+        supervisor=supervisor,
+        control=control,
+        engine=config.sandbox.engine,
+        image=config.sandbox.image,
+        network=config.sandbox.network,
+        memory=config.sandbox.memory,
+        cpus=config.sandbox.cpus,
+        pids_limit=config.sandbox.pids_limit,
+        user=config.sandbox.user,
+    )
+    host_mcp = sorted(
+        name for name, server in config.mcp.servers.items() if config.mcp.enabled and server.enabled
+    )
+    mcp_detail = f"（{', '.join(host_mcp)}）" if host_mcp else ""
+    console.error(
+        f"（隔离）Shell/Git 在临时容器内运行；Web 与外部 MCP server{mcp_detail}"
+        "仍在宿主机运行，不受该容器隔离。"
+    )
+    return workspace
+
+
 def _register_extension_tools(
     config: AppConfig,
     registry: ToolRegistry,
@@ -291,14 +326,6 @@ def build_runtime(
     client = LLMClient(config.active_provider)
     control = run_control or RunControl()
     process_supervisor = ProcessSupervisor()
-    if config.sandbox.mode == "workspace":
-        workspace: BaseWorkspace = ConfinedWorkspace(
-            Path.cwd(), supervisor=process_supervisor, control=control
-        )
-    elif config.sandbox.mode == "off":
-        workspace = HostWorkspace(Path.cwd(), supervisor=process_supervisor, control=control)
-    else:
-        raise RuntimeError("container sandbox 尚未完成初始化")
     registry = build_default_registry()
 
     # 先发现 Skill，但不把未信任项目元数据暴露给模型。
@@ -316,7 +343,9 @@ def build_runtime(
     run_store = RunStore(resolve_run_dir(config.agent.recovery.dir))
     mcp: MCPManager | None = None
     web: WebClient | None = None
+    workspace: BaseWorkspace | None = None
     try:
+        workspace = _start_workspace(config, console, control, process_supervisor)
         logger.session_start(
             provider=config.active,
             model=config.active_provider.model,
@@ -407,6 +436,9 @@ def build_runtime(
             mcp.close()
         if web is not None:
             web.close()
-        workspace.close()
+        if workspace is not None:
+            workspace.close()
+        else:
+            process_supervisor.close()
         logger.session_end(reason="runtime_init_failed")
         raise

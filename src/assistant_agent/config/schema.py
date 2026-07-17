@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class ProviderConfig(BaseModel):
@@ -127,6 +127,20 @@ class SandboxConfig(BaseModel):
     memory: str = "1g"
     cpus: float = Field(default=1.0, gt=0, le=64)
     pids_limit: int = Field(default=256, ge=16, le=4096)
+    user: str = Field(
+        default="auto",
+        min_length=1,
+        description="容器内非 root 用户；auto 在 POSIX 映射当前 uid/gid，其他平台用 65534",
+    )
+
+    @field_validator("user")
+    @classmethod
+    def _reject_root_user(cls, value: str) -> str:
+        normalized = value.strip()
+        user_part = normalized.split(":", 1)[0].lower()
+        if user_part == "root" or (user_part.isdecimal() and int(user_part) == 0):
+            raise ValueError("sandbox.user 不能使用 root 用户")
+        return normalized
 
 
 class PermissionRuleConfig(BaseModel):

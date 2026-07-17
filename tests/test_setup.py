@@ -144,3 +144,42 @@ def test_extension_model_tools_degrade_when_context_is_small(tmp_path, monkeypat
     config.agent.max_context_tokens = 65_536
     assert setup._register_extension_tools(config, registry, large_prompt, tools) is True
     assert "configure_mcp_server" in registry.names()
+
+
+def test_container_workspace_warning_and_runtime_rollback(monkeypatch):
+    config = AppConfig.model_validate(
+        {
+            "active": "p",
+            "providers": {"p": {"model": "openai/fake"}},
+            "sandbox": {"mode": "container"},
+            "mcp": {"servers": {"demo": {"command": "fake"}}},
+        }
+    )
+    messages = []
+    closed = []
+
+    class Workspace:
+        root = setup.Path.cwd()
+        supervisor = setup.ProcessSupervisor()
+        control = setup.RunControl()
+
+        def close(self):
+            closed.append(True)
+
+    monkeypatch.setattr(setup, "load_config", lambda _path: config)
+    monkeypatch.setattr(setup, "create_logger", lambda *_args: _Logger())
+    monkeypatch.setattr(setup, "_start_mcp", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(setup, "ContainerWorkspace", lambda *_args, **_kwargs: Workspace())
+    monkeypatch.setattr(
+        setup, "AgentLoop", lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("boom"))
+    )
+    console = _Console()
+    console.error = messages.append
+
+    with pytest.raises(RuntimeError, match="boom"):
+        setup.build_runtime(None, console, interactive=False, interrupt_check=lambda: False)
+
+    assert closed == [True]
+    assert any(
+        "外部 MCP" in message and "demo" in message and "宿主机" in message for message in messages
+    )

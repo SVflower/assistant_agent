@@ -88,6 +88,7 @@ sandbox:
   memory: 1g
   cpus: 1.0
   pids_limit: 256
+  user: auto                 # 禁止 root；auto 在 POSIX 映射当前用户，其他平台用 65534
 
 permissions:
   # 应用层权限策略：readonly / workspace（推荐）/ strict / unrestricted。

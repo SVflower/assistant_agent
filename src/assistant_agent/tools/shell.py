@@ -38,12 +38,11 @@ class ShellTool(Tool):
                 "缺少参数 command", code="invalid_arguments", retryable=True, executed=False
             )
         try:
-            completed = ctx.process_supervisor.run(
+            completed = ctx.execute_process(
                 command,
                 shell=True,
                 timeout=ctx.shell_timeout,
                 max_stream_chars=ctx.max_captured_output_chars,
-                control=ctx.run_control,
             )
         except OSError as exc:
             return ToolResult.error(

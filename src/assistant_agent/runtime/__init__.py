@@ -7,13 +7,23 @@ from assistant_agent.runtime.process import (
     ProcessSupervisor,
     TerminationReason,
 )
+from assistant_agent.runtime.workspace import (
+    BaseWorkspace,
+    ConfinedWorkspace,
+    HostWorkspace,
+    WorkspaceError,
+)
 
 __all__ = [
     "BoundedProcessResult",
+    "BaseWorkspace",
     "CapturedStream",
     "ControlState",
+    "ConfinedWorkspace",
+    "HostWorkspace",
     "ProcessSupervisor",
     "RunControl",
     "RunInterrupted",
     "TerminationReason",
+    "WorkspaceError",
 ]

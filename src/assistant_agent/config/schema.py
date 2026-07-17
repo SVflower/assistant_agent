@@ -117,6 +117,18 @@ class ToolsConfig(BaseModel):
     )
 
 
+class SandboxConfig(BaseModel):
+    """内置工具执行环境。workspace 是应用层约束，container 才是 OS 隔离。"""
+
+    mode: Literal["off", "workspace", "container"] = "off"
+    engine: Literal["docker", "podman"] = "docker"
+    image: str = "python:3.11-slim"
+    network: Literal["none", "bridge"] = "none"
+    memory: str = "1g"
+    cpus: float = Field(default=1.0, gt=0, le=64)
+    pids_limit: int = Field(default=256, ge=16, le=4096)
+
+
 class PermissionRuleConfig(BaseModel):
     effect: Literal["allow", "ask", "deny"]
     capability: Literal[
@@ -299,6 +311,7 @@ class AppConfig(BaseModel):
     providers: dict[str, ProviderConfig] = Field(..., min_length=1)
     agent: AgentConfig = Field(default_factory=AgentConfig)
     tools: ToolsConfig = Field(default_factory=ToolsConfig)
+    sandbox: SandboxConfig = Field(default_factory=SandboxConfig)
     permissions: PermissionsConfig = Field(default_factory=PermissionsConfig)
     ui: UIConfig = Field(default_factory=UIConfig)
     logging: LoggingConfig = Field(default_factory=LoggingConfig)

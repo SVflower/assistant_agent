@@ -8,15 +8,22 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
+from assistant_agent.tools.base import ToolContext
 from assistant_agent.tools.permissions import Capability, PermissionRequest
 
 
 def path_request(
-    tool: str, capability: Capability, path_value: Any, risk: str
+    tool: str,
+    capability: Capability,
+    path_value: Any,
+    risk: str,
+    ctx: ToolContext | None = None,
 ) -> list[PermissionRequest]:
     if not isinstance(path_value, (str, Path)) or not str(path_value):
         return []
-    target = str(Path(path_value).expanduser().resolve())
+    target = str(
+        ctx.resolve_path(path_value) if ctx is not None else Path(path_value).expanduser().resolve()
+    )
     return [PermissionRequest(tool, capability, target, risk)]
 
 

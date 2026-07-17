@@ -78,6 +78,17 @@ tools:
   # 超大工具输出 artifact 在 workspace 内最多保留的文件数
   max_artifact_files: 100
 
+# 内置文件/Shell/Git 工具的执行边界。off 保持宿主兼容；workspace 强制路径不越界但不是 OS 沙盒；
+# container 使用 Docker/Podman 隔离命令，默认无网络且不挂载 HOME/凭据。
+sandbox:
+  mode: off                 # off / workspace / container
+  engine: docker            # docker / podman
+  image: python:3.11-slim
+  network: none             # none / bridge
+  memory: 1g
+  cpus: 1.0
+  pids_limit: 256
+
 permissions:
   # 应用层权限策略：readonly / workspace（推荐）/ strict / unrestricted。
   # 它决定是否执行或询问，但不是 OS 沙箱；获准进程仍拥有当前用户的系统权限。

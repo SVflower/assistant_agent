@@ -13,7 +13,13 @@ from pathlib import Path
 from typing import Any, Literal
 
 from assistant_agent.obs import NullLogger
-from assistant_agent.runtime import ProcessSupervisor, RunControl
+from assistant_agent.runtime import (
+    BaseWorkspace,
+    BoundedProcessResult,
+    HostWorkspace,
+    ProcessSupervisor,
+    RunControl,
+)
 from assistant_agent.tools.display import ToolDisplay, call_display, result_display
 from assistant_agent.tools.observers import PostToolUseObserver, PreToolUseObserver
 from assistant_agent.tools.permissions import (
@@ -92,6 +98,7 @@ class ToolContext:
     interactive: bool = True
     run_control: RunControl = field(default_factory=RunControl)
     process_supervisor: ProcessSupervisor = field(default_factory=ProcessSupervisor)
+    workspace: BaseWorkspace | None = None
     pre_tool_observers: list[PreToolUseObserver] = field(default_factory=list)
     post_tool_observers: list[PostToolUseObserver] = field(default_factory=list)
     # 单个工具输出写入上下文的最大字符数（0=不截断）。
@@ -108,6 +115,42 @@ class ToolContext:
     current_call_id: str = ""
     # 当前工具执行内确认回调的累计等待时间。
     _approval_wait_ms: int = 0
+
+    def __post_init__(self) -> None:
+        if self.workspace is None:
+            self.workspace = HostWorkspace(
+                self.workspace_root,
+                supervisor=self.process_supervisor,
+                control=self.run_control,
+            )
+        else:
+            self.workspace_root = self.workspace.root
+            self.process_supervisor = self.workspace.supervisor
+            self.run_control = self.workspace.control
+
+    def resolve_path(self, value: str | Path) -> Path:
+        if self.workspace is None:  # __post_init__ 后不可达，保留类型收窄
+            raise RuntimeError("ToolContext 缺少 Workspace")
+        return self.workspace.resolve_path(value)
+
+    def execute_process(
+        self,
+        command: str | list[str],
+        *,
+        shell: bool,
+        timeout: float,
+        max_stream_chars: int,
+        cwd: str | Path | None = None,
+    ) -> BoundedProcessResult:
+        if self.workspace is None:
+            raise RuntimeError("ToolContext 缺少 Workspace")
+        return self.workspace.execute(
+            command,
+            shell=shell,
+            timeout=timeout,
+            max_stream_chars=max_stream_chars,
+            cwd=cwd,
+        )
 
     def reset_approval_wait(self) -> None:
         self._approval_wait_ms = 0

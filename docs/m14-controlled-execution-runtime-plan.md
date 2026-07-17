@@ -1,6 +1,6 @@
 # M14 受控执行运行时方案
 
-> 状态：实施中（2026-07-17）。用户已授权修改 `agent/loop.py`；M14a 已完成，M14b/M14c
+> 状态：实施中（2026-07-17）。用户已授权修改 `agent/loop.py`；M14a/M14b 已完成，M14c
 > 待实施。
 
 ## 1. 背景与目标
@@ -173,7 +173,7 @@ Chat 中存在 paused Run 时，不允许静默开始下一任务造成 Session/
 - Shell/Git/MCP/Web 接入控制信号，模型 provider 增加显式请求 timeout；
 - Windows 真实父子进程存活探针通过；全量 509 passed、3 skipped，Ruff/mypy 全绿。
 
-## 6. M14b：Workspace 执行抽象
+## 6. M14b：Workspace 执行抽象（已完成）
 
 M14a 稳定后再引入 `BaseWorkspace`，避免进程控制和文件抽象同时落地：
 
@@ -199,6 +199,15 @@ class BaseWorkspace(Protocol):
 Skill 脚本和获准宿主进程仍可能绕过；UI 和文档不得显示“完全隔离”。
 
 M14b 原则上不修改 `agent/loop.py`。
+
+### 6.1 M14b 实施结果
+
+- 新增 BaseWorkspace、HostWorkspace 和 ConfinedWorkspace；
+- ToolContext 统一持有 Workspace，文件、编辑、目录、搜索、Shell、Git 均通过该边界；
+- 默认 `sandbox.mode=off` 保持宿主兼容，`workspace` 模式强制拒绝 root 外路径；
+- 相对路径统一基于 workspace root，并阻止可解析的符号链接/junction 逃逸；
+- Workspace 明确公开 `os_sandboxed=false`，没有把应用层路径约束宣传为 OS 隔离；
+- 相关 81 个测试通过（1 个平台符号链接测试按能力跳过），Ruff/mypy 全绿；未修改 Loop。
 
 ## 7. M14c：可选容器沙盒
 

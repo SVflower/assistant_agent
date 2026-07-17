@@ -28,7 +28,13 @@ from assistant_agent.config.schema import AppConfig, MCPConfig, SkillsConfig, We
 from assistant_agent.llm.client import LLMClient
 from assistant_agent.mcp import MCPManager, MCPService
 from assistant_agent.obs import NullLogger, create_logger, new_trace_id
-from assistant_agent.runtime import ProcessSupervisor, RunControl
+from assistant_agent.runtime import (
+    BaseWorkspace,
+    ConfinedWorkspace,
+    HostWorkspace,
+    ProcessSupervisor,
+    RunControl,
+)
 from assistant_agent.session.run_store import RunStore
 from assistant_agent.skills import LoadSkillTool, SkillManager, SkillMeta, SkillSource, SkillStore
 from assistant_agent.tools.base import Tool, ToolContext
@@ -196,6 +202,7 @@ class Runtime:
     interactive: bool = False
     run_control: RunControl = field(default_factory=RunControl)
     process_supervisor: ProcessSupervisor = field(default_factory=ProcessSupervisor)
+    workspace: BaseWorkspace | None = None
     _closed: bool = field(default=False, init=False)
 
     def skills_meta(self) -> list[tuple[str, str]]:
@@ -234,7 +241,10 @@ class Runtime:
             self.mcp.close()
         if self.web is not None:
             self.web.close()
-        self.process_supervisor.close()
+        if self.workspace is not None:
+            self.workspace.close()
+        else:
+            self.process_supervisor.close()
         self.logger.session_end(reason=reason)
 
 
@@ -281,6 +291,14 @@ def build_runtime(
     client = LLMClient(config.active_provider)
     control = run_control or RunControl()
     process_supervisor = ProcessSupervisor()
+    if config.sandbox.mode == "workspace":
+        workspace: BaseWorkspace = ConfinedWorkspace(
+            Path.cwd(), supervisor=process_supervisor, control=control
+        )
+    elif config.sandbox.mode == "off":
+        workspace = HostWorkspace(Path.cwd(), supervisor=process_supervisor, control=control)
+    else:
+        raise RuntimeError("container sandbox 尚未完成初始化")
     registry = build_default_registry()
 
     # 先发现 Skill，但不把未信任项目元数据暴露给模型。
@@ -321,6 +339,7 @@ def build_runtime(
             interactive=interactive,
             run_control=control,
             process_supervisor=process_supervisor,
+            workspace=workspace,
         )
 
         skills = skill_store.list()
@@ -381,12 +400,13 @@ def build_runtime(
             interactive=interactive,
             run_control=control,
             process_supervisor=process_supervisor,
+            workspace=workspace,
         )
     except BaseException:
         if mcp is not None:
             mcp.close()
         if web is not None:
             web.close()
-        process_supervisor.close()
+        workspace.close()
         logger.session_end(reason="runtime_init_failed")
         raise

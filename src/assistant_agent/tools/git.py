@@ -67,12 +67,11 @@ class GitTool(Tool):
         # 关闭分页器，否则非交互环境可能卡住
         cmd = ["git", "--no-pager", subcommand, *extra]
         try:
-            completed = ctx.process_supervisor.run(
+            completed = ctx.execute_process(
                 cmd,
                 shell=False,
                 timeout=ctx.shell_timeout,
                 max_stream_chars=ctx.max_captured_output_chars,
-                control=ctx.run_control,
             )
         except FileNotFoundError:
             return ToolResult.error(

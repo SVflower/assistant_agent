@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from assistant_agent.runtime import WorkspaceError
 from assistant_agent.tools.base import Tool, ToolContext, ToolResult
 from assistant_agent.tools.permissions import Capability, PermissionRequest
 
@@ -87,7 +88,10 @@ class CodeSearchTool(Tool):
                 f"正则表达式无效：{exc}", code="invalid_arguments", retryable=True
             )
 
-        root = Path(args.get("path") or ".")
+        try:
+            root = ctx.resolve_path(args.get("path") or ".")
+        except WorkspaceError as exc:
+            return ToolResult.error(str(exc), code=exc.code, executed=False)
         if not root.exists():
             return ToolResult.error(f"路径不存在：{root}", code="not_found", retryable=True)
         glob = args.get("glob")
@@ -137,7 +141,7 @@ class CodeSearchTool(Tool):
     def permission_requests(
         self, args: dict[str, Any], ctx: ToolContext
     ) -> list[PermissionRequest]:
-        root = Path(args.get("path") or ".").expanduser().resolve()
+        root = ctx.resolve_path(args.get("path") or ".")
         return [
             PermissionRequest(
                 self.name, Capability.FILESYSTEM_READ, str(root), "递归读取并搜索目录内容"

@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from assistant_agent.runtime import WorkspaceError
 from assistant_agent.tools.base import Tool, ToolContext, ToolResult
 from assistant_agent.tools.file_io import (
     adapt_newlines,
@@ -66,7 +67,10 @@ class WriteFileTool(Tool):
         }
 
     def run(self, args: dict[str, Any], ctx: ToolContext) -> ToolResult:
-        path = Path(args["path"])
+        try:
+            path = ctx.resolve_path(args["path"])
+        except WorkspaceError as exc:
+            return ToolResult.error(str(exc), code=exc.code, executed=False)
         content = args["content"]
         try:
             atomic_write_text(path, content)
@@ -81,7 +85,11 @@ class WriteFileTool(Tool):
         self, args: dict[str, Any], ctx: ToolContext
     ) -> list[PermissionRequest]:
         return path_request(
-            self.name, Capability.FILESYSTEM_WRITE, args.get("path"), "覆盖或创建文件"
+            self.name,
+            Capability.FILESYSTEM_WRITE,
+            args.get("path"),
+            "覆盖或创建文件",
+            ctx,
         )
 
 
@@ -106,7 +114,10 @@ class EditFileTool(Tool):
         }
 
     def run(self, args: dict[str, Any], ctx: ToolContext) -> ToolResult:
-        path = Path(args["path"])
+        try:
+            path = ctx.resolve_path(args["path"])
+        except WorkspaceError as exc:
+            return ToolResult.error(str(exc), code=exc.code, executed=False)
         try:
             content = _read_for_edit(path)
             new_content, count = _apply_one(
@@ -126,7 +137,11 @@ class EditFileTool(Tool):
         self, args: dict[str, Any], ctx: ToolContext
     ) -> list[PermissionRequest]:
         return path_request(
-            self.name, Capability.FILESYSTEM_WRITE, args.get("path"), "编辑文件内容"
+            self.name,
+            Capability.FILESYSTEM_WRITE,
+            args.get("path"),
+            "编辑文件内容",
+            ctx,
         )
 
 
@@ -155,7 +170,10 @@ class MultiEditTool(Tool):
         }
 
     def run(self, args: dict[str, Any], ctx: ToolContext) -> ToolResult:
-        path = Path(args["path"])
+        try:
+            path = ctx.resolve_path(args["path"])
+        except WorkspaceError as exc:
+            return ToolResult.error(str(exc), code=exc.code, executed=False)
         edits = args["edits"]
         try:
             content = _read_for_edit(path)
@@ -189,5 +207,9 @@ class MultiEditTool(Tool):
         self, args: dict[str, Any], ctx: ToolContext
     ) -> list[PermissionRequest]:
         return path_request(
-            self.name, Capability.FILESYSTEM_WRITE, args.get("path"), "批量编辑文件内容"
+            self.name,
+            Capability.FILESYSTEM_WRITE,
+            args.get("path"),
+            "批量编辑文件内容",
+            ctx,
         )

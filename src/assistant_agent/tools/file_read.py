@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import heapq
-from pathlib import Path
 from typing import Any
 
+from assistant_agent.runtime import WorkspaceError
 from assistant_agent.tools.base import Tool, ToolContext, ToolResult
 from assistant_agent.tools.file_io import path_request
 from assistant_agent.tools.permissions import Capability, PermissionRequest
@@ -45,7 +45,10 @@ class ReadFileTool(Tool):
         }
 
     def run(self, args: dict[str, Any], ctx: ToolContext) -> ToolResult:
-        path = Path(args["path"])
+        try:
+            path = ctx.resolve_path(args["path"])
+        except WorkspaceError as exc:
+            return ToolResult.error(str(exc), code=exc.code, executed=False)
         if not path.exists():
             return ToolResult.error(f"文件不存在：{path}", code="not_found", retryable=True)
         if not path.is_file():
@@ -126,7 +129,13 @@ class ReadFileTool(Tool):
     def permission_requests(
         self, args: dict[str, Any], ctx: ToolContext
     ) -> list[PermissionRequest]:
-        return path_request(self.name, Capability.FILESYSTEM_READ, args.get("path"), "读取文件内容")
+        return path_request(
+            self.name,
+            Capability.FILESYSTEM_READ,
+            args.get("path"),
+            "读取文件内容",
+            ctx,
+        )
 
 
 class ListDirTool(Tool):
@@ -150,7 +159,10 @@ class ListDirTool(Tool):
         }
 
     def run(self, args: dict[str, Any], ctx: ToolContext) -> ToolResult:
-        path = Path(args.get("path") or ".")
+        try:
+            path = ctx.resolve_path(args.get("path") or ".")
+        except WorkspaceError as exc:
+            return ToolResult.error(str(exc), code=exc.code, executed=False)
         if not path.exists():
             return ToolResult.error(f"目录不存在：{path}", code="not_found", retryable=True)
         if not path.is_dir():
@@ -179,7 +191,11 @@ class ListDirTool(Tool):
         self, args: dict[str, Any], ctx: ToolContext
     ) -> list[PermissionRequest]:
         return path_request(
-            self.name, Capability.FILESYSTEM_READ, args.get("path") or ".", "列出目录内容"
+            self.name,
+            Capability.FILESYSTEM_READ,
+            args.get("path") or ".",
+            "列出目录内容",
+            ctx,
         )
 
 

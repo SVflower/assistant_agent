@@ -82,7 +82,9 @@ class Console:
         if force or self._display_mode == "verbose":
             self._console.print(f"Run ID：{run_id}", style="dim")
 
-    def banner(self, provider_name: str, model: str, permission_mode: str) -> None:
+    def banner(
+        self, provider_name: str, model: str, permission_mode: str, execution_backend: str
+    ) -> None:
         self.set_model_label(model)
         if self._display_mode == "quiet":
             return
@@ -92,6 +94,7 @@ class Console:
                 model,
                 os.getcwd(),
                 permission_mode,
+                execution_backend,
                 verbose=self._display_mode == "verbose",
             )
         )

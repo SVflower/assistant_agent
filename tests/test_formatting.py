@@ -17,16 +17,31 @@ from assistant_agent.ui.formatting import (
 
 
 @pytest.mark.parametrize("mode", ["readonly", "workspace", "strict", "unrestricted"])
-def test_banner_discloses_permission_mode_and_no_os_sandbox(mode):
+def test_banner_discloses_permission_mode_separately_from_execution(mode):
     console = Console(record=True, width=160)
-    console.print(build_banner("provider", "model", "/workspace", mode))
+    console.print(build_banner("provider", "model", "/workspace", mode, "host"))
     output = console.export_text()
     assert mode in output
     assert "无 OS 沙箱" in output
     assert "Assistant Agent" in output
     assert "模型" in output and "位置" in output and "权限" in output
     assert "/workspace" in output
-    assert len(output.splitlines()) == 5
+    assert "执行  host" in output
+    assert len(output.splitlines()) == 6
+
+
+@pytest.mark.parametrize(
+    ("backend", "expected"),
+    [
+        ("host", "宿主执行，无 OS 沙箱"),
+        ("confined", "workspace  · 路径受限，非 OS 沙箱"),
+        ("container", "Shell/Git 容器隔离"),
+    ],
+)
+def test_banner_discloses_actual_execution_boundary(backend, expected):
+    console = Console(record=True, width=160)
+    console.print(build_banner("provider", "model", "/workspace", "workspace", backend))
+    assert expected in console.export_text()
 
 
 def test_verbose_banner_discloses_full_runtime_details():
@@ -37,6 +52,7 @@ def test_verbose_banner_discloses_full_runtime_details():
             "openai/deepseek-v4-pro",
             "/workspace/project",
             "workspace",
+            "confined",
             verbose=True,
         )
     )

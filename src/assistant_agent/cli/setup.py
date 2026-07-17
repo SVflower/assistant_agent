@@ -414,7 +414,12 @@ def build_runtime(
         console.set_show_reasoning(config.ui.show_reasoning)
         console.set_display_mode(config.ui.display_mode)
         console.set_context_limit(config.agent.max_context_tokens)
-        console.banner(config.active, config.active_provider.model, config.permissions.mode)
+        console.banner(
+            config.active,
+            config.active_provider.model,
+            config.permissions.mode,
+            workspace.backend,
+        )
         return Runtime(
             config=config,
             loop=loop,

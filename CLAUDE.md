@@ -106,7 +106,7 @@ python -m assistant_agent
   清理受管进程树；Host/Confined/Container Workspace 统一文件与进程边界，容器默认无网络、非 root、
   仅挂载当前 workspace；Web/外置 MCP/自定义 Python Tool 仍明确位于宿主边界。M14a 经授权修改 Loop，
   M14b/M14c 未修改 Loop；还清 D18。
-- 526 个测试通过（5 个平台能力测试跳过），覆盖率 82%，ruff/mypy 全绿；12146 行生产 Python
+- 529 个测试通过（5 个平台能力测试跳过），覆盖率 82%，ruff/mypy 全绿；12166 行生产 Python
   源码 + 1564 行 eval 基础设施。
 
 第三阶段总规划见 `docs/phase3-trustworthy-agent-plan.md`；M9a-M10c 方案/决策已归档到

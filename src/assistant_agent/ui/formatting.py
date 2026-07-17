@@ -28,6 +28,7 @@ def build_banner(
     model: str,
     cwd: str,
     permission_mode: str,
+    execution_backend: str,
     *,
     verbose: bool = False,
 ) -> Panel:
@@ -45,7 +46,10 @@ def build_banner(
     info.append(cwd, style="green")
     info.append("\n权限  ", style="dim")
     info.append(permission_mode, style=style)
-    info.append("  · 应用层，无 OS 沙箱", style=style)
+    info.append("  · 应用策略", style=style)
+    execution_label, execution_style = _execution_label(execution_backend)
+    info.append("\n执行  ", style="dim")
+    info.append(execution_label, style=execution_style)
     return Panel(
         info,
         title=Text("Assistant Agent", style="bold"),
@@ -54,6 +58,14 @@ def build_banner(
         expand=False,
         padding=(0, 1),
     )
+
+
+def _execution_label(backend: str) -> tuple[str, str]:
+    if backend == "container":
+        return "container  · Shell/Git 容器隔离", "green"
+    if backend == "confined":
+        return "workspace  · 路径受限，非 OS 沙箱", "yellow"
+    return "host  · 宿主执行，无 OS 沙箱", "red"
 
 
 def build_response_panel(text: str) -> Panel:

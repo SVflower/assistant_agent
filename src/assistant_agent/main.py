@@ -17,14 +17,11 @@ import typer
 from assistant_agent.agent.events import StepEvent
 from assistant_agent.cli.commands import ChatContext, build_default_slash_registry
 from assistant_agent.cli.init import run_init
-from assistant_agent.cli.recovery import (
-    resume_command,
-    runs_command,
-    sync_terminal_session,
-)
+from assistant_agent.cli.recovery import resume_command, runs_command
 from assistant_agent.cli.setup import build_runtime
 from assistant_agent.config.loader import ConfigError, load_config
 from assistant_agent.runtime import RunControl
+from assistant_agent.service.sessions import SessionRuntime
 from assistant_agent.session.store import SessionStore
 from assistant_agent.ui.console import Console
 
@@ -124,7 +121,7 @@ def chat(
         provider=provider,
         max_iterations=max_iterations,
     ) as rt:
-        store = SessionStore()
+        store = rt.session_store
 
         if resume:
             try:
@@ -160,6 +157,7 @@ def chat(
             )
             raise typer.Exit(code=1)
         rt.logger.bind_session(session.id)
+        session_runtime = SessionRuntime(rt, session)
 
         mcp_servers = rt.mcp.server_summary() if rt.mcp else []
         ctx = ChatContext(
@@ -190,36 +188,25 @@ def chat(
                 registry.dispatch(task, ctx)
                 if ctx.should_exit:
                     break
+                session_runtime = SessionRuntime(rt, ctx.session)
                 continue
-            rt.logger.task(task)
-            coordinator = rt.new_run(task, ctx.session.id)
-            if coordinator is not None:
-                console.show_run_id(coordinator.run_id)
-            _run_streamed(console, rt.loop.run(task, coordinator=coordinator))
             try:
-                if coordinator is not None:
-                    if (
-                        coordinator.state.status != "completed"
-                        and console.display_mode != "verbose"
-                    ):
-                        console.show_run_id(coordinator.run_id, force=True)
-                    synced = sync_terminal_session(coordinator, store, ctx.session)
-                    if synced is not None:
-                        ctx.session = synced
-                    rt.run_store.prune(rt.config.agent.recovery.max_completed_runs)
-                    if coordinator.state.status == "paused":
-                        console.error(
-                            "当前 Run 已暂停。为避免会话分叉，chat 已停止；请按 Run ID 恢复。"
-                        )
-                        break
-                else:
-                    ctx.session.compaction_checkpoint = rt.loop.export_checkpoint()
-                    store.save(ctx.session, rt.loop.export_history())
+                execution = session_runtime.start_run(task)
+                console.show_run_id(execution.run_id)
+                _run_streamed(console, execution.events)
+                state = rt.run_store.load(execution.run_id).document
+                ctx.session = session_runtime.session
+                if state["status"] != "completed" and console.display_mode != "verbose":
+                    console.show_run_id(execution.run_id, force=True)
+                if state["status"] == "paused":
+                    console.error(
+                        "当前 Run 已暂停。为避免会话分叉，chat 已停止；请按 Run ID 恢复。"
+                    )
+                    break
             except Exception as exc:  # noqa: BLE001 - 保留 checkpoint，后续可 resume 补同步
                 console.error(f"（自动保存失败，已跳过：{exc}）")
-                if coordinator is not None:
-                    console.error("为避免 Session/Run 分叉，已停止当前 chat；请按 Run ID 恢复。")
-                    break
+                console.error("为避免 Session/Run 分叉，已停止当前 chat；请按 Run ID 恢复。")
+                break
     # 单一出口打印一次；ctx.session 会随 /clear 更新，显示实际结束的会话。
     console.info(f"\n已结束会话 {ctx.session.id}。")
     console.info("恢复此会话：")

@@ -302,7 +302,13 @@ class ToolRegistry:
                 lifecycle.approval_pending(call_id, requests, replay_policy)
 
             before_prompt = checkpoint_approval
-        if not ctx.request_permissions(requests, before_prompt=before_prompt):
+        previous_call_id = ctx.current_call_id
+        ctx.current_call_id = call_id
+        try:
+            permitted = ctx.request_permissions(requests, before_prompt=before_prompt)
+        finally:
+            ctx.current_call_id = previous_call_id
+        if not permitted:
             result = ToolResult(
                 output="[permission_denied] 权限拒绝：工具动作未获授权",
                 is_error=True,

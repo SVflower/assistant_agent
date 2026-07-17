@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from assistant_agent.cli.setup import _discover_skills
 from assistant_agent.config.paths import (
     assistant_home,
     managed_mcp_dir,
@@ -16,6 +15,7 @@ from assistant_agent.config.paths import (
     workspace_id,
 )
 from assistant_agent.config.schema import SkillsConfig
+from assistant_agent.service._runtime_builders import discover_skills
 from assistant_agent.session.run_store import RunStore
 from assistant_agent.session.store import SessionStore
 
@@ -62,6 +62,8 @@ def test_legacy_default_run_and_log_paths_resolve_to_state(tmp_path, monkeypatch
     assert resolve_log_dir(".assistant_agent/logs", tmp_path) == paths.logs
     custom = tmp_path / "custom"
     assert resolve_run_dir(str(custom), tmp_path) == custom
+    assert resolve_run_dir("state/runs", tmp_path) == tmp_path / "state" / "runs"
+    assert resolve_log_dir("state/logs", tmp_path) == tmp_path / "state" / "logs"
 
 
 def test_default_stores_use_isolated_home(tmp_path, monkeypatch):
@@ -84,7 +86,7 @@ def test_skill_discovery_prefers_project_then_user_then_legacy(tmp_path, monkeyp
     _write_skill(project, "dup", "project")
     _write_skill(user_skills_dir(), "dup", "user")
     _write_skill(legacy, "old", "legacy")
-    metas = {meta.name: meta for meta in _discover_skills(SkillsConfig()).list()}
+    metas = {meta.name: meta for meta in discover_skills(SkillsConfig(), tmp_path).list()}
     assert metas["dup"].source == "project"
     assert metas["old"].source == "legacy"
     assert not metas["old"].trusted

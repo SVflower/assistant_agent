@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
 
+from assistant_agent.interaction import InteractionPort
 from assistant_agent.obs import NullLogger
 from assistant_agent.runtime import (
     BaseWorkspace,
@@ -21,6 +22,7 @@ from assistant_agent.runtime import (
     RunControl,
 )
 from assistant_agent.tools.display import ToolDisplay, call_display, result_display
+from assistant_agent.tools.interaction_bridge import approve_via_port, ask_via_port
 from assistant_agent.tools.observers import PostToolUseObserver, PreToolUseObserver
 from assistant_agent.tools.permissions import (
     Capability,
@@ -86,6 +88,8 @@ class ToolContext:
     # 澄清回调（层1）：给问题+选项，返回用户所选。默认返回退化信号（无 UI 可问）。
     # UI 层注入真正的交互；ask_user 工具在非交互环境会自行退化，不调用它。
     ask: Callable[[str, list[str]], str] = lambda _q, _opts: NO_USER_AVAILABLE
+    # 公共服务交互端口。非空时优先于上面的 CLI 兼容回调。
+    interaction: InteractionPort | None = None
     # 本会话内"永远允许"的类别集合（如 "run_shell"）。由 request_confirm 维护。
     always_allowed: set[str] = field(default_factory=set)
     # M9b：精确会话授权。旧 always_allowed 暂留作兼容，不参与新策略。
@@ -113,6 +117,8 @@ class ToolContext:
     budget: ToolBudget | None = None
     # 当前稳定工具调用 ID；仅 Tool.run 执行期间设置，供支持幂等键的扩展工具使用。
     current_call_id: str = ""
+    current_run_id: str = ""
+    current_session_id: str | None = None
     # 当前工具执行内确认回调的累计等待时间。
     _approval_wait_ms: int = 0
 
@@ -154,6 +160,28 @@ class ToolContext:
 
     def reset_approval_wait(self) -> None:
         self._approval_wait_ms = 0
+
+    def bind_run(self, run_id: str, session_id: str | None) -> None:
+        """绑定当前服务调用身份；每个 Runtime 同时只允许一个活跃 Run。"""
+        self.current_run_id = run_id
+        self.current_session_id = session_id
+
+    def clear_run(self) -> None:
+        self.current_run_id = ""
+        self.current_session_id = None
+
+    def request_question(self, question: str, options: list[str]) -> str:
+        if self.interaction is None:
+            return self.ask(question, options)
+        answer = ask_via_port(
+            self.interaction,
+            run_id=self.current_run_id,
+            session_id=self.current_session_id,
+            call_id=self.current_call_id,
+            question=question,
+            options=options,
+        )
+        return answer if answer is not None else NO_USER_AVAILABLE
 
     def write_artifact(self, content: str, *, prefix: str, complete: bool = True) -> ArtifactRef:
         if self.artifact_store is None:
@@ -241,7 +269,23 @@ class ToolContext:
         can_grant_broader = bool(broader) and all(
             scope is not None and scope == broader[0] for scope in broader
         )
-        if can_grant_broader and self.confirm_scoped is not None:
+        if self.interaction is not None:
+            broader_scope = broader[0] if can_grant_broader else None
+            choice = approve_via_port(
+                self.interaction,
+                run_id=self.current_run_id,
+                session_id=self.current_session_id,
+                call_id=self.current_call_id,
+                asks=[item for item, _decision in asks],
+                risks=risks,
+                broader_scope=broader_scope,
+                broader_scope_label=(
+                    str(asks[0][0].metadata.get("broader_scope_label", "本会话允许上级范围"))
+                    if can_grant_broader
+                    else ""
+                ),
+            )
+        elif can_grant_broader and self.confirm_scoped is not None:
             label = str(asks[0][0].metadata.get("broader_scope_label", "本会话允许上级范围"))
             choice = self.confirm_scoped("\n".join(lines), label)
         else:

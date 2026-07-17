@@ -9,7 +9,6 @@
 
 from __future__ import annotations
 
-import sys
 from typing import Any
 
 from assistant_agent.tools.base import NO_USER_AVAILABLE, Tool, ToolContext, ToolResult
@@ -46,11 +45,11 @@ class AskUserTool(Tool):
         if not isinstance(options, list) or not options:
             return ToolResult.error("缺少参数 options（需至少一个候选选项）")
 
-        # 非交互环境：不阻塞，直接退化让模型自行假设。
-        if not sys.stdin.isatty():
+        # 可交互性由 Runtime/InteractionPort 决定，公共服务不依赖进程 TTY。
+        if not ctx.interactive:
             return ToolResult.ok(NO_USER_AVAILABLE)
 
-        choice = ctx.ask(question, [str(o) for o in options])
+        choice = ctx.request_question(question, [str(o) for o in options])
         return ToolResult.ok(f"用户选择：{choice}")
 
     def permission_requests(

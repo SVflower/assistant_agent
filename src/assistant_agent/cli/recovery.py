@@ -14,39 +14,15 @@ from assistant_agent.agent.run_state import ToolCallState
 from assistant_agent.cli.setup import build_runtime
 from assistant_agent.config.loader import ConfigError, load_config
 from assistant_agent.config.paths import resolve_run_dir
+from assistant_agent.interaction import SafeDefaultInteractionPort
 from assistant_agent.obs import sanitize_for_display
 from assistant_agent.runtime import RunControl
+from assistant_agent.service.sessions import SessionRuntime, sync_terminal_session
 from assistant_agent.session.run_store import RunStore
-from assistant_agent.session.store import Session, SessionStore
+from assistant_agent.session.store import Session
 from assistant_agent.ui.console import Console
 
 StreamRenderer = Callable[[Console, Iterator[StepEvent]], None]
-
-
-def sync_terminal_session(
-    coordinator: RunCoordinator,
-    store: SessionStore,
-    session: Session | None = None,
-) -> Session | None:
-    """把 terminal Run 幂等同步到 Session，再提交 session_synced。"""
-    state = coordinator.state
-    if state.status not in {"cancelled", "completed", "failed"} or state.session_id is None:
-        return session
-    if session is None:
-        try:
-            session = store.load(state.session_id)
-        except FileNotFoundError:
-            session = Session(
-                id=state.session_id,
-                created_at=state.created_at,
-                updated_at=state.updated_at,
-            )
-    session.provider = state.provider
-    session.model = state.model
-    session.compaction_checkpoint = state.compaction_checkpoint
-    store.save(session, state.messages)
-    coordinator.mark_session_synced()
-    return session
 
 
 def recovery_choice(console: Console, call: ToolCallState) -> RecoveryChoice:
@@ -134,6 +110,27 @@ def resume_command(
         coordinator = RunCoordinator.load(runtime.run_store, run_id, logger=runtime.logger)
         runtime.logger.bind_session(coordinator.state.session_id)
         runtime.loop.set_interaction_available(tty)
+        if not tty:
+            safe_port = SafeDefaultInteractionPort()
+            runtime.interaction = safe_port
+            runtime.tool_context.interaction = safe_port
+        if coordinator.state.session_id is not None:
+            try:
+                session = runtime.session_store.load(coordinator.state.session_id)
+            except FileNotFoundError:
+                session = Session(
+                    id=coordinator.state.session_id,
+                    created_at=coordinator.state.created_at,
+                    updated_at=coordinator.state.updated_at,
+                )
+            session_runtime = SessionRuntime(runtime, session)
+            execution = session_runtime.resume_run(run_id)
+            if coordinator.load_info is not None and coordinator.load_info.warning:
+                console.error(f"（恢复警告：{coordinator.load_info.warning}）")
+            render_streamed(console, execution.events)
+            return
+
+        # 无 Session 的历史 run 命令保留兼容；API 正式入口始终使用 SessionRuntime。
         differences = coordinator.definition_differences(
             provider=runtime.config.active,
             model=runtime.config.active_provider.model,
@@ -164,7 +161,7 @@ def resume_command(
             runtime.loop.resume(coordinator, recovery_check=callback),
         )
         try:
-            sync_terminal_session(coordinator, SessionStore())
+            sync_terminal_session(coordinator, runtime.session_store)
             runtime.run_store.prune(runtime.config.agent.recovery.max_completed_runs)
         except Exception as exc:  # noqa: BLE001 - Run 保持 unsynced，可再次 resume
             console.error(f"（Session 同步失败，可再次 resume 补做：{exc}）")

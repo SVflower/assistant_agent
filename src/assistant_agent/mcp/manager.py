@@ -91,6 +91,7 @@ class MCPManager:
         artifact_root: Path | None = None,
         stderr_root: Path | None = None,
         run_control: RunControl | None = None,
+        workspace_root: Path | None = None,
     ) -> None:
         if artifact_root is None or stderr_root is None:
             from assistant_agent.config.paths import state_paths
@@ -102,6 +103,7 @@ class MCPManager:
         self._logger = logger
         self._artifact_root = artifact_root.resolve()
         self._stderr_root = stderr_root.resolve()
+        self._workspace_root = (workspace_root or Path.cwd()).resolve()
         self._run_control = run_control or RunControl()
         self._loop: asyncio.AbstractEventLoop | None = None
         self._thread: threading.Thread | None = None
@@ -173,7 +175,15 @@ class MCPManager:
         stderr_dir = (self._stderr_root / _sanitize(name)).resolve()
         artifact_dir.mkdir(parents=True, exist_ok=True)
         stderr_dir.mkdir(parents=True, exist_ok=True)
-        cwd = Path(cfg.cwd).expanduser().resolve() if cfg.cwd else artifact_dir
+        if cfg.cwd:
+            configured_cwd = Path(cfg.cwd).expanduser()
+            cwd = (
+                configured_cwd.resolve()
+                if configured_cwd.is_absolute()
+                else (self._workspace_root / configured_cwd).resolve()
+            )
+        else:
+            cwd = artifact_dir
         env = {**_minimal_env(), **_interpolate_env(cfg.env)}
         env.setdefault("ASSISTANT_AGENT_ARTIFACT_DIR", str(artifact_dir))
         args = _managed_args(cfg.command, list(cfg.args), artifact_dir)

@@ -69,9 +69,15 @@ def project_skills_dir(workspace_root: Path | None = None) -> Path:
 
 def resolve_run_dir(configured: str, workspace_root: Path | None = None) -> Path:
     path = Path(configured).expanduser()
-    return state_paths(workspace_root).runs if path == LEGACY_RUN_DIR else path.resolve()
+    if path == LEGACY_RUN_DIR:
+        return state_paths(workspace_root).runs
+    root = (workspace_root or Path.cwd()).resolve()
+    return path.resolve() if path.is_absolute() else (root / path).resolve()
 
 
 def resolve_log_dir(configured: str, workspace_root: Path | None = None) -> Path:
     path = Path(configured).expanduser()
-    return state_paths(workspace_root).logs if path == LEGACY_LOG_DIR else path.resolve()
+    if path == LEGACY_LOG_DIR:
+        return state_paths(workspace_root).logs
+    root = (workspace_root or Path.cwd()).resolve()
+    return path.resolve() if path.is_absolute() else (root / path).resolve()

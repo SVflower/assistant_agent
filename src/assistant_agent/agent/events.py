@@ -17,12 +17,15 @@ EventKind = Literal[
     "error",
     "interrupted",
     "notice",
+    "run_terminal",
 ]
+TerminalStatus = Literal["completed", "failed", "paused", "cancelled"]
+EVENT_CONTRACT_VERSION = 1
 
 
 @dataclass
 class StepEvent:
-    """循环每一步对外暴露的事件，供 UI 渲染。"""
+    """循环和服务门面对外暴露的向后兼容事件。"""
 
     kind: EventKind
     text: str = ""
@@ -34,3 +37,10 @@ class StepEvent:
     display: ToolDisplay | None = None
     result_code: str = ""
     result_metadata: dict[str, Any] | None = None
+    contract_version: int = EVENT_CONTRACT_VERSION
+    sensitive: bool = False
+    terminal_status: TerminalStatus | None = None
+
+    def __post_init__(self) -> None:
+        if self.kind == "reasoning":
+            self.sensitive = True

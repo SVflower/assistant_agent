@@ -15,13 +15,14 @@ from pathlib import Path
 SRC = Path(__file__).resolve().parent.parent / "src" / "assistant_agent"
 
 # 分层：数字越小越"底层"。每个模块只能依赖同层或更低层（经典分层架构，防环）。
-#   config(0) → llm(1) → tools(2) → agent(3) → ui(4) → main(5)
+#   interaction/config → llm/runtime → tools → agent → service → ui → cli → main
 #   session(0)：纯存储，不依赖任何内部模块，与 config 同为底层基础设施。
 #   obs(0)：可观测性（结构化日志/审计），底层基础设施，被 tools/agent/main 使用，不依赖上层。
 _LAYER_RANK = {
     "config": 0,
     "session": 0,
     "obs": 0,
+    "interaction": 0,  # 纯同步协议/DTO，不依赖 Agent 实现或 UI
     "llm": 1,
     "runtime": 1,  # 低层运行控制、进程监管与 Workspace，不依赖 tools/agent/ui
     "web": 1,  # HTTP 搜索/抓取基础设施，只依赖 config 与外部 httpx
@@ -29,9 +30,10 @@ _LAYER_RANK = {
     "skills": 2,  # 叶子能力层：SKILL.md 发现 + load_skill 工具，只依赖 tools/base
     "mcp": 2,  # 叶子能力层：MCP client，MCPTool 继承 tools/base，只依赖它 + 外部 mcp 包
     "agent": 3,
-    "ui": 4,
-    "cli": 5,  # slash 命令：编排 agent/ui/session，供 main 使用
-    "main": 6,  # 顶层：main.py / __main__.py
+    "service": 4,  # 公共装配与 Session/Run 编排，不依赖 CLI/UI
+    "ui": 5,
+    "cli": 6,  # slash 命令：编排 service/ui，供 main 使用
+    "main": 7,  # 顶层：main.py / __main__.py
 }
 
 # 单文件行数预算：分级软/硬。
@@ -100,6 +102,14 @@ def test_kernel_is_ui_agnostic():
     """内核 agent/loop.py 绝不依赖 UI——它 yield 事件，不做打印（铁律4）。"""
     layers = _imported_layers(SRC / "agent" / "loop.py")
     assert "ui" not in layers, "agent/loop.py 不应 import ui，内核必须与 UI 解耦"
+
+
+def test_service_is_ui_and_cli_agnostic():
+    """公共 Python 服务边界不能依赖终端外壳。"""
+    for path in (SRC / "service").rglob("*.py"):
+        layers = _imported_layers(path)
+        assert "ui" not in layers, f"{path.name} 不应依赖 ui"
+        assert "cli" not in layers, f"{path.name} 不应依赖 cli"
 
 
 def test_tools_do_not_depend_on_agent_or_ui():

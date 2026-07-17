@@ -1,0 +1,314 @@
+"""公共 Session/Run 服务门面的端到端契约。"""
+
+from __future__ import annotations
+
+from collections.abc import Iterator
+
+import pytest
+
+from assistant_agent.interaction import (
+    ContinueDecision,
+    DefinitionChangeDecision,
+    RecoveryDecision,
+    SafeDefaultInteractionPort,
+)
+from assistant_agent.llm.client import StreamEvent, ToolCall
+from assistant_agent.service import AgentService, SessionBusyError, SessionRunConflictError
+from assistant_agent.service import runtime as runtime_module
+from assistant_agent.session.store import SessionStore
+from assistant_agent.tools.base import ToolBudget
+
+
+class _FakeClient:
+    def __init__(self, _provider) -> None:
+        pass
+
+    def complete_stream(self, messages, tools=None) -> Iterator[StreamEvent]:
+        yield StreamEvent(kind="content", text="done")
+
+
+def _config(tmp_path, monkeypatch):
+    monkeypatch.setenv("ASSISTANT_AGENT_HOME", str(tmp_path / "home"))
+    path = tmp_path / "config.yaml"
+    path.write_text(
+        "active: fake\nproviders:\n  fake:\n    model: openai/fake\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(runtime_module, "LLMClient", _FakeClient)
+    return path
+
+
+def test_public_facade_runs_and_syncs_terminal_session(tmp_path, monkeypatch):
+    service = AgentService(config_path=_config(tmp_path, monkeypatch), workspace_root=tmp_path)
+    session_runtime = service.create_session(interaction=SafeDefaultInteractionPort())
+    try:
+        execution = session_runtime.start_run("task")
+        events = list(execution.events)
+        assert any(item.kind == "final" and item.text == "done" for item in events)
+        assert events[-1].kind == "run_terminal"
+        assert events[-1].terminal_status == "completed"
+
+        saved = session_runtime.runtime.session_store.load(session_runtime.session.id)
+        assert saved.messages[-1] == {"role": "assistant", "content": "done"}
+        run = session_runtime.runtime.run_store.load(execution.run_id).document
+        assert run["status"] == "completed"
+        assert run["session_synced"] is True
+    finally:
+        session_runtime.close()
+
+
+def test_same_session_rejects_second_active_run(tmp_path, monkeypatch):
+    service = AgentService(config_path=_config(tmp_path, monkeypatch), workspace_root=tmp_path)
+    session_runtime = service.create_session()
+    try:
+        first = session_runtime.start_run("first")
+        with pytest.raises(SessionBusyError):
+            session_runtime.start_run("second")
+        assert list(first.events)[-1].terminal_status == "completed"
+    finally:
+        session_runtime.close()
+
+
+def test_two_session_runtimes_are_isolated(tmp_path, monkeypatch):
+    service = AgentService(config_path=_config(tmp_path, monkeypatch), workspace_root=tmp_path)
+    first = service.create_session()
+    second = service.create_session()
+    try:
+        assert first.runtime.loop is not second.runtime.loop
+        assert first.runtime.run_control is not second.runtime.run_control
+        assert (
+            first.runtime.tool_context.permission_grants
+            is not second.runtime.tool_context.permission_grants
+        )
+        first.runtime.tool_context.always_allowed.add("demo")
+        assert "demo" not in second.runtime.tool_context.always_allowed
+
+        first_run = first.start_run("first")
+        second_run = second.start_run("second")
+        assert list(first_run.events)[-1].terminal_status == "completed"
+        assert list(second_run.events)[-1].terminal_status == "completed"
+    finally:
+        first.close()
+        second.close()
+
+
+def test_pause_and_resume_keep_original_run_id(tmp_path, monkeypatch):
+    service = AgentService(config_path=_config(tmp_path, monkeypatch), workspace_root=tmp_path)
+    session_runtime = service.create_session()
+    try:
+        execution = session_runtime.start_run("task")
+        iterator = execution.events
+        first = next(iterator)
+        assert first.kind == "content_delta"
+        session_runtime.pause()
+        paused = list(iterator)
+        assert paused[-1].terminal_status == "paused"
+
+        resumed = session_runtime.resume_run(execution.run_id)
+        assert resumed.run_id == execution.run_id
+        assert list(resumed.events)[-1].terminal_status == "completed"
+    finally:
+        session_runtime.close()
+
+
+class _AcceptDefinitionPort(SafeDefaultInteractionPort):
+    def __init__(self) -> None:
+        self.request = None
+
+    def confirm_definition_change(self, request):
+        self.request = request
+        return DefinitionChangeDecision(request.request_id, accepted=True)
+
+
+def test_definition_change_requires_interaction_and_keeps_run_id(tmp_path, monkeypatch):
+    config = _config(tmp_path, monkeypatch)
+    service = AgentService(config_path=config, workspace_root=tmp_path)
+    first = service.create_session()
+    execution = first.start_run("task")
+    iterator = execution.events
+    next(iterator)
+    first.pause()
+    assert list(iterator)[-1].terminal_status == "paused"
+    session_id = first.session.id
+    first.close()
+
+    config.write_text(
+        "active: fake\nproviders:\n  fake:\n    model: openai/fake-v2\n",
+        encoding="utf-8",
+    )
+    port = _AcceptDefinitionPort()
+    resumed_runtime = service.load_session(session_id, interaction=port)
+    try:
+        resumed = resumed_runtime.resume_run(execution.run_id)
+        assert resumed.run_id == execution.run_id
+        assert list(resumed.events)[-1].terminal_status == "completed"
+        assert port.request is not None
+        assert "model" in {item.field for item in port.request.differences}
+    finally:
+        resumed_runtime.close()
+
+
+class _SkipRecoveryPort(SafeDefaultInteractionPort):
+    def __init__(self) -> None:
+        self.request = None
+
+    def decide_recovery(self, request):
+        self.request = request
+        return RecoveryDecision(request.request_id, "skip")
+
+
+def test_uncertain_tool_recovery_uses_interaction_port(tmp_path, monkeypatch):
+    service = AgentService(config_path=_config(tmp_path, monkeypatch), workspace_root=tmp_path)
+    first = service.create_session()
+    coordinator = first.runtime.new_run("task", first.session.id)
+    assert coordinator is not None
+    messages = [{"role": "user", "content": "task"}]
+    coordinator.initialize(messages, None, ToolBudget(max_calls=10))
+    call = ToolCall("call-1", "write_file", {"path": "x.txt", "content": "x"})
+    planned = [
+        *messages,
+        {
+            "role": "assistant",
+            "content": None,
+            "tool_calls": [{"id": call.id, "type": "function", "function": {}}],
+        },
+    ]
+    coordinator.model_completed(planned, [call])
+    coordinator.tool_started(call.id, [], "requires_decision")
+    run_id = coordinator.run_id
+    session_id = first.session.id
+    first.close()
+
+    port = _SkipRecoveryPort()
+    resumed_runtime = service.load_session(session_id, interaction=port)
+    try:
+        resumed = resumed_runtime.resume_run(run_id)
+        assert list(resumed.events)[-1].terminal_status == "completed"
+        assert port.request is not None
+        assert port.request.call_id == "call-1"
+        assert "重复" in port.request.duplicate_side_effect_risk
+    finally:
+        resumed_runtime.close()
+
+
+class _ToolClient:
+    def __init__(self, _provider) -> None:
+        pass
+
+    def complete_stream(self, messages, tools=None):
+        yield StreamEvent(
+            kind="tool_calls",
+            tool_calls=[ToolCall("call-read", "read_file", {"path": "sample.txt"})],
+        )
+
+
+class _StopContinuePort(SafeDefaultInteractionPort):
+    def __init__(self) -> None:
+        self.request = None
+
+    def confirm_continue(self, request):
+        self.request = request
+        return ContinueDecision(request.request_id, continue_run=False)
+
+
+def test_iteration_continue_uses_interaction_port(tmp_path, monkeypatch):
+    config = _config(tmp_path, monkeypatch)
+    config.write_text(
+        "active: fake\nproviders:\n  fake:\n    model: openai/fake\nagent:\n  max_iterations: 1\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "sample.txt").write_text("sample", encoding="utf-8")
+    monkeypatch.setattr(runtime_module, "LLMClient", _ToolClient)
+    port = _StopContinuePort()
+    session_runtime = AgentService(config_path=config, workspace_root=tmp_path).create_session(
+        interaction=port
+    )
+    try:
+        execution = session_runtime.start_run("read")
+        assert list(execution.events)[-1].terminal_status == "failed"
+        assert port.request is not None
+        assert port.request.run_id == execution.run_id
+        assert port.request.session_id == session_runtime.session.id
+    finally:
+        session_runtime.close()
+
+
+def test_new_run_is_rejected_while_session_has_paused_run(tmp_path, monkeypatch):
+    service = AgentService(config_path=_config(tmp_path, monkeypatch), workspace_root=tmp_path)
+    session_runtime = service.create_session()
+    try:
+        execution = session_runtime.start_run("task")
+        iterator = execution.events
+        next(iterator)
+        session_runtime.pause()
+        list(iterator)
+        with pytest.raises(SessionRunConflictError):
+            session_runtime.start_run("fork")
+    finally:
+        session_runtime.close()
+
+
+def test_cancel_through_public_session_runtime(tmp_path, monkeypatch):
+    service = AgentService(config_path=_config(tmp_path, monkeypatch), workspace_root=tmp_path)
+    session_runtime = service.create_session()
+    try:
+        execution = session_runtime.start_run("task")
+        iterator = execution.events
+        next(iterator)
+        session_runtime.cancel()
+        events = list(iterator)
+        assert events[-1].terminal_status == "cancelled"
+        saved = session_runtime.runtime.run_store.load(execution.run_id).document
+        assert saved["status"] == "cancelled"
+        assert saved["session_synced"] is True
+    finally:
+        session_runtime.close()
+
+
+def test_service_lists_and_deletes_sessions(tmp_path, monkeypatch):
+    service = AgentService(config_path=_config(tmp_path, monkeypatch), workspace_root=tmp_path)
+    session_runtime = service.create_session()
+    session_id = session_runtime.session.id
+    session_runtime.close()
+    assert [item.id for item in service.list_sessions()] == [session_id]
+    assert service.list_runs(session_id=session_id) == []
+    assert service.delete_session(session_id) is True
+    assert service.list_sessions() == []
+
+
+class _RecordingPort(SafeDefaultInteractionPort):
+    def __init__(self) -> None:
+        self.closed = False
+
+    def close(self) -> None:
+        self.closed = True
+
+
+def test_create_session_failure_closes_runtime(tmp_path, monkeypatch):
+    service = AgentService(config_path=_config(tmp_path, monkeypatch), workspace_root=tmp_path)
+    port = _RecordingPort()
+
+    def fail_save(self, session, messages):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(SessionStore, "save", fail_save)
+    with pytest.raises(OSError, match="disk full"):
+        service.create_session(interaction=port)
+    assert port.closed is True
+
+
+def test_session_runtime_construction_failure_closes_runtime(tmp_path, monkeypatch):
+    service = AgentService(config_path=_config(tmp_path, monkeypatch), workspace_root=tmp_path)
+    created = service.create_session()
+    session_id = created.session.id
+    created.close()
+    port = _RecordingPort()
+
+    monkeypatch.setattr(
+        runtime_module.AgentLoop,
+        "load_history",
+        lambda self, messages: (_ for _ in ()).throw(ValueError("invalid history")),
+    )
+    with pytest.raises(ValueError, match="invalid history"):
+        service.load_session(session_id, interaction=port)
+    assert port.closed is True

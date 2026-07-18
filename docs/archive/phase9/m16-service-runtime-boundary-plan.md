@@ -394,6 +394,6 @@ reasoning、原始 secrets、未脱敏 arguments 或内部 logger payload。
 - 相对日志、Run、Skill、SkillManager 和 MCP cwd 统一相对固定 workspace_root 解析；
 - reasoning 明确标记 sensitive，公共流新增唯一 `run_terminal` 和四种无歧义 terminal_status；
 - 未信任 project/configured Skill 在服务启动时不等待输入、不注入模型，并返回结构化 notice；
-- 完整 API 接入说明见 `docs/m16-assistant-agent-api-handoff.md`；
+- 完整 API 接入说明见同目录 `m16-assistant-agent-api-handoff.md`；
 - 未修改 `src/assistant_agent/agent/loop.py`；
 - 验收结果：566 passed、5 skipped、覆盖率 83%，Ruff、mypy、架构适应度测试全绿。

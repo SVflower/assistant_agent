@@ -584,5 +584,5 @@ DTO，不能重新迭代 Agent 或重新执行工具。
 
 `assistant_agent_api` 的具体交接记录见
 [archive/phase11/m18-agent-api-handoff.md](archive/phase11/m18-agent-api-handoff.md)；M16 初始边界记录见
-[m16-assistant-agent-api-handoff.md](m16-assistant-agent-api-handoff.md)。这些文件是历史交接，发生冲突时
+[archive/phase9/m16-assistant-agent-api-handoff.md](archive/phase9/m16-assistant-agent-api-handoff.md)。这些文件是历史交接，发生冲突时
 以本文和安装版本导出的公共 Python 类型为准。

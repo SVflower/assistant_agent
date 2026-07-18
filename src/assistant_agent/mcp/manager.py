@@ -8,62 +8,31 @@ MCPTool.run() 用 run_coroutine_threadsafe 把协程投进去、同步等结果�
 from __future__ import annotations
 
 import asyncio
-import os
-import re
 import threading
 import time
 from concurrent.futures import Future
 from concurrent.futures import TimeoutError as FutureTimeoutError
 from contextlib import AsyncExitStack
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from assistant_agent.mcp.discovery import build_discovered_tools
+from assistant_agent.mcp.status import (
+    MCPRequiredServerError,
+    MCPServerStatus,
+    startup_failure_status,
+)
 from assistant_agent.mcp.tool import MCPTool
+from assistant_agent.mcp.transport import (
+    open_transport,
+)
 from assistant_agent.runtime import RunControl, RunInterrupted
-from assistant_agent.tools.validation import ToolSchemaError, build_validator
 
 if TYPE_CHECKING:
     from assistant_agent.config.schema import MCPConfig, MCPServerConfig
     from assistant_agent.obs import NullLogger
-
-_NAME_SANITIZE = re.compile(r"[^a-zA-Z0-9_]")
-_ENV_REF = re.compile(r"\$\{([^}]+)\}")
-_BASE_ENV_KEYS = {
-    "COMSPEC",
-    "HOME",
-    "LANG",
-    "LOCALAPPDATA",
-    "PATH",
-    "PATHEXT",
-    "SYSTEMDRIVE",
-    "SYSTEMROOT",
-    "TEMP",
-    "TMP",
-    "USERPROFILE",
-    "WINDIR",
-}
-
-
-def _sanitize(part: str) -> str:
-    """把 server/tool 名规范成 [a-zA-Z0-9_]，供拼装注册名。"""
-    return _NAME_SANITIZE.sub("_", part)
-
-
-def _interpolate_env(env: dict[str, str]) -> dict[str, str]:
-    """把值里的 ${VAR} 从进程环境替换（可嵌在串中，如 'Bearer ${TOK}'）；缺失留空串。
-
-    密钥不落配置：配 ${TOKEN}，真值从环境取。
-    """
-    return {
-        key: _ENV_REF.sub(lambda mo: os.environ.get(mo.group(1), ""), value)
-        for key, value in env.items()
-    }
-
-
-def _minimal_env() -> dict[str, str]:
-    """保留进程启动所需基础变量，不继承 token/secret/key 等宿主凭据。"""
-    return {key: value for key, value in os.environ.items() if key.upper() in _BASE_ENV_KEYS}
 
 
 @dataclass
@@ -74,6 +43,13 @@ class _Server:
     stack: AsyncExitStack
     session: Any
     tool_names: list[str] = field(default_factory=list)
+
+
+@dataclass
+class _StartupResult:
+    server: _Server | None = None
+    listed: Any = None
+    category: str | None = None
 
 
 class MCPManager:
@@ -92,6 +68,7 @@ class MCPManager:
         stderr_root: Path | None = None,
         run_control: RunControl | None = None,
         workspace_root: Path | None = None,
+        allowed_transports: frozenset[str] | None = None,
     ) -> None:
         if artifact_root is None or stderr_root is None:
             from assistant_agent.config.paths import state_paths
@@ -105,9 +82,13 @@ class MCPManager:
         self._stderr_root = stderr_root.resolve()
         self._workspace_root = (workspace_root or Path.cwd()).resolve()
         self._run_control = run_control or RunControl()
+        self._allowed_transports = (
+            frozenset({"stdio", "http"}) if allowed_transports is None else allowed_transports
+        )
         self._loop: asyncio.AbstractEventLoop | None = None
         self._thread: threading.Thread | None = None
         self._servers: dict[str, _Server] = {}
+        self._statuses: dict[str, MCPServerStatus] = {}
         self.warnings: list[str] = []
 
     # ---- 线程/loop ----
@@ -161,43 +142,14 @@ class MCPManager:
         stdio：stdio_client → 2 元组。
         http：streamablehttp_client → 3 元组（read, write, get_session_id），只取前两个。
         """
-        if cfg.type == "http":
-            from mcp.client.streamable_http import streamablehttp_client
-
-            streams = await stack.enter_async_context(
-                streamablehttp_client(cfg.url, headers=_interpolate_env(cfg.headers) or None)
-            )
-            return streams[0], streams[1]  # 丢弃 get_session_id：session 归 SDK 管
-        from mcp import StdioServerParameters
-        from mcp.client.stdio import stdio_client
-
-        artifact_dir = (self._artifact_root / _sanitize(name)).resolve()
-        stderr_dir = (self._stderr_root / _sanitize(name)).resolve()
-        artifact_dir.mkdir(parents=True, exist_ok=True)
-        stderr_dir.mkdir(parents=True, exist_ok=True)
-        if cfg.cwd:
-            configured_cwd = Path(cfg.cwd).expanduser()
-            cwd = (
-                configured_cwd.resolve()
-                if configured_cwd.is_absolute()
-                else (self._workspace_root / configured_cwd).resolve()
-            )
-        else:
-            cwd = artifact_dir
-        env = {**_minimal_env(), **_interpolate_env(cfg.env)}
-        env.setdefault("ASSISTANT_AGENT_ARTIFACT_DIR", str(artifact_dir))
-        args = _managed_args(cfg.command, list(cfg.args), artifact_dir)
-        params = StdioServerParameters(
-            command=cfg.command,
-            args=args,
-            env=env,
-            cwd=cwd,
+        return await open_transport(
+            stack,
+            name,
+            cfg,
+            artifact_root=self._artifact_root,
+            stderr_root=self._stderr_root,
+            workspace_root=self._workspace_root,
         )
-        errlog = stack.enter_context(
-            (stderr_dir / "server.log").open("a", encoding="utf-8", errors="replace")
-        )
-        read, write = await stack.enter_async_context(stdio_client(params, errlog=errlog))
-        return read, write
 
     async def _connect_one(self, name: str, cfg: MCPServerConfig) -> _Server:
         """在 loop 线程里连接一个 server 并 initialize，持有上下文到 close。"""
@@ -213,48 +165,154 @@ class MCPManager:
             await stack.aclose()
             raise
 
+    async def _connect_and_list(
+        self,
+        name: str,
+        cfg: MCPServerConfig,
+        semaphore: asyncio.Semaphore,
+    ) -> _StartupResult:
+        timeout = float(cfg.connect_timeout or cfg.timeout)
+        async with semaphore:
+            server: _Server | None = None
+            try:
+                server = await asyncio.wait_for(self._connect_one(name, cfg), timeout=timeout)
+                listed = await asyncio.wait_for(server.session.list_tools(), timeout=timeout)
+                return _StartupResult(server=server, listed=listed)
+            except asyncio.CancelledError:
+                if server is not None:
+                    try:
+                        await server.stack.aclose()
+                    except Exception:
+                        pass
+                raise
+            except TimeoutError:
+                category = "timeout"
+            except Exception:
+                category = "discovery" if server is not None else "connection"
+            if server is not None:
+                try:
+                    await server.stack.aclose()
+                except Exception:
+                    pass
+            return _StartupResult(category=category)
+
+    async def _start_parallel(
+        self, servers: list[tuple[str, MCPServerConfig]]
+    ) -> dict[str, _StartupResult]:
+        semaphore = asyncio.Semaphore(self._config.connect_parallelism)
+        results = await asyncio.gather(
+            *(self._connect_and_list(name, cfg, semaphore) for name, cfg in servers)
+        )
+        return {name: result for (name, _cfg), result in zip(servers, results, strict=True)}
+
     def start(self) -> list[MCPTool]:
         """连接所有启用的 server，发现工具，返回过滤/限量后的 MCPTool 列表。
 
         单个 server 失败只跳过它（warnings 记录），不影响其余 server 与内置工具。
         """
         self.warnings = []
-        if not self._config.enabled or not self._config.servers:
+        self._statuses = {}
+        now = datetime.now(UTC).isoformat()
+        if not self._config.servers:
             return []
+        if not self._config.enabled:
+            self._statuses = {
+                name: MCPServerStatus(name, cfg.type, cfg.startup, "disabled", checked_at=now)
+                for name, cfg in self._config.servers.items()
+            }
+            return []
+        allowed: list[tuple[str, MCPServerConfig]] = []
+        required_failure: tuple[str, str] | None = None
+        for name, cfg in self._config.servers.items():
+            if not cfg.enabled:
+                self._statuses[name] = MCPServerStatus(
+                    name, cfg.type, cfg.startup, "disabled", checked_at=now
+                )
+            elif cfg.type not in self._allowed_transports:
+                status = startup_failure_status(cfg.startup, "policy")
+                self._statuses[name] = MCPServerStatus(
+                    name,
+                    cfg.type,
+                    cfg.startup,
+                    status,
+                    checked_at=now,
+                    error_category="policy",
+                )
+                self.warnings.append(f"MCP server {name} 被 Runtime policy 禁用")
+                if cfg.startup == "required":
+                    required_failure = (name, "policy")
+            else:
+                allowed.append((name, cfg))
+
+        results: dict[str, _StartupResult] = {}
+        if allowed:
+            max_timeout = max(float(cfg.connect_timeout or cfg.timeout) for _, cfg in allowed)
+            batches = (
+                len(allowed) + self._config.connect_parallelism - 1
+            ) // self._config.connect_parallelism
+            results = self._submit(
+                self._start_parallel(allowed),
+                timeout=2 * max_timeout * batches + 2,
+                respect_control=False,
+            )
         tools: list[MCPTool] = []
         used_names: set[str] = set()
         for name, cfg in self._config.servers.items():
-            if not cfg.enabled:
+            result = results.get(name)
+            if result is None:
                 continue
-            if len(tools) >= self._config.max_total_tools:
-                self.warnings.append(
-                    f"已达全局工具上限 {self._config.max_total_tools}，跳过 {name}"
+            if result.server is None:
+                category = result.category or "connection"
+                status = startup_failure_status(cfg.startup, category)
+                self._statuses[name] = MCPServerStatus(
+                    name,
+                    cfg.type,
+                    cfg.startup,
+                    status,
+                    checked_at=now,
+                    error_category=category,
                 )
-                break
-            try:
-                server = self._submit(self._connect_one(name, cfg), timeout=cfg.timeout)
-            except Exception as exc:  # 连接/握手失败 → 跳过该 server
-                self.warnings.append(f"MCP server {name} 连接失败，已跳过：{exc}")
+                self.warnings.append(f"MCP server {name} 启动失败，已安全降级（{category}）")
+                if cfg.startup == "required":
+                    required_failure = required_failure or (name, category)
                 continue
+            server = result.server
             self._servers[name] = server
-            tools.extend(self._discover(name, cfg, server, used_names, budget=len(tools)))
+            discovered = self._build_discovered(
+                name, cfg, server, result.listed, used_names, budget=len(tools)
+            )
+            tools.extend(discovered)
+            self._statuses[name] = MCPServerStatus(
+                name,
+                cfg.type,
+                cfg.startup,
+                "connected",
+                tool_names=tuple(server.tool_names),
+                checked_at=now,
+            )
+        if required_failure is not None:
+            self._close_servers()
+            raise MCPRequiredServerError(*required_failure)
         return tools
 
     def close(self) -> None:
         """关闭所有 session/子进程并停 loop。幂等。"""
         if self._loop is None:
             return
+        self._close_servers()
+        self._loop.call_soon_threadsafe(self._loop.stop)
+        if self._thread is not None:
+            self._thread.join(timeout=5)
+        self._loop = None
+        self._thread = None
+
+    def _close_servers(self) -> None:
         for server in self._servers.values():
             try:
                 self._submit(server.stack.aclose(), timeout=10, respect_control=False)
             except Exception:  # 关闭尽力而为，不抛
                 pass
         self._servers.clear()
-        self._loop.call_soon_threadsafe(self._loop.stop)
-        if self._thread is not None:
-            self._thread.join(timeout=5)
-        self._loop = None
-        self._thread = None
 
     def _discover(
         self,
@@ -266,80 +324,34 @@ class MCPManager:
     ) -> list[MCPTool]:
         """列工具，套白/黑名单 + 每 server/全局上限 + 名称规范化/碰撞，建 MCPTool。"""
         try:
-            listed = self._submit(server.session.list_tools(), timeout=cfg.timeout)
+            listed = self._submit(
+                server.session.list_tools(), timeout=float(cfg.connect_timeout or cfg.timeout)
+            )
         except Exception as exc:
             self.warnings.append(f"MCP server {name} 列工具失败，已跳过：{exc}")
             return []
-        out: list[MCPTool] = []
-        server_slug = _sanitize(name)
-        include = set(cfg.include_tools)
-        exclude = set(cfg.exclude_tools)
-        for raw in getattr(listed, "tools", None) or []:
-            raw_name = raw.name
-            if include and raw_name not in include:
-                continue
-            if raw_name in exclude:
-                continue
-            input_schema = raw.inputSchema or {"type": "object", "properties": {}}
-            output_schema = getattr(raw, "outputSchema", None)
-            try:
-                build_validator(f"mcp__{name}__{raw_name}", input_schema)
-                if output_schema is not None:
-                    build_validator(f"mcp__{name}__{raw_name} output", output_schema)
-            except ToolSchemaError as exc:
-                self.warnings.append(f"MCP 工具 {name}/{raw_name} schema 无效，已跳过：{exc}")
-                continue
-            if len(out) >= cfg.max_tools:
-                self.warnings.append(f"server {name} 达工具上限 {cfg.max_tools}，其余丢弃")
-                break
-            if budget + len(out) >= self._config.max_total_tools:
-                self.warnings.append(
-                    f"达全局工具上限 {self._config.max_total_tools}，{name} 部分工具丢弃"
-                )
-                break
-            registered = f"mcp__{server_slug}__{_sanitize(raw_name)}"
-            if registered in used_names:  # 规范化后碰撞 → 加序号，绝不静默覆盖
-                suffix = 2
-                while f"{registered}_{suffix}" in used_names:
-                    suffix += 1
-                registered = f"{registered}_{suffix}"
-            used_names.add(registered)
-            server.tool_names.append(raw_name)
-            annotations = _tool_annotations(getattr(raw, "annotations", None))
-            policy = cfg.tool_policies.get(raw_name)
-            replay = policy.replay if policy is not None else "default"
-            destructive = annotations.get("destructiveHint") is True
-            trusted_readonly = replay == "safe_readonly" or (
-                replay == "default"
-                and cfg.trust_tool_annotations
-                and annotations.get("readOnlyHint") is True
-                and not destructive
-            )
-            if replay == "requires_decision" or destructive:
-                trusted_readonly = False
-            outcome_unknown = not trusted_readonly
-            if policy is not None and policy.outcome_on_transport_error == "unknown":
-                outcome_unknown = True
-            timeout = float(
-                policy.timeout if policy is not None and policy.timeout else cfg.timeout
-            )
-            out.append(
-                MCPTool(
-                    server=name,
-                    registered_name=registered,
-                    raw_tool=raw_name,
-                    description=raw.description or "",
-                    input_schema=input_schema,
-                    caller=self._call_tool,
-                    timeout=timeout,
-                    auto_approve=cfg.auto_approve and not destructive,
-                    output_schema=output_schema,
-                    annotations=annotations,
-                    trusted_readonly=trusted_readonly,
-                    outcome_unknown_on_transport_error=outcome_unknown,
-                )
-            )
-        return out
+        return self._build_discovered(name, cfg, server, listed, used_names, budget)
+
+    def _build_discovered(
+        self,
+        name: str,
+        cfg: MCPServerConfig,
+        server: _Server,
+        listed: Any,
+        used_names: set[str],
+        budget: int,
+    ) -> list[MCPTool]:
+        return build_discovered_tools(
+            config=self._config,
+            name=name,
+            server_config=cfg,
+            server=server,
+            listed=listed,
+            used_names=used_names,
+            budget=budget,
+            warnings=self.warnings,
+            caller=self._call_tool,
+        )
 
     def _call_tool(
         self,
@@ -357,40 +369,5 @@ class MCPManager:
         """(server 名, 其原始工具名列表) 列表，供 /mcp 展示。"""
         return [(name, list(s.tool_names)) for name, s in self._servers.items()]
 
-
-def _managed_args(command: str, args: list[str], artifact_dir: Path) -> list[str]:
-    """为已知 MCP 注入官方产物目录参数；用户显式参数优先。"""
-    joined = " ".join([command, *args]).lower()
-    if "@playwright/mcp" not in joined or "--output-dir" in args:
-        return args
-    return [
-        *args,
-        "--output-dir",
-        str(artifact_dir),
-        "--output-max-size",
-        str(100 * 1024 * 1024),
-    ]
-
-
-def _tool_annotations(value: Any) -> dict[str, Any]:
-    """兼容 SDK Pydantic 模型与测试字典，只保留稳定的 MCP annotation 字段。"""
-    if value is None:
-        return {}
-    if hasattr(value, "model_dump"):
-        raw = value.model_dump(by_alias=True, exclude_none=True)
-    elif isinstance(value, dict):
-        raw = value
-    else:
-        raw = {
-            key: getattr(value, key)
-            for key in (
-                "title",
-                "readOnlyHint",
-                "destructiveHint",
-                "idempotentHint",
-                "openWorldHint",
-            )
-            if getattr(value, key, None) is not None
-        }
-    allowed = {"title", "readOnlyHint", "destructiveHint", "idempotentHint", "openWorldHint"}
-    return {key: raw[key] for key in allowed if key in raw}
+    def server_statuses(self) -> tuple[MCPServerStatus, ...]:
+        return tuple(self._statuses.values())

@@ -14,6 +14,7 @@ from assistant_agent.config.paths import managed_mcp_dir, state_paths, workspace
 from assistant_agent.config.schema import MCPConfig, MCPServerConfig
 from assistant_agent.config.writer import ConfigScope, MCPConfigStore
 from assistant_agent.mcp.manager import MCPManager
+from assistant_agent.mcp.status import MCPRequiredServerError
 from assistant_agent.obs import NullLogger
 
 _ENV_REFERENCE = re.compile(r"^(?:[^$]*\$\{[A-Za-z_][A-Za-z0-9_]*\}[^$]*)+$")
@@ -62,7 +63,10 @@ class MCPService:
                 stderr_root=root / "stderr",
             )
             try:
-                tools = manager.start()
+                try:
+                    tools = manager.start()
+                except MCPRequiredServerError as exc:
+                    raise MCPConfigureError(str(exc)) from exc
                 warnings = tuple(manager.warnings)
                 if warnings and not tools:
                     raise MCPConfigureError(warnings[0])

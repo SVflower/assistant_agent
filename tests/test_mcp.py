@@ -10,14 +10,10 @@ import pytest
 
 from assistant_agent.config.schema import MCPConfig, MCPServerConfig, MCPToolPolicyConfig
 from assistant_agent.mcp import MCPManager, MCPTool, extract_content
-from assistant_agent.mcp.manager import (
-    _interpolate_env,
-    _managed_args,
-    _minimal_env,
-    _sanitize,
-    _Server,
-)
+from assistant_agent.mcp.discovery import _sanitize
+from assistant_agent.mcp.manager import _Server
 from assistant_agent.mcp.tool import extract_result
+from assistant_agent.mcp.transport import _interpolate_env, _managed_args, _minimal_env
 from assistant_agent.obs import NullLogger
 from assistant_agent.tools.base import ToolContext
 from assistant_agent.tools.permissions import Capability

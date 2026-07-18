@@ -19,6 +19,7 @@ from assistant_agent.interaction import (
     RecoveryRequest,
 )
 from assistant_agent.obs import sanitize_for_display
+from assistant_agent.service.capabilities import RuntimeCapabilities
 from assistant_agent.service.errors import (
     RuntimeClosedError,
     RuntimeConfigError,
@@ -26,6 +27,7 @@ from assistant_agent.service.errors import (
     SessionRunConflictError,
 )
 from assistant_agent.service.events import StepEvent, TerminalStatus
+from assistant_agent.service.policy import RuntimePolicy
 from assistant_agent.service.runtime import AgentRuntime, create_runtime
 from assistant_agent.session.run_store import RunMeta, RunStore
 from assistant_agent.session.store import Session, SessionMeta, SessionStore
@@ -82,6 +84,12 @@ class SessionRuntime:
     def active_run_id(self) -> str | None:
         with self._lock:
             return self._active_run_id
+
+    @property
+    def capabilities(self) -> RuntimeCapabilities:
+        if self.runtime.capabilities is None:
+            raise RuntimeClosedError("Runtime 能力快照不可用")
+        return self.runtime.capabilities
 
     def unfinished_runs(self) -> list[RunMeta]:
         return [
@@ -292,9 +300,16 @@ class SessionRuntime:
 class AgentService:
     """创建隔离 Session Runtime 并提供 Session CRUD 的稳定入口。"""
 
-    def __init__(self, *, config_path: Path, workspace_root: Path) -> None:
+    def __init__(
+        self,
+        *,
+        config_path: Path,
+        workspace_root: Path,
+        runtime_policy: RuntimePolicy | None = None,
+    ) -> None:
         self.config_path = Path(config_path).expanduser().resolve()
         self.workspace_root = Path(workspace_root).expanduser().resolve()
+        self.runtime_policy = runtime_policy or RuntimePolicy.cli()
         try:
             config = load_config(self.config_path)
         except ConfigError as exc:
@@ -362,6 +377,16 @@ class AgentService:
             )
         return self._session_store.delete(session_id)
 
+    def probe_capabilities(self) -> RuntimeCapabilities:
+        """创建一次隔离 Runtime 获取能力快照，并始终清理全部资源。"""
+        runtime = self._create_runtime(None, False, None)
+        try:
+            if runtime.capabilities is None:
+                raise RuntimeClosedError("Runtime 能力快照不可用")
+            return runtime.capabilities
+        finally:
+            runtime.close("capability_probe_completed")
+
     def _create_runtime(
         self,
         interaction: InteractionPort | None,
@@ -374,4 +399,5 @@ class AgentService:
             interaction=interaction,
             interactive=interactive,
             session_id=session_id,
+            runtime_policy=self.runtime_policy,
         )

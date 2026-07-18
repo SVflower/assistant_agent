@@ -2,11 +2,11 @@
 
 > 开工蓝本。第一阶段（MVP）已完成，见 [DESIGN.md](DESIGN.md) 第 8 节。
 > 本文档规划第二阶段起的里程碑，每个里程碑只列可清晰验收的目标。
-> 最后更新：2026-07-17
+> 最后更新：2026-07-18
 
 ---
 
-## 项目当前状态（截至 2026-07-17）
+## 项目当前状态（截至 2026-07-18）
 
 **一句话**：从"能跑的 MVP"长成了一个功能相当完整、多平台实测、可观测且运行时预算可控、全程守调研→方案→测试→验收纪律的本地 Agent。
 
@@ -18,6 +18,8 @@
   `runs`/`resume`、双槽损坏回退和副作用不确定状态人工处置。
 - **公共服务边界（M16）**：UI 无关 Runtime 工厂、同步 InteractionPort、隔离 SessionRuntime、
   Session/Run 门面和版本化 StepEvent；CLI/API 复用同一装配与恢复语义。
+- **生产 Runtime 策略（M17）**：调用方不可绕过的 RuntimePolicy；MCP optional/required、连接与调用
+  timeout 分离及有界并行启动；Tool/Skill/MCP/sandbox 脱敏能力快照和一次性探测。
 - **工具**：读/写/局部编辑/列目录/shell/代码检索/git 只读/用户澄清，以及带来源的
   `web_search`/`fetch_url`；搜索 backend 可替换，抓取含 SSRF、重定向和响应上限防护。
 - **命令层**：slash 命令系统本地拦截不花 token；`/skills` 与 `/mcp` 支持列出、安装、诊断、
@@ -36,7 +38,7 @@
   已完成工具不重放，started 副作用需 retry/skip/abort；预算、重复熔断、权限和摘要状态跨进程恢复；
   trace/session/run/call 标识对齐，还清 D8。
 
-**质量**：566 测试通过（5 个平台能力测试跳过）、覆盖率 83%、13547 行生产 Python 源码 +
+**质量**：577 测试通过（5 个平台能力测试跳过）、覆盖率 84%、14027 行生产 Python 源码 +
 1564 行 eval 基础设施，Ruff/mypy 全绿。架构适应度测试（依赖分层 + 行数分级软/硬）、技术债册、
 DoD 和里程碑工作流全在；CI 已加入 format/lint/mypy/coverage/scripted eval/recovery eval 与
 Windows/Linux、Python 3.11/3.13 矩阵。
@@ -44,15 +46,14 @@ Windows/Linux、Python 3.11/3.13 矩阵。
 **边界（明确未做）**：外置 MCP/自定义 Python Tool 的容器化、远程 Workspace、子 Agent 编排、
 Web GUI、rewind/recap、非交互 init、PyPI 分发。
 
-**阶段状态**：第一至第九阶段已完成。M10c 的
+**阶段状态**：第一至第十阶段已完成。M10c 的
 “不做全栈 async”决策保持不变；M14 以同步 RunControl、跨平台 ProcessSupervisor 和 Workspace
 抽象补齐受控执行边界并还清 D18。
 
-**当前进展**：M16 已完成并归档。安装后的 Python 包提供 UI 无关 Runtime 工厂、结构化同步
-InteractionPort、Session/Run 服务门面和稳定事件契约；CLI 已复用同一装配与 Session 恢复编排，
-API 无需导入 cli/ui 或复制 checkpoint 状态机。见
-[M16 方案](docs/archive/phase9/m16-service-runtime-boundary-plan.md)与
-[API 接入交付](docs/m16-assistant-agent-api-handoff.md)。
+**当前进展**：M17 已完成并归档。长期服务可注入固定 RuntimePolicy，optional MCP 离线不阻断普通
+Agent，required MCP 以类型化依赖错误失败；API 可读取脱敏能力快照并在空闲时重建 Runtime。见
+[M17 方案](docs/archive/phase10/m17-production-service-runtime-plan.md)与
+[API 协同说明](docs/archive/phase10/m17-assistant-agent-api-coordination.md)。
 
 **剩余技术债**：6 项（D5/D6/D11/D12/D20/D21）。M9a 已还清 D13/D15/D17，M9b 已还清
 D14，M9c 已还清 D9，M10a 已还清 D16，M10b 已还清 D8，M11a 已还清 D19，M14a 已还清 D18。详见
@@ -226,6 +227,17 @@ D14，M9c 已还清 D9，M10a 已还清 D16，M10b 已还清 D8，M11a 已还清
 > InteractionPort 覆盖授权、澄清、续跑、定义变化和 uncertain recovery；SessionRuntime 统一
 > Session/Run/checkpoint/终态同步并保证单 Session 单 Run；StepEvent v1 标记 sensitive reasoning
 > 和无歧义 run_terminal。566 passed、5 skipped、覆盖率 83%，Ruff/format/mypy 全绿；未修改 Loop。
+
+### 第十阶段（已完成）
+
+| 里程碑 | 主题 | 状态 |
+|--------|------|------|
+| M17 | CLI/Web 双入口与生产 Runtime 策略 | ✅ · [方案](docs/archive/phase10/m17-production-service-runtime-plan.md) |
+
+> **M17 已完成**：RuntimePolicy 从调用方侧限制扩展管理、personal Skill、MCP transport 和最低
+> sandbox；MCP optional/required、connect/call timeout 分离、有界并行启动和稳定注册顺序落地；
+> RuntimeCapabilities 提供脱敏 Tool/Skill/MCP/sandbox 快照及一次性探测。577 passed、5 skipped、
+> 覆盖率 84%，Ruff/format/mypy 全绿；未修改 Loop。
 
 ## 未来方向（P3，信号驱动，暂不做）
 

@@ -148,10 +148,13 @@ description: 如何在本项目跑测试与 lint。当用户要验证改动或�
 ```yaml
 mcp:
   enabled: true
+  connect_parallelism: 4
   servers:
     playwright:
       command: npx
       args: ["-y", "@playwright/mcp@latest"]
+      startup: optional      # optional 失败降级；required 使当前 Runtime 创建失败
+      connect_timeout: 5     # 连接/初始化/工具发现，与调用 timeout 分离
       auto_approve: false   # true 表示信任该 server 的全部当前工具（高风险）
 ```
 
@@ -177,6 +180,9 @@ mcp:
 最小环境和受管 cwd，Playwright snapshot/screenshot 默认进入 workspace MCP artifact，不落仓库根。
 卸载默认保留历史 artifact；`remove ... --purge-artifacts` 需要二次确认且只清理当前 server。
 session/协议头/重连由 SDK 代管，调用不自动重放。
+多个 server 在专用 event loop 内有界并行连接，工具仍按配置顺序稳定注册。optional server 离线只产生
+结构化降级状态，不阻止普通 Agent；required server 失败只阻止当前 Runtime。长期服务可通过公共
+`RuntimePolicy` 限制 transport、个人 Skill、扩展管理和最低 sandbox，并读取脱敏能力快照。
 
 ## 联网检索
 
@@ -249,9 +255,10 @@ M13a 已完成声明式工具适配层；第七阶段 M14 已完成暂停/取消
 还清 D18。第八阶段 M15 已完成统一 CLI 活性反馈、动态阶段计时、正文停更后的模型生成提示、
 授权后恢复动画和关键外部动作摘要。第九阶段 M16 已完成 UI 无关 Runtime 工厂、同步
 InteractionPort、Session/Run 公共服务门面和稳定 StepEvent 契约，可供安装后的 Python 包直接调用。
-当前 566 个测试通过（5 个平台能力测试跳过）、覆盖率 83%、13547 行生产 Python 源码 + 1564 行
-eval 基础设施。详见 [M16 方案](docs/archive/phase9/m16-service-runtime-boundary-plan.md)和
+第十阶段 M17 已完成部署级 RuntimePolicy、MCP 有界降级启动和脱敏能力快照。
+当前 577 个测试通过（5 个平台能力测试跳过）、覆盖率 84%、14027 行生产 Python 源码 + 1564 行
+eval 基础设施。详见 [M17 方案](docs/archive/phase10/m17-production-service-runtime-plan.md)和
 [通用服务调用指南](docs/agent-service-integration-guide.md)；`assistant_agent_api` 的阶段性交接见
-[API 接入交付](docs/m16-assistant-agent-api-handoff.md)。
+[M17 API 协同说明](docs/archive/phase10/m17-assistant-agent-api-coordination.md)。
 
 详见 [DESIGN.md](DESIGN.md)。

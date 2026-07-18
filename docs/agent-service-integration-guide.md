@@ -83,11 +83,19 @@ assistant_agent.cli.recovery
 ```python
 from pathlib import Path
 
-from assistant_agent.service import AgentService
+from assistant_agent.service import AgentService, RuntimePolicy
+
+policy = RuntimePolicy(
+    allow_extension_management=False,
+    allow_personal_skills=False,
+    allowed_mcp_transports=frozenset({"http"}),
+    minimum_sandbox="workspace",
+)
 
 service = AgentService(
     config_path=Path(r"D:\server-config\assistant-agent.yaml"),
     workspace_root=Path(r"D:\server-workspaces\project-a"),
+    runtime_policy=policy,
 )
 ```
 
@@ -96,6 +104,10 @@ service = AgentService(
 
 低层 `create_runtime()` 主要供 CLI、框架适配器和特殊嵌入场景使用。普通业务调用不应直接操作
 `AgentLoop`，否则需要自行承担 Session 同步和恢复正确性。
+
+`RuntimePolicy` 是调用方给 config 设置的不可绕过上限。config 可以继续收紧，不能重新启用被 policy
+禁止的扩展管理、personal Skill 或 MCP transport，也不能把 sandbox 降到 policy 下限以下。CLI 使用
+`RuntimePolicy.cli()` 保持本机行为；长期服务应显式传入部署 policy，不要依赖默认值。
 
 ## 4. 最小非交互调用
 
@@ -348,12 +360,25 @@ for notice in notices:
 notice 可能报告未信任 Skill 被跳过、MCP warning、容器外能力或上下文不足。它不是异常，不要求调用方
 解析终端文本。
 
+结构化能力快照位于：
+
+```python
+capabilities = session.capabilities
+capabilities = service.probe_capabilities()  # 一次性探测，结束后自动关闭 Runtime
+```
+
+快照包含 sandbox、工具名、Skill 指纹和 MCP server 的
+`connected/degraded/disabled/blocked/required_failed` 状态，不包含 header、env、完整命令、原始异常、
+工具原始 Schema 或 Skill 正文。调用方应映射这些字段，不要解析 notice 文本推断能力。
+
 公共异常：
 
 | 异常 | 含义 | 常见服务映射 |
 |---|---|---|
 | `RuntimeConfigError` | 配置无效 | 启动失败或 503 |
 | `RuntimeInitializationError` | Runtime 某阶段启动失败 | 503，记录 `stage` |
+| `RuntimePolicyError` | config 试图突破部署 policy | 部署错误或 503 |
+| `RuntimeDependencyError` | required MCP 不可用 | 503 capability_unavailable |
 | `RuntimeClosedError` | Runtime 已关闭 | 409/410 |
 | `SessionBusyError` | Session 已有活跃 Run | 409 |
 | `SessionRunConflictError` | 未完成 Run 冲突或归属错误 | 409 |
@@ -378,6 +403,9 @@ AgentService（一个服务实例）
 - Runtime Registry 只能淘汰无活跃 Run、无交互等待的 Session；
 - 进程关闭时停止接收新请求，关闭所有 SessionRuntime，再 join worker；
 - 一个 Runtime 不能在多个 Session 间共享权限记忆、Conversation 或 MCP 状态。
+- optional MCP 离线不影响服务 liveness/readiness；required MCP 只影响正在创建的 Runtime；
+- active/paused Runtime 不热插拔工具；能力恢复后只重建无未完成 Run 的空闲 Runtime；
+- Runtime 重建使用原 session_id 调用 `load_session()`，并安全清空内存授权记忆。
 
 状态默认写入：
 

@@ -6,12 +6,15 @@
 
 from assistant_agent.mcp.configure import MCPConfigureError, MCPProbeResult, MCPService
 from assistant_agent.mcp.manager import MCPManager
+from assistant_agent.mcp.status import MCPRequiredServerError, MCPServerStatus
 from assistant_agent.mcp.tool import MCPTool, extract_content
 
 __all__ = [
     "MCPConfigureError",
     "MCPManager",
     "MCPProbeResult",
+    "MCPRequiredServerError",
+    "MCPServerStatus",
     "MCPService",
     "MCPTool",
     "extract_content",

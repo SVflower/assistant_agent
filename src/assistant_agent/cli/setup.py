@@ -10,6 +10,7 @@ import typer
 from assistant_agent.config.loader import find_config_file
 from assistant_agent.runtime import RunControl
 from assistant_agent.service.errors import RuntimeConfigError, RuntimeInitializationError
+from assistant_agent.service.policy import RuntimePolicy
 from assistant_agent.service.runtime import AgentRuntime, RuntimeNotice, create_runtime
 from assistant_agent.ui.console import Console
 from assistant_agent.ui.interaction import ConsoleInteractionAdapter
@@ -59,6 +60,7 @@ def build_runtime(
             run_control=run_control,
             provider=provider,
             max_iterations=max_iterations,
+            runtime_policy=RuntimePolicy.cli(),
         )
     except (RuntimeConfigError, RuntimeInitializationError) as exc:
         console.error(str(exc))

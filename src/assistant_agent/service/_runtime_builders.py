@@ -9,7 +9,7 @@ from typing import Literal
 from assistant_agent.agent.token_budget import estimate_message_tokens, estimate_tools_tokens
 from assistant_agent.config.paths import project_skills_dir, user_skills_dir
 from assistant_agent.config.schema import AppConfig, MCPConfig, SkillsConfig, WebConfig
-from assistant_agent.mcp import MCPManager
+from assistant_agent.mcp import MCPManager, MCPRequiredServerError
 from assistant_agent.obs import NullLogger
 from assistant_agent.runtime import (
     BaseWorkspace,
@@ -19,6 +19,7 @@ from assistant_agent.runtime import (
     ProcessSupervisor,
     RunControl,
 )
+from assistant_agent.service.errors import RuntimeDependencyError
 from assistant_agent.skills import SkillSource, SkillStore
 from assistant_agent.tools.base import Tool
 from assistant_agent.tools.permissions import Capability, PermissionRule
@@ -36,9 +37,12 @@ class RuntimeNotice:
     details: dict[str, object] = field(default_factory=dict)
 
 
-def discover_skills(cfg: SkillsConfig, workspace_root: Path) -> SkillStore:
+def discover_skills(
+    cfg: SkillsConfig, workspace_root: Path, *, allow_personal: bool = True
+) -> SkillStore:
     if not cfg.enabled:
         return SkillStore({})
+    sources: list[SkillSource]
     if cfg.dirs:
         dirs = []
         for item in cfg.dirs:
@@ -48,14 +52,15 @@ def discover_skills(cfg: SkillsConfig, workspace_root: Path) -> SkillStore:
                 if configured.is_absolute()
                 else (workspace_root / configured).resolve()
             )
-        sources: list[SkillSource] = ["configured"] * len(dirs)
+        sources = ["configured"] * len(dirs)
     else:
-        dirs = [
-            project_skills_dir(workspace_root),
-            user_skills_dir(),
-            workspace_root / ".assistant_agent" / "skills",
-        ]
-        sources = ["project", "personal", "legacy"]
+        dirs = [project_skills_dir(workspace_root)]
+        sources = ["project"]
+        if allow_personal:
+            dirs.append(user_skills_dir())
+            sources.append("personal")
+        dirs.append(workspace_root / ".assistant_agent" / "skills")
+        sources.append("legacy")
     return SkillStore.discover(
         dirs,
         sources=sources,
@@ -135,8 +140,9 @@ def start_mcp(
     stderr_root: Path,
     run_control: RunControl,
     workspace_root: Path,
+    allowed_transports: frozenset[str],
 ) -> tuple[MCPManager | None, list[RuntimeNotice]]:
-    if not cfg.enabled or not cfg.servers:
+    if not cfg.servers:
         return None, []
     manager = MCPManager(
         cfg,
@@ -145,11 +151,15 @@ def start_mcp(
         stderr_root=stderr_root,
         run_control=run_control,
         workspace_root=workspace_root,
+        allowed_transports=allowed_transports,
     )
     try:
         tools = manager.start()
         for tool in tools:
             registry.register(tool)
+    except MCPRequiredServerError as exc:
+        manager.close()
+        raise RuntimeDependencyError(exc.server, exc.category, str(exc)) from exc
     except BaseException:
         manager.close()
         raise

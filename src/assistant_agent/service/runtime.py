@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -31,11 +32,19 @@ from assistant_agent.service._runtime_builders import (
     start_web,
     start_workspace,
 )
+from assistant_agent.service.capabilities import (
+    MCPServerCapability,
+    RuntimeCapabilities,
+    SkillCapability,
+)
 from assistant_agent.service.errors import (
+    AgentServiceError,
     RuntimeClosedError,
     RuntimeConfigError,
     RuntimeInitializationError,
+    RuntimePolicyError,
 )
+from assistant_agent.service.policy import RuntimePolicy, sandbox_satisfies
 from assistant_agent.session.run_store import RunStore
 from assistant_agent.session.store import SessionStore
 from assistant_agent.skills import LoadSkillTool, SkillManager, SkillMeta, SkillStore
@@ -65,6 +74,7 @@ class AgentRuntime:
     run_control: RunControl = field(default_factory=RunControl)
     process_supervisor: ProcessSupervisor = field(default_factory=ProcessSupervisor)
     workspace: BaseWorkspace | None = None
+    capabilities: RuntimeCapabilities | None = None
     _closed: bool = field(default=False, init=False)
     _close_lock: threading.Lock = field(default_factory=threading.Lock, init=False, repr=False)
 
@@ -141,9 +151,11 @@ def create_runtime(
     run_control: RunControl | None = None,
     provider: str | None = None,
     max_iterations: int | None = None,
+    runtime_policy: RuntimePolicy | None = None,
 ) -> AgentRuntime:
     """创建 UI 无关 Runtime；失败抛类型化异常并回滚所有已创建资源。"""
     port = interaction or SafeDefaultInteractionPort()
+    policy = runtime_policy or RuntimePolicy.cli()
     config_file = Path(config_path).expanduser().resolve()
     root = Path(workspace_root).expanduser().resolve()
     try:
@@ -162,6 +174,11 @@ def create_runtime(
             port.close()
             raise RuntimeConfigError("max_iterations 必须大于 0")
         config.agent.max_iterations = max_iterations
+    if not sandbox_satisfies(config.sandbox.mode, policy.minimum_sandbox):
+        port.close()
+        raise RuntimePolicyError(
+            f"sandbox.mode={config.sandbox.mode} 低于调用方要求 {policy.minimum_sandbox}"
+        )
 
     control = run_control or RunControl()
     supervisor = ProcessSupervisor()
@@ -194,7 +211,9 @@ def create_runtime(
             )
 
         stage = "skills"
-        skill_store = discover_skills(config.skills, root)
+        skill_store = discover_skills(
+            config.skills, root, allow_personal=policy.allow_personal_skills
+        )
         skills = skill_store.list()
         visible_skills = sorted(
             (item for item in skills if item.trusted), key=lambda item: item.name
@@ -234,8 +253,14 @@ def create_runtime(
         web = start_web(config.web, registry, control)
         skill_manager = SkillManager(root)
         mcp_service = MCPService(config_file, logger, workspace_root=root)
+        extension_management = policy.allow_extension_management
         extension_tools = [ManageSkillTool(skill_manager), ConfigureMCPServerTool(mcp_service)]
-        if not register_extension_tools(config, registry, system_prompt, extension_tools):
+        if not extension_management:
+            system_prompt = build_system_prompt(
+                interactive, skills=skill_meta or None, extension_management=False
+            )
+        elif not register_extension_tools(config, registry, system_prompt, extension_tools):
+            extension_management = False
             system_prompt = build_system_prompt(
                 interactive, skills=skill_meta or None, extension_management=False
             )
@@ -255,6 +280,7 @@ def create_runtime(
             stderr_root=paths.mcp_stderr,
             run_control=control,
             workspace_root=root,
+            allowed_transports=policy.allowed_mcp_transports,
         )
         notices.extend(mcp_notices)
 
@@ -284,6 +310,33 @@ def create_runtime(
             continue_check=continue_check if interactive else None,
             system_prompt=system_prompt,
         )
+        skill_capabilities = tuple(
+            SkillCapability(
+                name=item.name,
+                source=item.source,
+                fingerprint=hashlib.sha256(item.path.read_bytes()).hexdigest()[:12],
+            )
+            for item in visible_skills
+        )
+        mcp_capabilities = tuple(
+            MCPServerCapability(
+                name=item.name,
+                transport=item.transport,
+                startup=item.startup,
+                status=item.status,
+                tool_names=item.tool_names,
+                checked_at=item.checked_at,
+                error_category=item.error_category,
+            )
+            for item in (mcp.server_statuses() if mcp is not None else ())
+        )
+        capabilities = RuntimeCapabilities(
+            sandbox=config.sandbox.mode,
+            tools=tuple(registry.names()),
+            skills=skill_capabilities,
+            mcp_servers=mcp_capabilities,
+            extension_management=extension_management,
+        )
         return AgentRuntime(
             config=config,
             loop=loop,
@@ -303,9 +356,8 @@ def create_runtime(
             run_control=control,
             process_supervisor=supervisor,
             workspace=workspace,
+            capabilities=capabilities,
         )
-    except (RuntimeConfigError, RuntimeInitializationError):
-        raise
     except BaseException as exc:
         if mcp is not None:
             mcp.close()
@@ -317,4 +369,6 @@ def create_runtime(
             supervisor.close()
         port.close()
         logger.session_end(reason="runtime_init_failed")
+        if isinstance(exc, AgentServiceError):
+            raise
         raise RuntimeInitializationError(stage, f"Runtime 初始化失败（{stage}）：{exc}") from exc

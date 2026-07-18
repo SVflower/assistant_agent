@@ -133,6 +133,12 @@ class SandboxConfig(BaseModel):
         description="容器内非 root 用户；auto 在 POSIX 映射当前 uid/gid，其他平台用 65534",
     )
 
+    @field_validator("mode", mode="before")
+    @classmethod
+    def _yaml_off_is_sandbox_off(cls, value: object) -> object:
+        """PyYAML 按 YAML 1.1 把裸 `off` 解析为 False。"""
+        return "off" if value is False else value
+
     @field_validator("user")
     @classmethod
     def _reject_root_user(cls, value: str) -> str:
@@ -275,6 +281,14 @@ class MCPServerConfig(BaseModel):
     )
     # 通用
     enabled: bool = Field(default=True, description="是否启用该 server")
+    startup: Literal["optional", "required"] = Field(
+        default="optional", description="启动失败时降级继续或使当前 Runtime 创建失败"
+    )
+    connect_timeout: int | None = Field(
+        default=None,
+        ge=1,
+        description="连接、initialize 和 tools/list 超时；空值兼容使用 timeout",
+    )
     timeout: int = Field(default=30, ge=1, description="单次工具调用超时（秒）")
     auto_approve: bool = Field(
         default=False, description="为 true 时该 server 工具跳过危险确认（默认都需确认）"
@@ -312,6 +326,9 @@ class MCPConfig(BaseModel):
     enabled: bool = Field(default=True, description="是否连接 MCP server 并注册其工具")
     max_total_tools: int = Field(
         default=60, ge=1, description="全局 MCP 工具数上限，防 schema 撑爆上下文"
+    )
+    connect_parallelism: int = Field(
+        default=4, ge=1, le=32, description="MCP server 启动连接的最大并发数"
     )
     servers: dict[str, MCPServerConfig] = Field(
         default_factory=dict, description="server 名 → 连接设置"

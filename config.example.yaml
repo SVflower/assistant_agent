@@ -147,6 +147,8 @@ mcp:
   enabled: true
   # 全局 MCP 工具数上限，防大量工具 schema 撑爆上下文。
   max_total_tools: 60
+  # Runtime 启动时并行连接 server 的上限；注册顺序仍按配置顺序稳定。
+  connect_parallelism: 4
   # server 名 → 连接设置。默认无 server（下面是示例，需自备命令，取消注释启用）。
   servers: {}
   #   playwright:                         # —— stdio（本地子进程）——
@@ -156,6 +158,8 @@ mcp:
   #     env: {}                           # 值支持 ${VAR} 从环境插值，密钥不落配置
   #     cwd: ""                           # 空=受管运行目录；需要项目目录时显式填写
   #     enabled: true
+  #     startup: optional                 # optional=失败降级；required=当前 Runtime 创建失败
+  #     connect_timeout: 5                # connect/initialize/tools-list 超时；空值兼容 timeout
   #     timeout: 30                       # 单次工具调用超时（秒）
   #     auto_approve: false               # true=信任该 server 的全部当前工具（高风险）
   #     trust_tool_annotations: false     # 仅自有、固定版本 server 可设 true；第三方默认不信只读声明
@@ -175,4 +179,6 @@ mcp:
   #     headers:                          # 值支持 ${VAR} 插值，token 从环境注入不落配置
   #       Authorization: "Bearer ${MCP_TOKEN}"
   #     auto_approve: false               # 远程工具尤其不建议信任整个 server
+  #     startup: optional
+  #     connect_timeout: 5
   #     timeout: 30                       # session/协议头/重连由 SDK 代管；调用不自动重放

@@ -17,6 +17,17 @@ class RuntimeInitializationError(AgentServiceError):
         super().__init__(message)
 
 
+class RuntimePolicyError(RuntimeConfigError):
+    pass
+
+
+class RuntimeDependencyError(RuntimeInitializationError):
+    def __init__(self, dependency: str, category: str, message: str) -> None:
+        self.dependency = dependency
+        self.category = category
+        super().__init__("dependency", message)
+
+
 class RuntimeClosedError(AgentServiceError):
     pass
 

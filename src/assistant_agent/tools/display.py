@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import json
 import re
-from dataclasses import dataclass, replace
+from dataclasses import replace
 from difflib import unified_diff
 from pathlib import Path
 from typing import Any, Literal
 
+from assistant_agent.contracts.events import ToolDisplay, ToolPreview
 from assistant_agent.obs.redaction import redact_text, sanitize_for_display, truncate_text
 from assistant_agent.tools.result import ToolResult
 
@@ -25,27 +26,6 @@ _ACTIONS = {
     "ask_user": "询问用户",
     "load_skill": "加载技能",
 }
-
-
-@dataclass(frozen=True)
-class ToolPreview:
-    kind: Literal["code", "diff"]
-    content: str
-    language: str = "text"
-    total_lines: int = 0
-    shown_lines: int = 0
-    added_lines: int = 0
-    removed_lines: int = 0
-
-
-@dataclass(frozen=True)
-class ToolDisplay:
-    action: str
-    target: str = ""
-    summary: str = ""
-    detail: str = ""
-    preview: ToolPreview | None = None
-    importance: Literal["routine", "change", "external"] = "routine"
 
 
 def safe_text(value: Any, limit: int = 500, *, multiline: bool = False) -> str:

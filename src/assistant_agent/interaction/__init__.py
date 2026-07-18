@@ -1,6 +1,6 @@
 """Agent 公共同步交互边界。"""
 
-from assistant_agent.interaction.models import (
+from assistant_agent.contracts.interactions import (
     ApprovalChoice,
     ApprovalDecision,
     ApprovalRequest,
@@ -10,6 +10,7 @@ from assistant_agent.interaction.models import (
     DefinitionChangeRequest,
     DefinitionDifferenceInfo,
     InteractionDecision,
+    InteractionPort,
     InteractionRequest,
     QuestionAnswer,
     QuestionRequest,
@@ -19,7 +20,6 @@ from assistant_agent.interaction.models import (
 )
 from assistant_agent.interaction.ports import (
     BlockingInteractionPort,
-    InteractionPort,
     SafeDefaultInteractionPort,
 )
 

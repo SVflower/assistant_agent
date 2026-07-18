@@ -8,12 +8,12 @@ from pathlib import Path
 
 import typer
 
-from assistant_agent.agent.events import StepEvent
 from assistant_agent.agent.recovery import RecoveryChoice, RunCoordinator
 from assistant_agent.agent.run_state import ToolCallState
 from assistant_agent.cli.setup import build_runtime
 from assistant_agent.config.loader import ConfigError, load_config
 from assistant_agent.config.paths import resolve_run_dir
+from assistant_agent.contracts.events import StepEvent
 from assistant_agent.interaction import SafeDefaultInteractionPort
 from assistant_agent.obs import sanitize_for_display
 from assistant_agent.runtime import RunControl

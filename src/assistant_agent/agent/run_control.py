@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from assistant_agent.agent.events import StepEvent
 from assistant_agent.agent.recovery import RunCoordinator
+from assistant_agent.contracts.events import StepEvent
 from assistant_agent.runtime import ControlState
 
 

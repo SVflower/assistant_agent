@@ -6,7 +6,7 @@ from collections.abc import Sequence
 from typing import Any, Literal
 
 from assistant_agent.agent.continuation import ContinuationStateMixin
-from assistant_agent.agent.failures import RunFailure, tool_failure
+from assistant_agent.agent.failures import tool_failure
 from assistant_agent.agent.recovery_codec import (
     decode_budget,
     decode_result,
@@ -27,6 +27,7 @@ from assistant_agent.agent.run_state import (
     now_iso,
     stable_call_id,
 )
+from assistant_agent.contracts.failures import RunFailure
 from assistant_agent.llm.client import ToolCall
 from assistant_agent.obs import NullLogger
 from assistant_agent.session.run_store import LoadedRun, RunStore

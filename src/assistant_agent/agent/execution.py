@@ -7,9 +7,9 @@ from collections.abc import Callable, Generator
 from dataclasses import dataclass
 
 from assistant_agent.agent.context import Conversation
-from assistant_agent.agent.events import StepEvent
 from assistant_agent.agent.failures import tool_failure
 from assistant_agent.agent.recovery import RunCoordinator
+from assistant_agent.contracts.events import StepEvent
 from assistant_agent.llm.client import ToolCall
 from assistant_agent.runtime import ControlState
 from assistant_agent.tools.base import ToolContext, ToolResult

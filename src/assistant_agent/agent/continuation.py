@@ -5,12 +5,6 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Protocol
 
-from assistant_agent.agent.failures import (
-    BudgetResource,
-    BudgetSnapshot,
-    ContinuationPrompt,
-    ContinuationResult,
-)
 from assistant_agent.agent.recovery_codec import encode_budget
 from assistant_agent.agent.run_state import (
     ContinuationBudgetState,
@@ -18,6 +12,12 @@ from assistant_agent.agent.run_state import (
     RunState,
 )
 from assistant_agent.config.schema import ContinuationConfig
+from assistant_agent.contracts.failures import (
+    BudgetResource,
+    BudgetSnapshot,
+    ContinuationPrompt,
+    ContinuationResult,
+)
 from assistant_agent.tools.base import ToolBudget
 
 BudgetContinueCheck = Callable[[ContinuationPrompt], ContinuationResult]

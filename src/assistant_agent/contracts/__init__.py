@@ -1,6 +1,97 @@
-"""跨进程调用方可依赖的稳定公共契约。
+"""跨进程调用方可依赖的稳定公共契约。"""
 
-M19a 仅建立最低层包和依赖护栏；公共 DTO 在 M19b 迁入。
-"""
+from assistant_agent.contracts.capabilities import (
+    MCPServerCapability,
+    MCPStatus,
+    RuntimeCapabilities,
+    SkillCapability,
+)
+from assistant_agent.contracts.errors import (
+    AgentServiceError,
+    RuntimeClosedError,
+    RuntimeConfigError,
+    RuntimeDependencyError,
+    RuntimeInitializationError,
+    RuntimePolicyError,
+    SessionBusyError,
+    SessionRunConflictError,
+)
+from assistant_agent.contracts.events import (
+    EVENT_CONTRACT_VERSION,
+    EventKind,
+    StepEvent,
+    TerminalStatus,
+    ToolDisplay,
+    ToolPreview,
+)
+from assistant_agent.contracts.failures import (
+    ActivityPhase,
+    AllowedAction,
+    BudgetResource,
+    BudgetSnapshot,
+    FailureCode,
+    RunFailure,
+)
+from assistant_agent.contracts.interactions import (
+    ApprovalChoice,
+    ApprovalDecision,
+    ApprovalRequest,
+    ContinueDecision,
+    ContinueRequest,
+    DefinitionChangeDecision,
+    DefinitionChangeRequest,
+    DefinitionDifferenceInfo,
+    InteractionDecision,
+    InteractionPort,
+    InteractionRequest,
+    QuestionAnswer,
+    QuestionRequest,
+    RecoveryChoice,
+    RecoveryDecision,
+    RecoveryRequest,
+    ScopeInfo,
+)
 
-__all__: list[str] = []
+__all__ = [
+    "ActivityPhase",
+    "AgentServiceError",
+    "AllowedAction",
+    "ApprovalChoice",
+    "ApprovalDecision",
+    "ApprovalRequest",
+    "BudgetResource",
+    "BudgetSnapshot",
+    "ContinueDecision",
+    "ContinueRequest",
+    "DefinitionChangeDecision",
+    "DefinitionChangeRequest",
+    "DefinitionDifferenceInfo",
+    "EVENT_CONTRACT_VERSION",
+    "EventKind",
+    "FailureCode",
+    "InteractionDecision",
+    "InteractionPort",
+    "InteractionRequest",
+    "MCPServerCapability",
+    "MCPStatus",
+    "QuestionAnswer",
+    "QuestionRequest",
+    "RecoveryChoice",
+    "RecoveryDecision",
+    "RecoveryRequest",
+    "RunFailure",
+    "RuntimeCapabilities",
+    "RuntimeClosedError",
+    "RuntimeConfigError",
+    "RuntimeDependencyError",
+    "RuntimeInitializationError",
+    "RuntimePolicyError",
+    "ScopeInfo",
+    "SessionBusyError",
+    "SessionRunConflictError",
+    "SkillCapability",
+    "StepEvent",
+    "TerminalStatus",
+    "ToolDisplay",
+    "ToolPreview",
+]

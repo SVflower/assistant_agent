@@ -14,12 +14,12 @@ from pathlib import Path
 
 import typer
 
-from assistant_agent.agent.events import StepEvent
 from assistant_agent.cli.commands import ChatContext, build_default_slash_registry
 from assistant_agent.cli.init import run_init
 from assistant_agent.cli.recovery import resume_command, runs_command
 from assistant_agent.cli.setup import build_runtime
 from assistant_agent.config.loader import ConfigError, load_config
+from assistant_agent.contracts.events import StepEvent
 from assistant_agent.runtime import RunControl
 from assistant_agent.service.sessions import SessionRuntime
 from assistant_agent.session.store import SessionStore

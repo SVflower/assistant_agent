@@ -2,9 +2,10 @@
 
 from dataclasses import fields
 
-from assistant_agent.agent.events import EVENT_CONTRACT_VERSION, StepEvent
 from assistant_agent.agent.run_state import RunState, ToolBudgetState, migrate_run_document
-from assistant_agent.interaction.models import (
+from assistant_agent.contracts.events import EVENT_CONTRACT_VERSION, StepEvent
+from assistant_agent.contracts.failures import RunFailure
+from assistant_agent.contracts.interactions import (
     ApprovalRequest,
     ContinueRequest,
     DefinitionChangeRequest,
@@ -66,6 +67,21 @@ def test_step_event_v1_field_baseline_and_sensitive_reasoning():
     event = StepEvent(kind="reasoning", text="private")
     assert event.contract_version == 1
     assert event.sensitive is True
+
+
+def test_legacy_contract_imports_are_identity_aliases():
+    from assistant_agent.agent.events import StepEvent as LegacyStepEvent
+    from assistant_agent.agent.failures import RunFailure as LegacyRunFailure
+    from assistant_agent.contracts import AgentServiceError, RuntimeCapabilities
+    from assistant_agent.interaction.models import ContinueRequest as LegacyContinueRequest
+    from assistant_agent.service.capabilities import RuntimeCapabilities as LegacyCapabilities
+    from assistant_agent.service.errors import AgentServiceError as LegacyServiceError
+
+    assert LegacyStepEvent is StepEvent
+    assert LegacyRunFailure is RunFailure
+    assert LegacyContinueRequest is ContinueRequest
+    assert LegacyCapabilities is RuntimeCapabilities
+    assert LegacyServiceError is AgentServiceError
 
 
 def test_interaction_request_field_baseline():

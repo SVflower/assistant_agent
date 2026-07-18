@@ -6,9 +6,8 @@ import queue
 import threading
 import time
 from dataclasses import dataclass
-from typing import Protocol
 
-from assistant_agent.interaction.models import (
+from assistant_agent.contracts.interactions import (
     ApprovalDecision,
     ApprovalRequest,
     ContinueDecision,
@@ -22,22 +21,7 @@ from assistant_agent.interaction.models import (
     RecoveryDecision,
     RecoveryRequest,
 )
-
-
-class InteractionPort(Protocol):
-    def request_approval(self, request: ApprovalRequest) -> ApprovalDecision: ...
-
-    def ask_question(self, request: QuestionRequest) -> QuestionAnswer: ...
-
-    def confirm_continue(self, request: ContinueRequest) -> ContinueDecision: ...
-
-    def confirm_definition_change(
-        self, request: DefinitionChangeRequest
-    ) -> DefinitionChangeDecision: ...
-
-    def decide_recovery(self, request: RecoveryRequest) -> RecoveryDecision: ...
-
-    def close(self) -> None: ...
+from assistant_agent.contracts.interactions import InteractionPort as InteractionPort
 
 
 class SafeDefaultInteractionPort:

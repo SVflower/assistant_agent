@@ -12,6 +12,14 @@ from assistant_agent.agent.recovery import RunCoordinator
 from assistant_agent.agent.run_state import ToolCallState, canonical_hash
 from assistant_agent.config.loader import ConfigError, load_config
 from assistant_agent.config.paths import resolve_run_dir, state_paths
+from assistant_agent.contracts.capabilities import RuntimeCapabilities
+from assistant_agent.contracts.errors import (
+    RuntimeClosedError,
+    RuntimeConfigError,
+    SessionBusyError,
+    SessionRunConflictError,
+)
+from assistant_agent.contracts.events import StepEvent, TerminalStatus
 from assistant_agent.interaction import (
     DefinitionChangeRequest,
     DefinitionDifferenceInfo,
@@ -19,14 +27,6 @@ from assistant_agent.interaction import (
     RecoveryRequest,
 )
 from assistant_agent.obs import sanitize_for_display
-from assistant_agent.service.capabilities import RuntimeCapabilities
-from assistant_agent.service.errors import (
-    RuntimeClosedError,
-    RuntimeConfigError,
-    SessionBusyError,
-    SessionRunConflictError,
-)
-from assistant_agent.service.events import StepEvent, TerminalStatus
 from assistant_agent.service.policy import RuntimePolicy
 from assistant_agent.service.runtime import AgentRuntime, create_runtime
 from assistant_agent.session.run_store import RunMeta, RunStore

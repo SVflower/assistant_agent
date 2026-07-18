@@ -1,11 +1,11 @@
 """assistant-agent 的稳定进程内服务边界。"""
 
-from assistant_agent.service.capabilities import (
+from assistant_agent.contracts.capabilities import (
     MCPServerCapability,
     RuntimeCapabilities,
     SkillCapability,
 )
-from assistant_agent.service.errors import (
+from assistant_agent.contracts.errors import (
     AgentServiceError,
     RuntimeClosedError,
     RuntimeConfigError,
@@ -15,7 +15,7 @@ from assistant_agent.service.errors import (
     SessionBusyError,
     SessionRunConflictError,
 )
-from assistant_agent.service.events import (
+from assistant_agent.contracts.events import (
     EVENT_CONTRACT_VERSION,
     BudgetSnapshot,
     RunFailure,

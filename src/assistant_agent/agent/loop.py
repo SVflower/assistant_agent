@@ -13,14 +13,8 @@ from assistant_agent.agent.continuation import (
     ContinuationController,
     budget_snapshot,
 )
-from assistant_agent.agent.events import StepEvent
 from assistant_agent.agent.execution import LoopCursor, execute_tool_batch
-from assistant_agent.agent.failures import (
-    BudgetResource,
-    RunFailure,
-    budget_failure,
-    provider_failure,
-)
+from assistant_agent.agent.failures import budget_failure, provider_failure
 from assistant_agent.agent.loop_resume import resume_loop, sync_loop_state
 from assistant_agent.agent.prompts import build_system_prompt
 from assistant_agent.agent.recovery import RecoveryChoice, RunCoordinator
@@ -28,6 +22,11 @@ from assistant_agent.agent.run_control import finish_control
 from assistant_agent.agent.run_state import ToolCallState
 from assistant_agent.agent.token_budget import ContextWindowError
 from assistant_agent.config.schema import AppConfig
+from assistant_agent.contracts.events import StepEvent
+from assistant_agent.contracts.failures import (
+    BudgetResource,
+    RunFailure,
+)
 from assistant_agent.llm.client import LLMClient, ToolCall
 from assistant_agent.runtime import ControlState, RunControl
 from assistant_agent.tools.base import ToolBudget, ToolContext

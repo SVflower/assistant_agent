@@ -418,6 +418,11 @@ StepEvent v1、Interaction、Run/Session 状态、checkpoint v3 或生命周期�
 
 验收：字段、默认值、序列化、sensitive 标记和公共 root 导出完全一致；contract version 仍为 1。
 
+实施记录（2026-07-19）：已建立 `assistant_agent.contracts` 推荐公共入口；Service 既有导出、
+DTO 字段/default/类型身份和 StepEvent v1 均保持兼容，旧 `agent.events`、`agent.failures`、
+`interaction.models`、`service.events/capabilities/errors` 路径保留薄转发。该变化为向后兼容扩展，
+不要求 API 立即修改导入；M19g 将同步正式契约中的推荐路径和迁移说明。
+
 ### M19c：Provider 与 Tool 边界
 
 - 建立 `providers/ports.py` + `litellm.py`，原 `llm/client.py` 暂作兼容转发；

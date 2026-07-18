@@ -8,13 +8,25 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from assistant_agent.agent.failures import ContinuationPrompt, ContinuationResult
 from assistant_agent.agent.loop import AgentLoop
 from assistant_agent.agent.prompts import build_system_prompt
 from assistant_agent.agent.recovery import RunCoordinator
 from assistant_agent.config.loader import ConfigError, load_config
 from assistant_agent.config.paths import resolve_log_dir, resolve_run_dir, state_paths
 from assistant_agent.config.schema import AppConfig
+from assistant_agent.contracts.capabilities import (
+    MCPServerCapability,
+    RuntimeCapabilities,
+    SkillCapability,
+)
+from assistant_agent.contracts.errors import (
+    AgentServiceError,
+    RuntimeClosedError,
+    RuntimeConfigError,
+    RuntimeInitializationError,
+    RuntimePolicyError,
+)
+from assistant_agent.contracts.failures import ContinuationPrompt, ContinuationResult
 from assistant_agent.interaction import (
     ContinueRequest,
     InteractionPort,
@@ -32,18 +44,6 @@ from assistant_agent.service._runtime_builders import (
     start_mcp,
     start_web,
     start_workspace,
-)
-from assistant_agent.service.capabilities import (
-    MCPServerCapability,
-    RuntimeCapabilities,
-    SkillCapability,
-)
-from assistant_agent.service.errors import (
-    AgentServiceError,
-    RuntimeClosedError,
-    RuntimeConfigError,
-    RuntimeInitializationError,
-    RuntimePolicyError,
 )
 from assistant_agent.service.policy import RuntimePolicy, sandbox_satisfies
 from assistant_agent.session.run_store import RunStore

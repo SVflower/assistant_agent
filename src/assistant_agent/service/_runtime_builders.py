@@ -9,6 +9,7 @@ from typing import Literal
 from assistant_agent.agent.token_budget import estimate_message_tokens, estimate_tools_tokens
 from assistant_agent.config.paths import project_skills_dir, user_skills_dir
 from assistant_agent.config.schema import AppConfig, MCPConfig, SkillsConfig, WebConfig
+from assistant_agent.contracts.errors import RuntimeDependencyError
 from assistant_agent.mcp import MCPManager, MCPRequiredServerError
 from assistant_agent.obs import NullLogger
 from assistant_agent.runtime import (
@@ -19,7 +20,6 @@ from assistant_agent.runtime import (
     ProcessSupervisor,
     RunControl,
 )
-from assistant_agent.service.errors import RuntimeDependencyError
 from assistant_agent.skills import SkillSource, SkillStore
 from assistant_agent.tools.base import Tool
 from assistant_agent.tools.permissions import Capability, PermissionRule

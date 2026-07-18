@@ -10,7 +10,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from assistant_agent.agent.failures import BudgetResource, RunFailure
+from assistant_agent.contracts.failures import BudgetResource, RunFailure
 
 RunStatus = Literal["running", "paused", "cancelled", "completed", "failed"]
 RunPhase = Literal[

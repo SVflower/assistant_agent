@@ -9,7 +9,7 @@ from typing import Any
 from rich.markdown import Markdown
 from rich.panel import Panel
 
-from assistant_agent.agent.events import StepEvent
+from assistant_agent.contracts.events import StepEvent
 from assistant_agent.tools.display import safe_text
 from assistant_agent.ui.activity import ActivityController
 from assistant_agent.ui.formatting import build_response_panel, build_turn_status, format_elapsed

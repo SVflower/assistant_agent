@@ -9,7 +9,7 @@ from rich.syntax import Syntax
 from rich.table import Table
 from rich.text import Text
 
-from assistant_agent.agent.events import StepEvent
+from assistant_agent.contracts.events import StepEvent
 from assistant_agent.obs.redaction import sanitize_for_display
 from assistant_agent.tools.display import ToolPreview, call_display, safe_text
 

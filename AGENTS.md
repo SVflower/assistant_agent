@@ -73,6 +73,7 @@ python -m assistant_agent
 - **架构适应度测试** `tests/test_architecture.py`：自动检查分层依赖（config→llm→tools→agent→ui→main，只能依赖同层或更低层）、内核 UI 无关、工具不反向依赖、单文件行数（软线 300 仅警告交人评审、硬线 500 才失败）。**报红时应拆分/修依赖，而不是放宽规则。**
 - **技术债登记册** `docs/TECH_DEBT.md`：新债即时登记，每次里程碑评审更新，防隐形复利。
 - **覆盖率** `pytest --cov`：不设强制门槛，但关键路径（流式碎片拼接、confirm 解析）低覆盖要显形并补测。
+- **跨项目契约同步**：`docs/agent-service-integration-guide.md` 是 Agent 对 API 及其他调用方的长期正式契约。凡里程碑修改 `assistant_agent.service` / `assistant_agent.interaction` 公共出口、StepEvent/DTO、Interaction、Run/Session 状态、失败码、生命周期或兼容语义，必须在同一里程碑同步该文档、契约版本/迁移说明、完整事件序列和契约测试；归档 plan/handoff 只能记录历史，不能替代正式契约。破坏性变化必须提升契约版本；向后兼容扩展也必须写明。若确认无影响，方案和验收报告必须明确记录“公共服务契约无变化”及依据。阶段收尾时还必须输出一份可直接交给 API 项目 AI 的变更清单，包含 Agent commit、API 必改项、兼容影响和联调测试。
 
 ## 里程碑完成定义（DoD）
 
@@ -83,6 +84,7 @@ python -m assistant_agent
 4. 无密钥/垃圾文件入库（提交前审查 `git diff --cached`）。
 5. 动了内核 `agent/loop.py` 时，说明理由并确认现有测试不回退。
 6. **状态文档同步**：更新 ROADMAP 里程碑表的状态标记 + 顶部"项目当前状态"块，以及本文件、`CLAUDE.md`、`README.md` 的"当前状态"段。数字（测试数/覆盖率/源码行数/剩余技术债）用**实测**（`pytest -q`、`--cov`、`wc -l`），不凭记忆。里程碑历史小节里的旧数字是当时快照，不回改。
+7. **服务契约闭环**：完成跨项目契约影响检查；有影响时正式契约、版本/迁移说明、契约测试和 API AI 变更清单全部同步，无影响时留下明确结论。缺任一项不得把里程碑标记完成。
 
 ## 当前状态
 

@@ -3,7 +3,9 @@
 > 适用对象：需要在 Python 进程内调用 `assistant_agent` 的 Web API、桌面应用、后台任务、自动化平台
 > 或其他上层服务。
 >
-> 当前公共事件契约：`EVENT_CONTRACT_VERSION == 1`。
+> 本文是公共服务契约的长期唯一正式入口；里程碑归档和阶段性交接不能替代本文。
+> 当前公共事件契约：`EVENT_CONTRACT_VERSION == 1`；当前 Run checkpoint：schema v3。
+> 最近同步：M18，Agent commit `0ef635ab5b14cec4b4e7ffa844956a1811881e99`。
 
 ## 1. 集成边界
 
@@ -198,6 +200,14 @@ for event in execution.events:
 - 正常公共流最后有一个 `kind == "run_terminal"`；
 - 调用方提前关闭或放弃 Iterator 时，Agent 会尝试把 Run 安全暂停，而不是误记为 completed。
 
+终态规则：
+
+1. `final` 只表示完整 assistant 正文，不改变 Run 状态；
+2. `completed/failed/paused/cancelled` 只通过 `run_terminal` 表达；
+3. 正常耗尽的事件 Iterator 必须且只能产生一次 `run_terminal`；
+4. failed 终态携带结构化 `failure`；失败前的 `content_delta` 是 partial，不能伪装成 `final`；
+5. API 只有收到 `run_terminal` 后才能原子更新 Run snapshot 和最终 Session 状态。
+
 同一 Session 已有活跃 Run 时，`start_run()` 抛 `SessionBusyError`；存在 paused/running 历史 Run 时，
 创建新 Run 抛 `SessionRunConflictError`，避免会话历史分叉。
 
@@ -227,8 +237,24 @@ Run 达到 completed/failed/cancelled 后，公共门面会先同步 Session，�
 公共类型：
 
 ```python
-from assistant_agent.service import EVENT_CONTRACT_VERSION, StepEvent, ToolDisplay
+from assistant_agent.service import (
+    EVENT_CONTRACT_VERSION,
+    BudgetSnapshot,
+    RunFailure,
+    StepEvent,
+    ToolDisplay,
+)
 ```
+
+`StepEvent` 完整公共字段：
+
+```text
+kind, text, tool_name, tool_args, is_error, usage, call_id, display,
+result_code, result_metadata, contract_version, sensitive,
+terminal_status, failure, phase, budget
+```
+
+新增字段保持可选，调用方必须忽略未知未来字段和未知向后兼容事件，不能使 Run 消费失败。
 
 主要事件：
 
@@ -243,7 +269,8 @@ from assistant_agent.service import EVENT_CONTRACT_VERSION, StepEvent, ToolDispl
 | `final` | 最终回答 | 落屏，但不要单独判断 Run 终态 |
 | `error` | Agent 错误事件 | 脱敏后展示 |
 | `interrupted` | 兼容事件 | 终态以 `run_terminal` 为准 |
-| `run_terminal` | 公共 Run 终态 | 读取 `terminal_status` |
+| `activity` | 安全运行阶段和可选预算快照 | 更新临时 Run 状态，不写入消息历史 |
+| `run_terminal` | 公共 Run 终态 | 读取 `terminal_status` 和 `failure` |
 
 `terminal_status` 取值：
 
@@ -251,13 +278,57 @@ from assistant_agent.service import EVENT_CONTRACT_VERSION, StepEvent, ToolDispl
 completed | failed | paused | cancelled
 ```
 
+`activity.phase` 合法值：
+
+```text
+preparing_context | calling_model | executing_tool | waiting_interaction |
+saving_checkpoint | syncing_session
+```
+
+activity 是运行事实，不是 reasoning 摘要。`budget` 为可安全展示的 `BudgetSnapshot`：
+
+```text
+iterations_used, iterations_limit
+tool_calls_used, tool_calls_limit
+tool_output_chars_used, tool_output_chars_limit
+```
+
+`RunFailure` 字段：
+
+```text
+code, safe_message, retryable, allowed_actions, resource, used, limit,
+terminal_status, phase, unknown_side_effect
+```
+
+稳定 `code`：
+
+```text
+tool_output_budget_exhausted | tool_call_budget_exhausted |
+iteration_limit_reached | context_limit_exceeded |
+provider_rate_limited | provider_unavailable | provider_timeout |
+tool_failed | permission_denied | dependency_unavailable | internal_error
+```
+
+稳定 `allowed_actions`：
+
+```text
+continue | stop | resume_run | retry_run | start_new_run |
+adjust_configuration | inspect_dependency | resolve_uncertain_tool
+```
+
+API/Web 只能根据 `code`、`retryable`、`allowed_actions` 和 `unknown_side_effect` 决定行为，不能解析
+`safe_message`。`retryable=true` 不表示允许自动重试；`unknown_side_effect=true` 只能进入 recovery
+Interaction。普通可纠正的 `tool_result.failure` 可使用 `terminal_status=null`，不得据此提前结束 Run。
+
 安全规则：
 
 1. `event.sensitive` 为 true 时，默认不进入 Web DTO、日志、数据库或重连缓存；
 2. 工具展示优先使用 `event.display`，不要向客户端暴露原始 `tool_args`；
 3. `result_metadata` 不是默认 Web DTO，只有建立字段白名单后才能传输；
 4. API 可增加 `seq/timestamp/session_id/run_id`，但不能写回 Agent checkpoint；
-5. 网络层只以 `run_terminal` 判断 Run 终态。
+5. 网络层只以 `run_terminal` 判断 Run 终态；
+6. `failure.safe_message` 可展示，但第三方原始异常、密钥、环境变量和敏感参数不能进入 DTO；
+7. `activity` 不写入 Session history，`reasoning` 不进入普通 Web 事件或重连缓存。
 
 ## 8. 跨线程事件桥
 
@@ -310,7 +381,7 @@ Agent 工作线程会在以下交互上有界等待：
 
 - `approval`：工具权限；
 - `question`：`ask_user` 澄清；
-- `continue`：达到迭代上限后继续或停止；
+- `continue`：达到迭代、工具调用或累计工具输出预算后继续或停止；
 - `definition_change`：恢复时定义变化确认；
 - `recovery`：不确定副作用的 retry/skip/abort。
 
@@ -343,6 +414,20 @@ port.respond(RecoveryDecision(request_id, "skip"))
 `respond()` 返回 false 表示 request ID 错误、响应类型不匹配、请求过期或已经响应。Decision 值必须
 来自请求的 `legal_options`；越界值即使通过 Python 运行时构造，也不会使 Agent 授权或进入非法恢复
 分支。上层服务应在 DTO 校验层直接拒绝越界值，不能把失败重试成默认允许。
+
+M18 `ContinueRequest` 公共字段：
+
+```text
+request_id, run_id, session_id, call_id, kind="continue",
+reason, resource, used, limit, suggested_increment, hard_limit,
+extension_count, max_extensions, legal_options=[continue, stop]
+```
+
+`reason` 为 `iteration_limit_reached`、`tool_call_budget_exhausted` 或
+`tool_output_budget_exhausted`；`resource` 为 `iterations`、`tool_calls` 或 `tool_output`。响应仍为
+`ContinueDecision(request_id, continue_run)`。默认 stop；超时、断线、Runtime close、异常、错误或重复
+request ID 均不得继续。continue 只增加当前 Run 预算，决策和新 limit 由 Agent 写入 checkpoint；API
+不得自行计算预算、修改 checkpoint 或在网络重连时重复提交响应。
 
 交互请求中的展示目标已脱敏，但调用方仍应使用 DTO 白名单；不要把完整配置、环境变量、system
 prompt 或原始工具参数附加到网络响应中。
@@ -448,6 +533,22 @@ GET/WS /runs/{run_id}/events?after=<seq>
 - 长期 Bearer Token 不放在 WebSocket URL；
 - 服务生成的 heartbeat/activity 必须标注为服务事件，不能伪装成 Agent reasoning。
 
+Agent 事件推荐映射：
+
+```text
+activity            -> run.activity（覆盖临时状态）
+content_delta       -> assistant.delta（partial=true）
+tool_call/result    -> run.tool（按 call_id 配对，优先 display）
+usage               -> run.usage
+final               -> assistant.final_candidate
+error/interrupted   -> run.notice（不是终态）
+run_terminal        -> run.terminal + 原子更新 Run snapshot
+```
+
+Run snapshot 至少保留 `terminal_status/failure/current_phase/budget/pending_interaction/final_candidate`。
+API 自行增加 seq、timestamp、session_id、run_id、heartbeat 和重连缓存；网络重连只能重放 API 已缓存
+DTO，不能重新迭代 Agent 或重新执行工具。
+
 ## 13. 常见错误
 
 - 启动 `python -m assistant_agent` 子进程并解析 stdout；
@@ -455,6 +556,8 @@ GET/WS /runs/{run_id}/events?after=<seq>
 - 为每条消息重新创建 Runtime，丢失会话授权和 MCP 状态；
 - WebSocket 断开时自动 cancel Run；
 - 将 `final` 当作唯一终态，忽略 `run_terminal`；
+- 解析中文错误文本推断重试、继续或用户按钮；
+- 把 `activity` 或 partial `content_delta` 写成完整 assistant 消息；
 - 把 `tool_args`、reasoning 或异常堆栈直接发给客户端；
 - API 自己复制 `sync_terminal_session`、definition difference 或 recovery 状态机；
 - 同一 Session 并发载入两个 Runtime；
@@ -470,12 +573,16 @@ GET/WS /runs/{run_id}/events?after=<seq>
 5. reasoning 和原始工具参数不进入网络 DTO；
 6. 同 Session 第二个 Run 明确冲突；
 7. pause/cancel/resume 保持原 run_id 和终态语义；
-8. 五类 Interaction 均能请求、超时和安全拒绝；
+8. 五类 Interaction 均能请求、超时和安全拒绝，三类预算 continuation 均按精确 request ID 响应；
 9. WebSocket 断线后可按序号重连，不影响 Run；
 10. 初始化失败、Session 淘汰和进程 shutdown 后无遗留 MCP/HTTP/受管进程或 worker；
 11. 调用方具备事件转换、并发、断线、授权和脱敏测试；
-12. Agent 与调用方分别通过各自的 pytest、Ruff 和 mypy 质量门。
+12. `final -> run_terminal(completed)` 顺序稳定，failed/paused 只产生一次带结构化 failure 的终态；
+13. Provider 429/503/timeout、预算、权限、依赖和未知副作用不依赖错误文本分类；
+14. reasoning、原始异常、密钥、环境变量和敏感工具参数不会进入网络 DTO；
+15. Agent 与调用方分别通过各自的 pytest、Ruff 和 mypy 质量门。
 
 `assistant_agent_api` 的具体交接记录见
-[m16-assistant-agent-api-handoff.md](m16-assistant-agent-api-handoff.md)；里程碑设计与验收背景见
-[archive/phase9/m16-service-runtime-boundary-plan.md](archive/phase9/m16-service-runtime-boundary-plan.md)。
+[archive/phase11/m18-agent-api-handoff.md](archive/phase11/m18-agent-api-handoff.md)；M16 初始边界记录见
+[m16-assistant-agent-api-handoff.md](m16-assistant-agent-api-handoff.md)。这些文件是历史交接，发生冲突时
+以本文和安装版本导出的公共 Python 类型为准。

@@ -255,10 +255,11 @@ M13a 已完成声明式工具适配层；第七阶段 M14 已完成暂停/取消
 还清 D18。第八阶段 M15 已完成统一 CLI 活性反馈、动态阶段计时、正文停更后的模型生成提示、
 授权后恢复动画和关键外部动作摘要。第九阶段 M16 已完成 UI 无关 Runtime 工厂、同步
 InteractionPort、Session/Run 公共服务门面和稳定 StepEvent 契约，可供安装后的 Python 包直接调用。
-第十阶段 M17 已完成部署级 RuntimePolicy、MCP 有界降级启动和脱敏能力快照。
-当前 577 个测试通过（5 个平台能力测试跳过）、覆盖率 84%、14027 行生产 Python 源码 + 1564 行
-eval 基础设施。详见 [M17 方案](docs/archive/phase10/m17-production-service-runtime-plan.md)和
+第十阶段 M17 已完成部署级 RuntimePolicy、MCP 有界降级启动和脱敏能力快照。第十一阶段 M18
+已完成结构化失败、安全 activity/预算快照，以及可 checkpoint 恢复的三类预算 continuation。
+当前 594 个测试通过（5 个平台能力测试跳过）、覆盖率 84%、14930 行生产 Python 源码 + 1564 行
+eval 基础设施。详见 [M18 方案](docs/archive/phase11/m18-run-explainability-and-budget-continuation-plan.md)和
 [通用服务调用指南](docs/agent-service-integration-guide.md)；`assistant_agent_api` 的阶段性交接见
-[M17 API 协同说明](docs/archive/phase10/m17-assistant-agent-api-coordination.md)。
+[M18 API 交接](docs/archive/phase11/m18-agent-api-handoff.md)。
 
 详见 [DESIGN.md](DESIGN.md)。

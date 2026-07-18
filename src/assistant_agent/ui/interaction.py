@@ -49,6 +49,16 @@ class ConsoleInteractionAdapter:
         return QuestionAnswer(request.request_id, answer=answer, available=bool(answer))
 
     def confirm_continue(self, request: ContinueRequest) -> ContinueDecision:
+        if request.resource != "iterations":
+            label = "工具调用" if request.resource == "tool_calls" else "工具输出字符"
+            message = (
+                f"{label}预算已达到 {request.used}/{request.limit}，"
+                f"是否增加 {request.suggested_increment} 后继续？"
+            )
+            return ContinueDecision(
+                request.request_id,
+                continue_run=self.console.confirm(message) != "deny",
+            )
         return ContinueDecision(
             request.request_id,
             continue_run=self.console.confirm_continue(request.iterations_used),

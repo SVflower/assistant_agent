@@ -6,6 +6,14 @@ from assistant_agent.agent.events import (
     StepEvent,
     TerminalStatus,
 )
+from assistant_agent.agent.failures import (
+    ActivityPhase,
+    AllowedAction,
+    BudgetResource,
+    BudgetSnapshot,
+    FailureCode,
+    RunFailure,
+)
 from assistant_agent.tools.display import ToolDisplay
 
 __all__ = [
@@ -14,4 +22,10 @@ __all__ = [
     "StepEvent",
     "TerminalStatus",
     "ToolDisplay",
+    "ActivityPhase",
+    "AllowedAction",
+    "BudgetResource",
+    "BudgetSnapshot",
+    "FailureCode",
+    "RunFailure",
 ]

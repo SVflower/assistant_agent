@@ -19,6 +19,7 @@ providers:
     api_base: null
     temperature: 0.7
     max_tokens: 4096
+    context_window: 32000     # 必须填写模型真实能力；Agent 会拒绝超配
     request_timeout: 120       # 同步模型请求的最大等待秒数；中断最迟在超时/下一流片段生效
 
   # ---- 本地 LM Studio 示例 ----
@@ -29,6 +30,7 @@ providers:
     api_base: "http://localhost:1234/v1"
     temperature: 0.7
     max_tokens: 4096
+    context_window: 8192      # 示例值；必须改成 LM Studio 当前加载模型的真实窗口
     request_timeout: 120
 
   # ---- 本地 vLLM 示例 ----
@@ -38,21 +40,31 @@ providers:
     api_base: "http://localhost:8000/v1"
     temperature: 0.7
     max_tokens: 4096
+    context_window: 32768     # 示例值；必须与 vLLM 启动时模型能力一致
     request_timeout: 120
 
 agent:
   # 单个任务最多允许多少轮模型调用，防止跑飞
   max_iterations: 25
   # 单任务最多执行多少个工具调用（跨轮累计）
-  max_tool_calls: 50
+  max_tool_calls: 60
   # 单任务写入上下文的工具结果累计字符上限；0=不限制
-  max_total_tool_output_chars: 50000
+  max_total_tool_output_chars: 80000
   # 上下文里保留的最大消息数（超过则做长度感知截断）
-  max_history_messages: 40
+  max_history_messages: 60
   # 上下文 token 预算；本地小模型应按实际窗口下调
-  max_context_tokens: 8000
+  max_context_tokens: 32000
   # 从预算里预留给模型回复的 token（可用消息预算=窗口−system−tools schema−此值）；0=不预留
-  reserved_output_tokens: 1024
+  reserved_output_tokens: 4096
+  # 交互式 Run 可在用户明确确认后只扩展当前 Run；超时、断线和非交互模式默认停止。
+  continuation:
+    max_extensions: 2
+    iteration_increment: 10
+    max_iterations_hard: 100
+    tool_call_increment: 20
+    max_tool_calls_hard: 200
+    tool_output_increment: 40000
+    max_tool_output_chars_hard: 400000
   # 上下文摘要压缩（M8b）：历史逼近预算时把最旧对话压成摘要，替代硬丢，防长会话失忆。
   # 默认关闭——关闭时上下文行为与硬截断逐字节一致。开启会多花摘要模型调用。
   compaction:
@@ -70,7 +82,7 @@ tools:
   # [已废弃] 兼容旧配置；统一权限边界始终启用，此值不能再关闭保护。
   confirm_dangerous_shell: true
   # shell 命令超时（秒）
-  shell_timeout: 60
+  shell_timeout: 120
   # 单个工具结果返回 UI/上下文的最大字符数；0=不截断
   max_output_chars: 4000
   # Shell/Git 每个 stdout/stderr 流最多保留的字符数；超限继续排空但不再增长内存

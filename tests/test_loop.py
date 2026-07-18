@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 
+from assistant_agent.agent.failures import ContinuationResult
 from assistant_agent.agent.loop import AgentLoop
 from assistant_agent.config.schema import AppConfig
 from assistant_agent.llm.client import StreamEvent, ToolCall
@@ -202,7 +203,9 @@ def test_loop_stream_error_preserves_content():
     assert "".join(deltas) == "已经说了一半"
     # 最终是错误事件
     assert events[-1].kind == "error"
-    assert "连接中断" in events[-1].text
+    assert events[-1].text == "模型调用失败。"
+    assert events[-1].failure is not None
+    assert events[-1].failure.code == "internal_error"
 
 
 def test_loop_two_rounds_share_history():
@@ -601,3 +604,112 @@ def test_continue_iterations_does_not_reset_tool_budget():
 
     assert events[-1].kind == "error"
     assert client.calls == 2
+
+
+def test_tool_call_budget_continuation_extends_current_run():
+    calls = [
+        ToolCall(id="c1", name="list_dir", arguments={"path": "a"}),
+        ToolCall(id="c2", name="list_dir", arguments={"path": "b"}),
+    ]
+    prompts = []
+    client = FakeStreamClient([_tools_round(*calls), _text_round("done")])
+    loop = AgentLoop(
+        _config(max_tool_calls=1),
+        client,
+        build_default_registry(),
+        ToolContext(),
+        budget_continue_check=lambda prompt: (
+            prompts.append(prompt) or ContinuationResult("continue-calls", True)
+        ),
+    )
+
+    events = list(loop.run("continue calls"))
+
+    assert events[-1].kind == "final"
+    assert len([event for event in events if event.kind == "tool_result"]) == 2
+    assert [(item.resource, item.used, item.limit) for item in prompts] == [("tool_calls", 1, 1)]
+
+
+def test_tool_output_budget_continuation_allows_next_round():
+    registry = ToolRegistry()
+    registry.register(_FixedOutputTool())
+    prompts = []
+    client = FakeStreamClient(
+        [_tool_round(ToolCall("c1", "fixed_output", {})), _text_round("done")]
+    )
+    loop = AgentLoop(
+        _config(max_total_tool_output_chars=40),
+        client,
+        registry,
+        ToolContext(max_output_chars=1000),
+        budget_continue_check=lambda prompt: (
+            prompts.append(prompt) or ContinuationResult("continue-output", True)
+        ),
+    )
+
+    events = list(loop.run("continue output"))
+
+    assert events[-1].kind == "final"
+    assert [item.resource for item in prompts] == ["tool_output"]
+
+
+def test_output_extension_inside_batch_does_not_prompt_twice():
+    registry = ToolRegistry()
+    registry.register(_FixedOutputTool())
+    prompts = []
+    client = FakeStreamClient(
+        [
+            _tools_round(
+                ToolCall("c1", "fixed_output", {}),
+                ToolCall("c2", "fixed_output", {}),
+            ),
+            _text_round("done"),
+        ]
+    )
+    loop = AgentLoop(
+        _config(max_total_tool_output_chars=40),
+        client,
+        registry,
+        ToolContext(max_output_chars=1000),
+        budget_continue_check=lambda prompt: (
+            prompts.append(prompt) or ContinuationResult("continue-output", True)
+        ),
+    )
+
+    events = list(loop.run("batch output"))
+
+    assert events[-1].kind == "final"
+    assert [item.resource for item in prompts] == ["tool_output"]
+
+
+def test_continuation_hard_extension_count_stops_run():
+    config = AppConfig.model_validate(
+        {
+            "active": "test",
+            "providers": {"test": {"model": "openai/fake"}},
+            "agent": {
+                "max_iterations": 1,
+                "continuation": {
+                    "max_extensions": 1,
+                    "iteration_increment": 1,
+                    "max_iterations_hard": 2,
+                },
+            },
+        }
+    )
+    rounds = [
+        _tool_round(ToolCall("c1", "list_dir", {"path": "a"})),
+        _tool_round(ToolCall("c2", "list_dir", {"path": "b"})),
+    ]
+    loop = AgentLoop(
+        config,
+        FakeStreamClient(rounds),
+        build_default_registry(),
+        ToolContext(),
+        budget_continue_check=lambda _prompt: ContinuationResult("once", True),
+    )
+
+    events = list(loop.run("bounded"))
+
+    assert events[-1].failure is not None
+    assert events[-1].failure.code == "iteration_limit_reached"

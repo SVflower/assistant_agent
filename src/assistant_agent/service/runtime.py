@@ -8,6 +8,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from assistant_agent.agent.failures import ContinuationPrompt, ContinuationResult
 from assistant_agent.agent.loop import AgentLoop
 from assistant_agent.agent.prompts import build_system_prompt
 from assistant_agent.agent.recovery import RunCoordinator
@@ -102,6 +103,13 @@ class AgentRuntime:
             max_iterations=self.config.agent.max_iterations,
             max_tool_calls=self.config.agent.max_tool_calls,
             max_total_tool_output_chars=self.config.agent.max_total_tool_output_chars,
+            continuation_max_extensions=self.config.agent.continuation.max_extensions,
+            iteration_increment=self.config.agent.continuation.iteration_increment,
+            max_iterations_hard=self.config.agent.continuation.max_iterations_hard,
+            tool_call_increment=self.config.agent.continuation.tool_call_increment,
+            max_tool_calls_hard=self.config.agent.continuation.max_tool_calls_hard,
+            tool_output_increment=self.config.agent.continuation.tool_output_increment,
+            max_tool_output_chars_hard=(self.config.agent.continuation.max_tool_output_chars_hard),
             session_id=session_id,
             logger=self.logger,
         )
@@ -169,6 +177,11 @@ def create_runtime(
             port.close()
             raise RuntimeConfigError(f"未知 provider：{provider}。可选：{available}")
         config.active = provider
+        try:
+            config = AppConfig.model_validate(config.model_dump(mode="python"))
+        except ValueError as exc:
+            port.close()
+            raise RuntimeConfigError(str(exc)) from exc
     if max_iterations is not None:
         if max_iterations < 1:
             port.close()
@@ -286,18 +299,29 @@ def create_runtime(
 
         stage = "loop"
 
-        def continue_check(iterations_used: int) -> bool:
+        def budget_continue_check(prompt: ContinuationPrompt) -> ContinuationResult:
             request = ContinueRequest(
                 run_id=tool_context.current_run_id,
                 session_id=tool_context.current_session_id,
-                iterations_used=iterations_used,
-                iteration_limit=config.agent.max_iterations,
+                iterations_used=prompt.used if prompt.resource == "iterations" else 0,
+                iteration_limit=prompt.limit if prompt.resource == "iterations" else 0,
+                reason=prompt.reason,
+                resource=prompt.resource,
+                used=prompt.used,
+                limit=prompt.limit,
+                suggested_increment=prompt.suggested_increment,
+                hard_limit=prompt.hard_limit,
+                extension_count=prompt.extension_count,
+                max_extensions=prompt.max_extensions,
             )
             try:
                 decision = port.confirm_continue(request)
             except Exception:
-                return False
-            return decision.request_id == request.request_id and decision.continue_run
+                return ContinuationResult(request.request_id)
+            return ContinuationResult(
+                request.request_id,
+                decision.request_id == request.request_id and decision.continue_run,
+            )
 
         loop = AgentLoop(
             config,
@@ -307,7 +331,7 @@ def create_runtime(
             interactive=interactive,
             interrupt_check=interrupt_check,
             run_control=control,
-            continue_check=continue_check if interactive else None,
+            budget_continue_check=budget_continue_check if interactive else None,
             system_prompt=system_prompt,
         )
         skill_capabilities = tuple(

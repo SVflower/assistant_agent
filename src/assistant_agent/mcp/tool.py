@@ -129,16 +129,16 @@ class MCPTool(Tool):
                 code="timeout",
                 retryable=self._trusted_readonly,
             )
-        except Exception as exc:  # 协议/连接错误 = 我方通道
+        except Exception:  # 协议/连接错误 = 我方通道；公共结果不包含第三方异常
             if self._outcome_unknown_on_transport_error:
                 return ToolResult.error(
-                    f"MCP 工具 {self.name} 连接中断{call_hint}，执行结果未知：{exc}；请先查询状态",
+                    f"MCP 工具 {self.name} 连接中断{call_hint}，执行结果未知；请先查询状态",
                     code="mcp_outcome_unknown",
                     retryable=False,
                     metadata={"correlation": correlation},
                 )
             return ToolResult.error(
-                f"MCP 工具 {self.name} 调用失败：{exc}",
+                f"MCP 工具 {self.name} 调用失败。",
                 code="mcp_transport_error",
                 retryable=self._trusted_readonly,
             )

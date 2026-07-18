@@ -2,9 +2,9 @@
 
 > AI 迭代开发中，债务会隐形复利（LLM 在每个决策点埋入未言明的假设）。
 > 这里显式追踪，防止"上次说的债"下次忘。每次里程碑评审更新本表。
-> 最后更新：2026-07-18（M17 代码复审：内核未改、577 passed/5 skipped、覆盖率 84%，
-> Ruff/format/mypy 全绿；本期未新增技术债。MCP discovery/transport/status 已从 Manager 拆出，
-> D21 剩余范围明确为运行期健康与熔断。）
+> 最后更新：2026-07-18（M18 代码复审：经授权修改内核，594 passed/5 skipped、覆盖率 84%，
+> Ruff/format/mypy 全绿；新增 D22。预算 continuation、resume 和定义兼容已从 Loop/Coordinator
+> 拆出，仍需守住接近硬线的两个核心文件。）
 
 ## 状态说明
 - 🔴 高：影响正确性/安全，或脆弱的关键路径
@@ -32,6 +32,7 @@
 | D19 | ~~**CLI 展示透传执行载荷，缺少语义摘要和详细度分层**~~ ✅ 已还清（M11a） | `tools/display.py`、`ui/`、`agent/events.py` | ✅ | ToolDisplay 语义摘要；normal/verbose/quiet；quiet 仅隐藏 Agent 轨迹、不隐藏 slash 控制面；normal 临时活动区不沉淀工具间旁白；Write/Edit 权限前有界预览与整块背景；全宽输入边界与会话启停 ID；参数、metadata、模型文本统一终端脱敏；15 FPS 流式 Markdown；错误自动展开 | 423 测试覆盖模式矩阵、quiet slash、写入/diff 背景/截断/脱敏、确认顺序、会话生命周期、过程丢弃/最终单次提交、碎片 Markdown、ANSI/密钥、工具 metadata；方案见 [归档计划](archive/phase4/m11a-cli-conversation-ui-plan.md) |
 | D20 | **MCP stdio stderr 单次长运行缺少在线硬上限** | `mcp/manager.py` | 🟢 | stderr 已与统一审计和 artifact 分离并落入 workspace 诊断目录，但 SDK 直接把子进程 fd 指向文件；M14 的 ProcessSupervisor 不拥有 SDK 创建的 stdio 子进程，异常 server 长时间刷 stderr 仍可能增长 | 独立评估 MCP SDK 自定义 transport/pipe drain 与在线轮转；当前文档不宣称 stderr 已硬限流 |
 | D21 | **MCP server 缺少运行期健康状态与熔断** | `mcp/manager.py`、`cli/extensions.py` | 🟡 | M17 已补启动期 connected/degraded/blocked/required 状态和一次性探测，但 server 在 Run 中死亡后，后续调用仍逐次触发 transport error；`/mcp doctor` 尚不展示连续失败或 breaker 状态 | 出现长会话 server 崩溃/重复失败时立项：基于已拆 status 模块实现调用期连续失败熔断和 health 展示；发送后绝不自动重放 |
+| D22 | **Loop/Recovery 接近单文件硬线** | `agent/loop.py`(499)、`agent/recovery.py`(486) | 🟡 | M18 已把 continuation、resume 驱动和定义兼容拆出，架构硬线恢复；两个核心文件仍缺少继续增长空间，后续直接堆逻辑会再次阻断 | 下次触及对应职责时优先提取模型轮次执行与 checkpoint 持久化适配；不得放宽 500 行硬线或为凑行数拆散内聚状态转换 |
 
 ## 已还清（保留记录）
 - **任务级工具资源无边界** → M6.5 增加单次输出、累计输出、工具调用总数预算；多 tool-call 批次补齐结果后终止。✅ 2026-07-14

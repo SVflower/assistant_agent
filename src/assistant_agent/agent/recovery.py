@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from dataclasses import dataclass
 from typing import Any, Literal
 
+from assistant_agent.agent.continuation import ContinuationStateMixin
+from assistant_agent.agent.failures import RunFailure, tool_failure
 from assistant_agent.agent.recovery_codec import (
     decode_budget,
     decode_result,
@@ -13,7 +14,9 @@ from assistant_agent.agent.recovery_codec import (
     encode_request,
     encode_result,
 )
+from assistant_agent.agent.recovery_definitions import DefinitionStateMixin
 from assistant_agent.agent.run_state import (
+    ContinuationBudgetState,
     PermissionGrantState,
     RunState,
     ToolBudgetState,
@@ -34,14 +37,7 @@ from assistant_agent.tools.permissions import Capability, PermissionRequest, Per
 RecoveryChoice = Literal["retry", "skip", "abort"]
 
 
-@dataclass(frozen=True)
-class DefinitionDifference:
-    field: str
-    saved: str
-    current: str
-
-
-class RunCoordinator:
+class RunCoordinator(ContinuationStateMixin, DefinitionStateMixin):
     """把 Loop/Registry 的语义事件原子映射到 RunState。"""
 
     def __init__(
@@ -72,6 +68,13 @@ class RunCoordinator:
         max_iterations: int,
         max_tool_calls: int,
         max_total_tool_output_chars: int,
+        continuation_max_extensions: int = 2,
+        iteration_increment: int | None = None,
+        max_iterations_hard: int | None = None,
+        tool_call_increment: int | None = None,
+        max_tool_calls_hard: int | None = None,
+        tool_output_increment: int | None = None,
+        max_tool_output_chars_hard: int | None = None,
         session_id: str | None = None,
         run_id: str | None = None,
         logger: NullLogger | None = None,
@@ -92,6 +95,24 @@ class RunCoordinator:
                 max_total_output_chars=max_total_tool_output_chars,
                 used_calls=0,
                 used_output_chars=0,
+            ),
+            iteration_continuation=ContinuationBudgetState(
+                resource="iterations",
+                increment=iteration_increment or max_iterations,
+                hard_limit=max_iterations_hard or max_iterations * 4,
+                max_extensions=continuation_max_extensions,
+            ),
+            tool_call_continuation=ContinuationBudgetState(
+                resource="tool_calls",
+                increment=tool_call_increment or max_tool_calls,
+                hard_limit=max_tool_calls_hard or max_tool_calls * 4,
+                max_extensions=continuation_max_extensions,
+            ),
+            tool_output_continuation=ContinuationBudgetState(
+                resource="tool_output",
+                increment=tool_output_increment or max(max_total_tool_output_chars, 1),
+                hard_limit=max_tool_output_chars_hard or max(max_total_tool_output_chars * 4, 1),
+                max_extensions=continuation_max_extensions,
             ),
             created_at=timestamp,
             updated_at=timestamp,
@@ -269,6 +290,15 @@ class RunCoordinator:
             raise ValueError(f"非法 completed 转换：{call.status}")
         call.permission_requests = [encode_request(item) for item in requests]
         call.replay_policy = replay_policy
+        if result.code == "mcp_outcome_unknown":
+            call.status = "started"
+            call.result = None
+            self.state.status = "paused"
+            self.state.phase = "tool_uncertain"
+            self.state.failure = tool_failure(result.code, retryable=False)
+            self._capture_bound_context()
+            self.checkpoint()
+            return
         call.status = (
             "skipped" if not result.executed else ("failed" if result.is_error else "completed")
         )
@@ -302,6 +332,7 @@ class RunCoordinator:
         text: str,
         messages: list[dict[str, Any]],
         compaction_checkpoint: dict[str, Any] | None,
+        failure: RunFailure | None = None,
     ) -> None:
         self.state.messages = messages
         self.state.compaction_checkpoint = compaction_checkpoint
@@ -309,6 +340,20 @@ class RunCoordinator:
         self.state.status = "completed" if success else "failed"
         self.state.phase = "terminal"
         self.state.terminal_text = text
+        self.state.failure = (
+            None
+            if success
+            else (
+                failure
+                or RunFailure(
+                    code="internal_error",
+                    safe_message="任务执行失败。",
+                    allowed_actions=("retry_run", "start_new_run"),
+                    phase="saving_checkpoint",
+                    terminal_status="failed",
+                )
+            )
+        )
         self.state.session_synced = self.state.session_id is None
         self._capture_bound_context()
         self.checkpoint()
@@ -332,6 +377,7 @@ class RunCoordinator:
         self.state.status = "cancelled"
         self.state.phase = "terminal"
         self.state.terminal_text = text
+        self.state.failure = None
         self.state.session_synced = self.state.session_id is None
         self._capture_bound_context()
         self.checkpoint()
@@ -358,6 +404,7 @@ class RunCoordinator:
         if uncertain:
             self.state.status = "paused"
             self.state.phase = "tool_uncertain"
+            self.state.failure = tool_failure("mcp_outcome_unknown", retryable=False)
             self.checkpoint()
         return uncertain
 
@@ -368,6 +415,7 @@ class RunCoordinator:
         call.status = "planned"
         self.state.status = "running"
         self.state.phase = "tools_pending"
+        self.state.failure = None
         self.checkpoint()
 
     def skip(self, call_id: str) -> ToolResult:
@@ -391,6 +439,7 @@ class RunCoordinator:
         )
         self.state.status = "running"
         self.state.phase = "tools_pending"
+        self.state.failure = None
         self.checkpoint()
         return result
 
@@ -429,40 +478,6 @@ class RunCoordinator:
 
     def call_state(self, call_id: str) -> ToolCallState:
         return self._call(call_id)
-
-    def definition_differences(
-        self,
-        *,
-        provider: str,
-        model: str,
-        system_prompt: str,
-        tool_schemas: list[dict[str, Any]],
-    ) -> list[DefinitionDifference]:
-        current = {
-            "provider": provider,
-            "model": model,
-            "system_prompt_hash": canonical_hash(system_prompt),
-            "tool_schema_hash": canonical_hash(tool_schemas),
-        }
-        return [
-            DefinitionDifference(field, str(getattr(self.state, field)), value)
-            for field, value in current.items()
-            if getattr(self.state, field) != value
-        ]
-
-    def accept_definitions(
-        self,
-        *,
-        provider: str,
-        model: str,
-        system_prompt: str,
-        tool_schemas: list[dict[str, Any]],
-    ) -> None:
-        self.state.provider = provider
-        self.state.model = model
-        self.state.system_prompt_hash = canonical_hash(system_prompt)
-        self.state.tool_schema_hash = canonical_hash(tool_schemas)
-        self.checkpoint()
 
     def _call(self, call_id: str) -> ToolCallState:
         for call in self.state.tool_calls:

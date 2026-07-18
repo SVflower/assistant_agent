@@ -226,6 +226,7 @@ class SessionRuntime:
                 kind="run_terminal",
                 text=coordinator.state.terminal_text,
                 terminal_status="paused",
+                failure=coordinator.state.failure,
             )
         finally:
             self._end_run()
@@ -251,11 +252,13 @@ class SessionRuntime:
                 # source 耗尽之前），故此处的 yield 只在 source 正常走完后触发，不会撞上
                 # GeneratorExit。改动上面的控制流时须维持这一点，否则 finally 内 yield 会抛错。
                 if exhausted:
+                    yield StepEvent(kind="activity", phase="syncing_session")
                     status = self._finish_run(coordinator)
                     yield StepEvent(
                         kind="run_terminal",
                         text=coordinator.state.terminal_text,
                         terminal_status=status,
+                        failure=coordinator.state.failure,
                     )
             finally:
                 self._end_run()

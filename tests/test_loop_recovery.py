@@ -8,12 +8,14 @@ from typing import Any
 
 import pytest
 
+from assistant_agent.agent.continuation import ContinuationController
+from assistant_agent.agent.failures import ContinuationResult
 from assistant_agent.agent.loop import AgentLoop
 from assistant_agent.agent.recovery import RunCoordinator
-from assistant_agent.config.schema import AppConfig
+from assistant_agent.config.schema import AppConfig, ContinuationConfig
 from assistant_agent.llm.client import StreamEvent, ToolCall
 from assistant_agent.session.run_store import RunStore
-from assistant_agent.tools.base import Tool, ToolContext, ToolResult
+from assistant_agent.tools.base import Tool, ToolBudget, ToolContext, ToolResult
 from assistant_agent.tools.permissions import Capability, PermissionRequest
 from assistant_agent.tools.registry import ToolRegistry
 
@@ -92,6 +94,16 @@ class CountingTool(Tool):
         return ToolResult.ok(f"{self.name}-done")
 
 
+class UnknownOutcomeTool(CountingTool):
+    def run(self, args, ctx) -> ToolResult:
+        self.counts[self.name] = self.counts.get(self.name, 0) + 1
+        return ToolResult.error(
+            "transport failed",
+            code="mcp_outcome_unknown",
+            retryable=False,
+        )
+
+
 def _config() -> AppConfig:
     return AppConfig.model_validate(
         {
@@ -146,6 +158,100 @@ def _tool_round(*names: str) -> list[StreamEvent]:
             ],
         )
     ]
+
+
+def test_budget_extension_checkpoint_is_idempotent(tmp_path):
+    loop = _loop(ScriptedClient([]), [])
+    coordinator = _coordinator(loop, RunStore(tmp_path))
+    budget = ToolBudget(max_calls=1, max_total_output_chars=100)
+    coordinator.initialize([], None, budget)
+
+    assert coordinator.extend_budget(
+        request_id="continue-1",
+        resource="tool_calls",
+        current_limit=1,
+        new_limit=2,
+        budget=budget,
+    )
+    loaded = RunCoordinator.load(RunStore(tmp_path), coordinator.run_id)
+    restored = loaded.restore_tool_context(ToolContext())
+
+    assert loaded.extend_budget(
+        request_id="continue-1",
+        resource="tool_calls",
+        current_limit=2,
+        new_limit=3,
+        budget=restored,
+    )
+    assert restored.max_calls == 2
+    assert loaded.state.tool_call_continuation.extension_count == 1
+    assert len(loaded.state.continuation_decisions) == 1
+
+
+def test_resumed_continuation_uses_checkpoint_limits_not_new_config(tmp_path):
+    loop = _loop(ScriptedClient([]), [])
+    coordinator = RunCoordinator.create(
+        RunStore(tmp_path),
+        task="task",
+        provider="test",
+        model="openai/fake",
+        system_prompt=loop.system_prompt,
+        tool_schemas=loop.tool_schemas,
+        interactive=True,
+        max_iterations=5,
+        max_tool_calls=1,
+        max_total_tool_output_chars=100,
+        tool_call_increment=2,
+        max_tool_calls_hard=3,
+        run_id="run-1",
+    )
+    budget = ToolBudget(max_calls=1, max_total_output_chars=100)
+    coordinator.initialize([], None, budget)
+    loaded = RunCoordinator.load(RunStore(tmp_path), "run-1")
+    prompts = []
+    controller = ContinuationController(
+        ContinuationConfig(tool_call_increment=100, max_tool_calls_hard=200),
+        lambda prompt: prompts.append(prompt) or ContinuationResult("saved-boundary", True),
+        None,
+    )
+
+    new_limit = controller.request(
+        "tool_calls",
+        used=1,
+        limit=1,
+        budget=loaded.restore_tool_context(ToolContext()),
+        coordinator=loaded,
+    )
+
+    assert new_limit == 3
+    assert (prompts[0].suggested_increment, prompts[0].hard_limit) == (2, 3)
+
+
+def test_unknown_tool_outcome_pauses_and_uses_recovery_path(tmp_path):
+    counts: dict[str, int] = {}
+    tool = UnknownOutcomeTool("remote_write", counts)
+    first_loop = _loop(ScriptedClient([_tool_round("remote_write")]), [tool])
+    coordinator = _coordinator(first_loop, RunStore(tmp_path), task="write")
+
+    events = list(first_loop.run("write", coordinator=coordinator))
+
+    result = next(event for event in events if event.kind == "tool_result")
+    assert result.failure is not None and result.failure.unknown_side_effect is True
+    assert coordinator.state.status == "paused"
+    assert coordinator.state.phase == "tool_uncertain"
+    assert coordinator.state.failure is not None
+    assert coordinator.state.failure.terminal_status == "paused"
+    assert coordinator.state.tool_calls[0].status == "started"
+
+    loaded = RunCoordinator.load(RunStore(tmp_path), coordinator.run_id)
+    resumed_loop = _loop(
+        ScriptedClient([[StreamEvent(kind="content", text="recovered")]]),
+        [tool],
+    )
+    resumed = list(resumed_loop.resume(loaded, recovery_check=lambda _call: "skip"))
+
+    assert resumed[-1].kind == "final"
+    assert counts == {"remote_write": 1}
 
 
 def test_saved_tool_plan_resumes_without_recalling_model(tmp_path):
@@ -264,17 +370,12 @@ def test_readonly_started_call_retries_automatically(tmp_path):
     assert counts == {"reader": 2}
 
 
-def test_model_error_can_resume_from_model_pending(tmp_path):
+def test_model_error_is_structured_failed_terminal(tmp_path):
     first_client = ScriptedClient([[StreamEvent(kind="error", text="connection lost")]])
     first_loop = _loop(first_client, [])
     coordinator = _coordinator(first_loop, RunStore(tmp_path))
     events = list(first_loop.run("task", coordinator=coordinator))
     assert events[-1].kind == "error"
-    assert coordinator.state.status == "paused"
-
-    resumed_client = ScriptedClient([[StreamEvent(kind="content", text="recovered")]])
-    resumed_loop = _loop(resumed_client, [])
-    loaded = RunCoordinator.load(RunStore(tmp_path), "run-1")
-    events = list(resumed_loop.resume(loaded))
-    assert events[-1].text == "recovered"
-    assert loaded.state.status == "completed"
+    assert coordinator.state.status == "failed"
+    assert coordinator.state.failure is not None
+    assert coordinator.state.failure.code == "internal_error"

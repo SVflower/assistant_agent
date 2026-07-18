@@ -225,6 +225,23 @@ tools:
         load_config(_write(tmp_path, yaml_text))
 
 
+def test_provider_context_window_rejects_incompatible_agent_budget(tmp_path):
+    yaml_text = (
+        _VALID_YAML
+        + """
+providers:
+  test:
+    model: openai/fake
+    context_window: 4096
+agent:
+  max_context_tokens: 8192
+"""
+    )
+
+    with pytest.raises(ConfigError, match="context_window"):
+        load_config(_write(tmp_path, yaml_text))
+
+
 def test_permission_config_validates_mode_and_capability(tmp_path):
     invalid_mode = _VALID_YAML + "\npermissions:\n  mode: unsafe\n"
     with pytest.raises(ConfigError):

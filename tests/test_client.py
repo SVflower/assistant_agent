@@ -12,7 +12,22 @@ from assistant_agent.llm.client import (
     _finalize_tool_calls,
     _normalize_usage,
     _parse_arguments,
+    classify_provider_exception,
 )
+
+
+class _HTTPError(Exception):
+    def __init__(self, status_code: int) -> None:
+        self.status_code = status_code
+
+
+def test_provider_exception_classification_is_stable_and_safe():
+    assert classify_provider_exception(_HTTPError(429)).code == "provider_rate_limited"
+    assert classify_provider_exception(_HTTPError(503)).code == "provider_unavailable"
+    assert classify_provider_exception(TimeoutError("secret-token")).code == "provider_timeout"
+    failure = classify_provider_exception(RuntimeError("api_key=secret-token"))
+    assert failure.code == "internal_error"
+    assert "secret-token" not in failure.safe_message
 
 
 def _frag(index=0, id=None, name=None, arguments=None):
@@ -102,3 +117,18 @@ def test_bypass_proxy_ignores_none():
 def test_provider_request_timeout_is_forwarded():
     client = LLMClient(ProviderConfig(model="openai/fake", request_timeout=7))
     assert client._build_kwargs([], None)["timeout"] == 7
+
+
+def test_stream_provider_error_does_not_expose_original_exception(monkeypatch):
+    import litellm
+
+    def fail(**_kwargs):
+        raise _HTTPError(429)
+
+    monkeypatch.setattr(litellm, "completion", fail)
+    events = list(LLMClient(ProviderConfig(model="openai/fake")).complete_stream([]))
+
+    assert len(events) == 1
+    assert events[0].failure is not None
+    assert events[0].failure.code == "provider_rate_limited"
+    assert "429" not in events[0].text

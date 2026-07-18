@@ -284,9 +284,9 @@ class ToolRegistry:
                         requests,
                         _replay_policy(requests, ctx),
                     )
-        except Exception as exc:
+        except Exception:
             result = ToolResult(
-                output=f"[permission_denied] 权限检查失败，已拒绝执行：{exc}",
+                output="[permission_denied] 权限检查失败，已拒绝执行",
                 is_error=True,
                 code="permission_check_failed",
                 executed=False,
@@ -331,8 +331,8 @@ class ToolRegistry:
         try:
             try:
                 result = tool.run(args, ctx)
-            except Exception as exc:  # 工具实现的兜底，绝不让循环崩
-                result = ToolResult.error(f"工具 {name} 执行异常：{exc}", code="tool_exception")
+            except Exception:  # 工具实现的兜底，绝不让循环崩，也不暴露原始异常
+                result = ToolResult.error("工具执行异常。", code="tool_exception")
         finally:
             ctx.current_call_id = previous_call_id
         wall_duration_ms = int((time.perf_counter() - start) * 1000)

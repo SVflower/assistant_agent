@@ -23,6 +23,11 @@ class ProviderConfig(BaseModel):
     )
     temperature: float = Field(default=0.7, ge=0.0, le=2.0)
     max_tokens: int = Field(default=4096, gt=0)
+    context_window: int | None = Field(
+        default=None,
+        gt=0,
+        description="模型实际上下文窗口；声明后会拒绝超过该能力的 agent 配置",
+    )
     request_timeout: float = Field(
         default=120, gt=0, le=3600, description="单次模型请求最大等待秒数"
     )
@@ -61,6 +66,18 @@ class RecoveryConfig(BaseModel):
     )
 
 
+class ContinuationConfig(BaseModel):
+    """只扩展当前 Run 的预算 continuation 安全边界。"""
+
+    max_extensions: int = Field(default=2, ge=0, le=20)
+    iteration_increment: int = Field(default=10, gt=0)
+    max_iterations_hard: int = Field(default=100, gt=0)
+    tool_call_increment: int = Field(default=20, gt=0)
+    max_tool_calls_hard: int = Field(default=200, gt=0)
+    tool_output_increment: int = Field(default=40_000, gt=0)
+    max_tool_output_chars_hard: int = Field(default=400_000, gt=0)
+
+
 class AgentConfig(BaseModel):
     """Agent 循环行为。"""
 
@@ -90,6 +107,23 @@ class AgentConfig(BaseModel):
     )
     compaction: CompactionConfig = Field(default_factory=lambda: CompactionConfig())
     recovery: RecoveryConfig = Field(default_factory=lambda: RecoveryConfig())
+    continuation: ContinuationConfig = Field(default_factory=ContinuationConfig)
+
+    @model_validator(mode="after")
+    def _continuation_limits_cover_initial_budget(self) -> AgentConfig:
+        limits = self.continuation
+        if limits.max_iterations_hard < self.max_iterations:
+            raise ValueError("continuation.max_iterations_hard 不能小于 max_iterations")
+        if limits.max_tool_calls_hard < self.max_tool_calls:
+            raise ValueError("continuation.max_tool_calls_hard 不能小于 max_tool_calls")
+        if (
+            self.max_total_tool_output_chars > 0
+            and limits.max_tool_output_chars_hard < self.max_total_tool_output_chars
+        ):
+            raise ValueError(
+                "continuation.max_tool_output_chars_hard 不能小于 max_total_tool_output_chars"
+            )
+        return self
 
 
 class ToolsConfig(BaseModel):
@@ -361,6 +395,11 @@ class AppConfig(BaseModel):
             raise ValueError(
                 f"summary_model='{summary_model}' 不在 providers 中。可选：{available}"
             )
+        context_window = self.active_provider.context_window
+        if context_window is not None and self.agent.max_context_tokens > context_window:
+            raise ValueError("agent.max_context_tokens 超过 active provider 声明的 context_window")
+        if self.agent.reserved_output_tokens > self.active_provider.max_tokens:
+            raise ValueError("agent.reserved_output_tokens 不能超过 active provider 的 max_tokens")
         return self
 
     @property

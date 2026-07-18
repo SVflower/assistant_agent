@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Literal
 
+from assistant_agent.agent.failures import ActivityPhase, BudgetSnapshot, RunFailure
 from assistant_agent.tools.display import ToolDisplay
 
 EventKind = Literal[
@@ -18,6 +19,7 @@ EventKind = Literal[
     "interrupted",
     "notice",
     "run_terminal",
+    "activity",
 ]
 TerminalStatus = Literal["completed", "failed", "paused", "cancelled"]
 EVENT_CONTRACT_VERSION = 1
@@ -40,6 +42,9 @@ class StepEvent:
     contract_version: int = EVENT_CONTRACT_VERSION
     sensitive: bool = False
     terminal_status: TerminalStatus | None = None
+    failure: RunFailure | None = None
+    phase: ActivityPhase | None = None
+    budget: BudgetSnapshot | None = None
 
     def __post_init__(self) -> None:
         if self.kind == "reasoning":

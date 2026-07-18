@@ -8,6 +8,7 @@ from typing import Literal, TypeAlias
 
 ApprovalChoice = Literal["allow", "always", "broader", "deny"]
 RecoveryChoice = Literal["retry", "skip", "abort"]
+BudgetResource = Literal["iterations", "tool_calls", "tool_output", "context"]
 
 
 def new_request_id() -> str:
@@ -55,7 +56,21 @@ class ContinueRequest(InteractionRequestBase):
     kind: Literal["continue"] = "continue"
     iterations_used: int = 0
     iteration_limit: int = 0
+    reason: str = "iteration_limit_reached"
+    resource: BudgetResource = "iterations"
+    used: int = 0
+    limit: int = 0
+    suggested_increment: int = 0
+    hard_limit: int = 0
+    extension_count: int = 0
+    max_extensions: int = 0
     legal_options: tuple[Literal["continue", "stop"], ...] = ("continue", "stop")
+
+    def __post_init__(self) -> None:
+        if self.resource == "iterations" and self.used == 0 and self.iterations_used:
+            object.__setattr__(self, "used", self.iterations_used)
+        if self.resource == "iterations" and self.limit == 0 and self.iteration_limit:
+            object.__setattr__(self, "limit", self.iteration_limit)
 
 
 @dataclass(frozen=True)

@@ -15,7 +15,13 @@ from assistant_agent.service.errors import (
     SessionBusyError,
     SessionRunConflictError,
 )
-from assistant_agent.service.events import EVENT_CONTRACT_VERSION, StepEvent, ToolDisplay
+from assistant_agent.service.events import (
+    EVENT_CONTRACT_VERSION,
+    BudgetSnapshot,
+    RunFailure,
+    StepEvent,
+    ToolDisplay,
+)
 from assistant_agent.service.policy import RuntimePolicy
 from assistant_agent.service.runtime import AgentRuntime, RuntimeNotice, create_runtime
 from assistant_agent.service.sessions import (
@@ -46,6 +52,8 @@ __all__ = [
     "SessionRuntime",
     "StepEvent",
     "ToolDisplay",
+    "BudgetSnapshot",
+    "RunFailure",
     "create_runtime",
     "sync_terminal_session",
 ]

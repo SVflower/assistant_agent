@@ -20,6 +20,9 @@
   Session/Run 门面和版本化 StepEvent；CLI/API 复用同一装配与恢复语义。
 - **生产 Runtime 策略（M17）**：调用方不可绕过的 RuntimePolicy；MCP optional/required、连接与调用
   timeout 分离及有界并行启动；Tool/Skill/MCP/sandbox 脱敏能力快照和一次性探测。
+- **运行可解释性（M18）**：结构化 RunFailure、activity 与安全预算快照；iteration/tool call/tool
+  output 三类 continuation 统一走 InteractionPort，扩展只作用当前 Run 并进入 checkpoint；Provider、
+  工具、权限和依赖错误提供稳定机器分类，failed run_terminal 不再依赖文本推断。
 - **工具**：读/写/局部编辑/列目录/shell/代码检索/git 只读/用户澄清，以及带来源的
   `web_search`/`fetch_url`；搜索 backend 可替换，抓取含 SSRF、重定向和响应上限防护。
 - **命令层**：slash 命令系统本地拦截不花 token；`/skills` 与 `/mcp` 支持列出、安装、诊断、
@@ -38,7 +41,7 @@
   已完成工具不重放，started 副作用需 retry/skip/abort；预算、重复熔断、权限和摘要状态跨进程恢复；
   trace/session/run/call 标识对齐，还清 D8。
 
-**质量**：577 测试通过（5 个平台能力测试跳过）、覆盖率 84%、14027 行生产 Python 源码 +
+**质量**：594 测试通过（5 个平台能力测试跳过）、覆盖率 84%、14930 行生产 Python 源码 +
 1564 行 eval 基础设施，Ruff/mypy 全绿。架构适应度测试（依赖分层 + 行数分级软/硬）、技术债册、
 DoD 和里程碑工作流全在；CI 已加入 format/lint/mypy/coverage/scripted eval/recovery eval 与
 Windows/Linux、Python 3.11/3.13 矩阵。
@@ -46,16 +49,16 @@ Windows/Linux、Python 3.11/3.13 矩阵。
 **边界（明确未做）**：外置 MCP/自定义 Python Tool 的容器化、远程 Workspace、子 Agent 编排、
 Web GUI、rewind/recap、非交互 init、PyPI 分发。
 
-**阶段状态**：第一至第十阶段已完成。M10c 的
+**阶段状态**：第一至第十一阶段已完成。M10c 的
 “不做全栈 async”决策保持不变；M14 以同步 RunControl、跨平台 ProcessSupervisor 和 Workspace
 抽象补齐受控执行边界并还清 D18。
 
-**当前进展**：M17 已完成并归档。长期服务可注入固定 RuntimePolicy，optional MCP 离线不阻断普通
-Agent，required MCP 以类型化依赖错误失败；API 可读取脱敏能力快照并在空闲时重建 Runtime。见
-[M17 方案](docs/archive/phase10/m17-production-service-runtime-plan.md)与
-[API 协同说明](docs/archive/phase10/m17-assistant-agent-api-coordination.md)。
+**当前进展**：M18 已完成并归档。API 可直接消费结构化失败、合法动作、安全预算和 activity；
+预算 continuation 与恢复复用同一个 RunCoordinator/InteractionPort，不解析日志或中文文本。见
+[M18 方案](docs/archive/phase11/m18-run-explainability-and-budget-continuation-plan.md)与
+[API 交接](docs/archive/phase11/m18-agent-api-handoff.md)。
 
-**剩余技术债**：6 项（D5/D6/D11/D12/D20/D21）。M9a 已还清 D13/D15/D17，M9b 已还清
+**剩余技术债**：7 项（D5/D6/D11/D12/D20/D21/D22）。M9a 已还清 D13/D15/D17，M9b 已还清
 D14，M9c 已还清 D9，M10a 已还清 D16，M10b 已还清 D8，M11a 已还清 D19，M14a 已还清 D18。详见
 [技术债登记册](docs/TECH_DEBT.md)。
 
@@ -238,6 +241,18 @@ D14，M9c 已还清 D9，M10a 已还清 D16，M10b 已还清 D8，M11a 已还清
 > sandbox；MCP optional/required、connect/call timeout 分离、有界并行启动和稳定注册顺序落地；
 > RuntimeCapabilities 提供脱敏 Tool/Skill/MCP/sandbox 快照及一次性探测。577 passed、5 skipped、
 > 覆盖率 84%，Ruff/format/mypy 全绿；未修改 Loop。
+
+### 第十一阶段（已完成）
+
+| 里程碑 | 主题 | 状态 |
+|--------|------|------|
+| M18 | 运行可解释性、预算恢复与结构化失败 | ✅ · [方案](docs/archive/phase11/m18-run-explainability-and-budget-continuation-plan.md) |
+
+> **M18 已完成**：StepEvent v1 向后兼容增加 RunFailure/activity/BudgetSnapshot；RunState v3 保存
+> failure、三类 continuation 上限/次数/决策并支持 v1/v2 迁移；Provider 429/5xx/timeout、工具、
+> 权限、依赖和未知副作用形成稳定分类；`final` 与唯一 `run_terminal` 规则保持。594 passed、
+> 5 skipped、覆盖率 84%，Ruff/format/mypy 全绿。经用户授权修改 Loop，并按架构硬线拆出
+> continuation、resume 和定义兼容模块。
 
 ## 未来方向（P3，信号驱动，暂不做）
 

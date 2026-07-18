@@ -61,6 +61,17 @@ class ToolBudget:
         self.used_calls += 1
         return None
 
+    def exhausted_reason(self) -> str | None:
+        """在产生副作用前检查当前预算，不消费额度。"""
+        if self.used_calls >= self.max_calls:
+            return "max_tool_calls"
+        if (
+            self.max_total_output_chars > 0
+            and self.used_output_chars >= self.max_total_output_chars
+        ):
+            return "max_total_tool_output_chars"
+        return None
+
     def remaining_output_chars(self) -> int | None:
         """返回累计输出剩余额度；None 表示不限制。"""
         if self.max_total_output_chars == 0:

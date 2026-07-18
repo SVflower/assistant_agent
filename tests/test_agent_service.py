@@ -13,7 +13,12 @@ from assistant_agent.interaction import (
     SafeDefaultInteractionPort,
 )
 from assistant_agent.llm.client import StreamEvent, ToolCall
-from assistant_agent.service import AgentService, SessionBusyError, SessionRunConflictError
+from assistant_agent.service import (
+    AgentService,
+    RuntimeConfigError,
+    SessionBusyError,
+    SessionRunConflictError,
+)
 from assistant_agent.service import runtime as runtime_module
 from assistant_agent.session.store import SessionStore
 from assistant_agent.tools.base import ToolBudget
@@ -47,6 +52,11 @@ def test_public_facade_runs_and_syncs_terminal_session(tmp_path, monkeypatch):
         assert any(item.kind == "final" and item.text == "done" for item in events)
         assert events[-1].kind == "run_terminal"
         assert events[-1].terminal_status == "completed"
+        kinds = [item.kind for item in events]
+        assert kinds.index("final") < kinds.index("run_terminal")
+        assert kinds.count("run_terminal") == 1
+        assert kinds[-2:] == ["activity", "run_terminal"]
+        assert events[-2].phase == "syncing_session"
 
         saved = session_runtime.runtime.session_store.load(session_runtime.session.id)
         assert saved.messages[-1] == {"role": "assistant", "content": "done"}
@@ -98,8 +108,8 @@ def test_pause_and_resume_keep_original_run_id(tmp_path, monkeypatch):
     try:
         execution = session_runtime.start_run("task")
         iterator = execution.events
-        first = next(iterator)
-        assert first.kind == "content_delta"
+        first = next(event for event in iterator if event.kind == "content_delta")
+        assert first.text
         session_runtime.pause()
         paused = list(iterator)
         assert paused[-1].terminal_status == "paused"
@@ -233,6 +243,81 @@ def test_iteration_continue_uses_interaction_port(tmp_path, monkeypatch):
         session_runtime.close()
 
 
+class _BudgetThenDoneClient:
+    def __init__(self, _provider) -> None:
+        self.calls = 0
+
+    def complete_stream(self, messages, tools=None):
+        self.calls += 1
+        if self.calls == 1:
+            yield StreamEvent(
+                kind="tool_calls",
+                tool_calls=[
+                    ToolCall("call-1", "read_file", {"path": "sample.txt"}),
+                    ToolCall("call-2", "read_file", {"path": "sample.txt"}),
+                ],
+            )
+        else:
+            yield StreamEvent(kind="content", text="done")
+
+
+class _ContinueBudgetPort(SafeDefaultInteractionPort):
+    def __init__(self) -> None:
+        self.request = None
+
+    def confirm_continue(self, request):
+        self.request = request
+        return ContinueDecision(request.request_id, continue_run=True)
+
+
+def test_service_tool_budget_continuation_uses_same_interaction(tmp_path, monkeypatch):
+    config = _config(tmp_path, monkeypatch)
+    config.write_text(
+        "active: fake\nproviders:\n  fake:\n    model: openai/fake\nagent:\n  max_tool_calls: 1\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "sample.txt").write_text("sample", encoding="utf-8")
+    monkeypatch.setattr(runtime_module, "LLMClient", _BudgetThenDoneClient)
+    port = _ContinueBudgetPort()
+    session_runtime = AgentService(config_path=config, workspace_root=tmp_path).create_session(
+        interaction=port
+    )
+    try:
+        events = list(session_runtime.start_run("read twice").events)
+        assert events[-1].terminal_status == "completed"
+        assert port.request is not None
+        assert port.request.reason == "tool_call_budget_exhausted"
+        assert port.request.resource == "tool_calls"
+        assert (port.request.used, port.request.limit) == (1, 1)
+    finally:
+        session_runtime.close()
+
+
+class _ProviderFailureClient:
+    def __init__(self, _provider) -> None:
+        pass
+
+    def complete_stream(self, messages, tools=None):
+        yield StreamEvent(kind="error", text="secret raw exception")
+
+
+def test_service_failed_terminal_is_unique_and_structured(tmp_path, monkeypatch):
+    config = _config(tmp_path, monkeypatch)
+    monkeypatch.setattr(runtime_module, "LLMClient", _ProviderFailureClient)
+    session_runtime = AgentService(config_path=config, workspace_root=tmp_path).create_session()
+    try:
+        events = list(session_runtime.start_run("fail").events)
+        terminals = [event for event in events if event.kind == "run_terminal"]
+        assert len(terminals) == 1
+        assert terminals[0].terminal_status == "failed"
+        assert terminals[0].failure is not None
+        assert terminals[0].failure.code == "internal_error"
+        assert "secret raw exception" not in terminals[0].failure.safe_message
+        assert not any(event.kind == "final" for event in events)
+    finally:
+        session_runtime.close()
+
+
 def test_new_run_is_rejected_while_session_has_paused_run(tmp_path, monkeypatch):
     service = AgentService(config_path=_config(tmp_path, monkeypatch), workspace_root=tmp_path)
     session_runtime = service.create_session()
@@ -295,6 +380,32 @@ def test_create_session_failure_closes_runtime(tmp_path, monkeypatch):
     with pytest.raises(OSError, match="disk full"):
         service.create_session(interaction=port)
     assert port.closed is True
+
+
+def test_runtime_provider_override_revalidates_context_window(tmp_path, monkeypatch):
+    monkeypatch.setenv("ASSISTANT_AGENT_HOME", str(tmp_path / "home"))
+    path = tmp_path / "config.yaml"
+    path.write_text(
+        """active: large
+providers:
+  large:
+    model: openai/large
+    context_window: 32000
+  small:
+    model: openai/small
+    context_window: 4096
+agent:
+  max_context_tokens: 16000
+""",
+        encoding="utf-8",
+    )
+    with pytest.raises(RuntimeConfigError, match="context_window"):
+        runtime_module.create_runtime(
+            config_path=path,
+            workspace_root=tmp_path,
+            interactive=False,
+            provider="small",
+        )
 
 
 def test_session_runtime_construction_failure_closes_runtime(tmp_path, monkeypatch):

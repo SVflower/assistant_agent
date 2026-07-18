@@ -25,6 +25,21 @@ class LLMError(Exception):
     """模型调用失败。"""
 
 
+ProviderFailureCode = Literal[
+    "provider_rate_limited",
+    "provider_unavailable",
+    "provider_timeout",
+    "internal_error",
+]
+
+
+@dataclass(frozen=True)
+class ProviderFailure:
+    code: ProviderFailureCode
+    safe_message: str
+    retryable: bool
+
+
 @dataclass
 class ToolCall:
     """模型请求的一次工具调用。"""
@@ -52,6 +67,27 @@ class StreamEvent:
     text: str = ""
     tool_calls: list[ToolCall] = field(default_factory=list)
     usage: dict[str, int] = field(default_factory=dict)
+    failure: ProviderFailure | None = None
+
+
+def classify_provider_exception(exc: BaseException) -> ProviderFailure:
+    """按类型和 HTTP 状态分类，不把第三方异常文本带入公共事件。"""
+    status = getattr(exc, "status_code", None)
+    if status is None:
+        response = getattr(exc, "response", None)
+        status = getattr(response, "status_code", None)
+    name = type(exc).__name__.lower()
+    if status == 429:
+        return ProviderFailure("provider_rate_limited", "模型服务请求过于频繁，请稍后重试。", True)
+    if isinstance(exc, TimeoutError) or "timeout" in name:
+        return ProviderFailure("provider_timeout", "模型服务响应超时。", True)
+    if (
+        isinstance(exc, ConnectionError)
+        or "connection" in name
+        or (isinstance(status, int) and 500 <= status <= 599)
+    ):
+        return ProviderFailure("provider_unavailable", "模型服务暂时不可用。", True)
+    return ProviderFailure("internal_error", "模型请求配置或执行失败。", False)
 
 
 def _parse_arguments(raw: Any) -> dict[str, Any]:
@@ -197,8 +233,9 @@ class LLMClient:
                 usage = getattr(chunk, "usage", None)
                 if usage is not None:
                     yield StreamEvent(kind="usage", usage=_normalize_usage(usage))
-        except Exception as exc:  # 流中途失败：产出 error 事件而非抛出
-            yield StreamEvent(kind="error", text=f"流式调用中断（{self._provider.model}）：{exc}")
+        except Exception as exc:  # 流中途失败：产出脱敏 error 事件而非抛出
+            failure = classify_provider_exception(exc)
+            yield StreamEvent(kind="error", text=failure.safe_message, failure=failure)
             return
 
         # 流正常结束：把拼接好的工具调用一次性产出

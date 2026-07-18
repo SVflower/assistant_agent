@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from assistant_agent.bootstrap.tools import discover_skills
 from assistant_agent.config.paths import (
     assistant_home,
     managed_mcp_dir,
@@ -17,7 +18,6 @@ from assistant_agent.config.paths import (
 from assistant_agent.config.schema import SkillsConfig
 from assistant_agent.persistence.run_store import RunStore
 from assistant_agent.persistence.store import SessionStore
-from assistant_agent.service._runtime_builders import discover_skills
 
 
 def _write_skill(base: Path, name: str, description: str) -> None:

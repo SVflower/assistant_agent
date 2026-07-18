@@ -54,7 +54,7 @@ def runs_command(config: Path | None, delete: str | None) -> None:
             if answer not in {"y", "yes"}:
                 console.info("已取消。")
                 return
-        service.delete_run(delete, force=True)
+        service._delete_run(delete, force=True)
         console.info(f"已删除 Run {delete}。")
         return
     if not metas:
@@ -81,7 +81,7 @@ def resume_command(
     console = Console()
     service = _build_service(config, console)
     try:
-        resume_info = service.inspect_run(run_id)
+        resume_info = service._inspect_run(run_id)
     except (FileNotFoundError, ValueError) as exc:
         console.error(f"无法恢复 Run：{exc}")
         raise typer.Exit(code=1) from exc

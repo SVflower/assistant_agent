@@ -76,10 +76,10 @@ class AgentService:
             runs if session_id is None else [item for item in runs if item.session_id == session_id]
         )
 
-    def inspect_run(self, run_id: str) -> RunResumeInfo:
+    def _inspect_run(self, run_id: str) -> RunResumeInfo:
         return inspect_run(self._run_store, run_id)
 
-    def delete_run(self, run_id: str, *, force: bool = False) -> bool:
+    def _delete_run(self, run_id: str, *, force: bool = False) -> bool:
         meta = next((item for item in self._run_store.list() if item.id == run_id), None)
         if meta is None:
             return False

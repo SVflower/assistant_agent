@@ -2,11 +2,11 @@
 
 > 开工蓝本。第一阶段（MVP）已完成，见 [DESIGN.md](DESIGN.md) 第 8 节。
 > 本文档规划第二阶段起的里程碑，每个里程碑只列可清晰验收的目标。
-> 最后更新：2026-07-18
+> 最后更新：2026-07-19
 
 ---
 
-## 项目当前状态（截至 2026-07-18）
+## 项目当前状态（截至 2026-07-19）
 
 **一句话**：从"能跑的 MVP"长成了一个功能相当完整、多平台实测、可观测且运行时预算可控、全程守调研→方案→测试→验收纪律的本地 Agent。
 
@@ -23,6 +23,9 @@
 - **运行可解释性（M18）**：结构化 RunFailure、activity 与安全预算快照；iteration/tool call/tool
   output 三类 continuation 统一走 InteractionPort，扩展只作用当前 Run 并进入 checkpoint；Provider、
   工具、权限和依赖错误提供稳定机器分类，failed run_terminal 不再依赖文本推断。
+- **架构重建（M19）**：contracts 单一所有权、Agent Context/Run 内聚、Application 用例、Bootstrap
+  唯一装配和 Service 稳定转发；execution/persistence/observability/integrations 适配器归位，
+  依赖方向由 12 条 import-linter contract 强制。
 - **工具**：读/写/局部编辑/列目录/shell/代码检索/git 只读/用户澄清，以及带来源的
   `web_search`/`fetch_url`；搜索 backend 可替换，抓取含 SSRF、重定向和响应上限防护。
 - **命令层**：slash 命令系统本地拦截不花 token；`/skills` 与 `/mcp` 支持列出、安装、诊断、
@@ -41,24 +44,23 @@
   已完成工具不重放，started 副作用需 retry/skip/abort；预算、重复熔断、权限和摘要状态跨进程恢复；
   trace/session/run/call 标识对齐，还清 D8。
 
-**质量**：594 测试通过（5 个平台能力测试跳过）、覆盖率 84%、14930 行生产 Python 源码 +
-1564 行 eval 基础设施，Ruff/mypy 全绿。架构适应度测试（依赖分层 + 行数分级软/硬）、技术债册、
+**质量**：606 测试通过（5 个平台能力测试跳过）、覆盖率 84%、13974 行生产 Python 源码 +
+1366 行 eval 基础设施，Ruff/mypy 全绿。架构适应度测试（声明式依赖契约 + 600 行非阻断评审）、技术债册、
 DoD 和里程碑工作流全在；CI 已加入 format/lint/mypy/coverage/scripted eval/recovery eval 与
 Windows/Linux、Python 3.11/3.13 矩阵。
 
 **边界（明确未做）**：外置 MCP/自定义 Python Tool 的容器化、远程 Workspace、子 Agent 编排、
 Web GUI、rewind/recap、非交互 init、PyPI 分发。
 
-**阶段状态**：第一至第十一阶段已完成。M10c 的
+**阶段状态**：第一至第十二阶段已完成。M10c 的
 “不做全栈 async”决策保持不变；M14 以同步 RunControl、跨平台 ProcessSupervisor 和 Workspace
 抽象补齐受控执行边界并还清 D18。
 
-**当前进展**：M18 已完成并归档。API 可直接消费结构化失败、合法动作、安全预算和 activity；
-预算 continuation 与恢复复用同一个 RunCoordinator/InteractionPort，不解析日志或中文文本。见
-[M18 方案](docs/archive/phase11/m18-run-explainability-and-budget-continuation-plan.md)与
-[API 交接](docs/archive/phase11/m18-agent-api-handoff.md)。
+**当前进展**：M19 已完成。公共调用继续只依赖 `assistant_agent.service` / `contracts` / `interaction`，
+StepEvent v1 与 checkpoint v3 不变；内部目录迁移不要求 API 穿透实现。见
+[架构事实源](docs/ARCHITECTURE.md)与[正式服务契约](docs/agent-service-integration-guide.md)。
 
-**剩余技术债**：7 项（D5/D6/D11/D12/D20/D21/D22）。M9a 已还清 D13/D15/D17，M9b 已还清
+**剩余技术债**：5 项（D5/D6/D12/D20/D21）。M9a 已还清 D13/D15/D17，M9b 已还清
 D14，M9c 已还清 D9，M10a 已还清 D16，M10b 已还清 D8，M11a 已还清 D19，M14a 已还清 D18。详见
 [技术债登记册](docs/TECH_DEBT.md)。
 
@@ -253,6 +255,18 @@ D14，M9c 已还清 D9，M10a 已还清 D16，M10b 已还清 D8，M11a 已还清
 > 权限、依赖和未知副作用形成稳定分类；`final` 与唯一 `run_terminal` 规则保持。594 passed、
 > 5 skipped、覆盖率 84%，Ruff/format/mypy 全绿。经用户授权修改 Loop，并按架构硬线拆出
 > continuation、resume 和定义兼容模块。
+
+### 第十二阶段（已完成）
+
+| 里程碑 | 主题 | 状态 |
+|--------|------|------|
+| M19 | Ports and Adapters 架构重建 | ✅ · [方案](docs/archive/phase12/m19-architecture-reconstruction-plan.md) |
+
+> **M19 已完成**：公共 DTO 统一归属 contracts；Agent Context/Run、Provider/Tool ports、Application
+> 用例、Bootstrap composition root 与 Service facade 分层落地；基础设施归入 execution、persistence、
+> observability 与 integrations。旧导入保留 identity-compatible 薄转发。606 passed、5 skipped、
+> 覆盖率 84%，12/12 import-linter、Ruff、mypy、scripted 18/18、recovery 4/4 全绿；经用户授权
+> 修改 Loop，StepEvent v1、checkpoint v3、事件顺序、权限、预算和恢复语义保持兼容。
 
 ## 未来方向（P3，信号驱动，暂不做）
 

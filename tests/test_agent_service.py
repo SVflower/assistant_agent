@@ -372,13 +372,13 @@ def test_service_inspects_and_deletes_terminal_run(tmp_path, monkeypatch):
     try:
         execution = session_runtime.start_run("task")
         assert list(execution.events)[-1].terminal_status == "completed"
-        info = service.inspect_run(execution.run_id)
+        info = service._inspect_run(execution.run_id)
         assert info.run_id == execution.run_id
         assert info.session_id == session_runtime.session.id
         assert info.provider == "fake"
     finally:
         session_runtime.close()
-    assert service.delete_run(execution.run_id) is True
+    assert service._delete_run(execution.run_id) is True
     assert service.list_runs() == []
 
 

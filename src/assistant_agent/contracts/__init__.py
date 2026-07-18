@@ -4,6 +4,7 @@ from assistant_agent.contracts.capabilities import (
     MCPServerCapability,
     MCPStatus,
     RuntimeCapabilities,
+    RuntimeNotice,
     SkillCapability,
 )
 from assistant_agent.contracts.errors import (
@@ -86,6 +87,7 @@ __all__ = [
     "RuntimeDependencyError",
     "RuntimeInitializationError",
     "RuntimePolicyError",
+    "RuntimeNotice",
     "ScopeInfo",
     "SessionBusyError",
     "SessionRunConflictError",

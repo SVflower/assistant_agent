@@ -12,6 +12,7 @@ from assistant_agent.contracts.interactions import (
     QuestionRequest,
     RecoveryRequest,
 )
+from assistant_agent.service import RunExecution
 from assistant_agent.service import __all__ as service_exports
 
 
@@ -42,6 +43,9 @@ def test_service_public_exports_baseline():
         "create_runtime",
         "sync_terminal_session",
     }
+    assert [field.name for field in fields(RunExecution)] == ["run_id", "events", "warning"]
+    execution = RunExecution("run-contract", iter(()))
+    assert execution.warning == ""
 
 
 def test_step_event_v1_field_baseline_and_sensitive_reasoning():
@@ -72,16 +76,18 @@ def test_step_event_v1_field_baseline_and_sensitive_reasoning():
 def test_legacy_contract_imports_are_identity_aliases():
     from assistant_agent.agent.events import StepEvent as LegacyStepEvent
     from assistant_agent.agent.failures import RunFailure as LegacyRunFailure
-    from assistant_agent.contracts import AgentServiceError, RuntimeCapabilities
+    from assistant_agent.contracts import AgentServiceError, RuntimeCapabilities, RuntimeNotice
     from assistant_agent.interaction.models import ContinueRequest as LegacyContinueRequest
     from assistant_agent.service.capabilities import RuntimeCapabilities as LegacyCapabilities
     from assistant_agent.service.errors import AgentServiceError as LegacyServiceError
+    from assistant_agent.service.runtime import RuntimeNotice as LegacyRuntimeNotice
 
     assert LegacyStepEvent is StepEvent
     assert LegacyRunFailure is RunFailure
     assert LegacyContinueRequest is ContinueRequest
     assert LegacyCapabilities is RuntimeCapabilities
     assert LegacyServiceError is AgentServiceError
+    assert LegacyRuntimeNotice is RuntimeNotice
 
 
 def test_interaction_request_field_baseline():

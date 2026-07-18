@@ -33,8 +33,9 @@ bootstrap -> concrete providers / tools / integrations / execution / persistence
 
 M19a 已建立契约基线和依赖护栏，M19b 已迁入稳定公共契约，M19c 已隔离 Provider 与
 Tool 端口，M19d 已收敛 Agent Context/Run/Loop，M19e 已分离 Application、Bootstrap 与 Service。
-M19f 已将基础设施与集成实现迁入目标包。旧路径仅作兼容转发，不允许形成双实现。
-完整迁移矩阵见 `docs/m19-architecture-reconstruction-plan.md`。
+M19f 已将基础设施与集成实现迁入目标包，M19g 已完成兼容、正式契约与状态文档收尾。
+旧路径仅作兼容转发，不允许形成双实现。
+完整迁移矩阵见 `docs/archive/phase12/m19-architecture-reconstruction-plan.md`。
 
 目标所有权：
 
@@ -111,7 +112,7 @@ Ruff C901 是循环检查而非机械拆分指标。M19a 的最高复杂度基�
 |---|---:|---|
 | `agent.loop.AgentLoop._drive` | 35 -> 27 | 已提取 `agent/turn.py`，事件顺序不变 |
 | `ui.conversation_renderer.ConversationRenderer.render` | 23 | 本期不移动 UI，观察 |
-| `service.runtime.create_runtime` | 20 | M19e 装配收敛 |
+| `bootstrap.runtime.create_runtime` | 20 | M19e 已收敛为唯一 composition root |
 
 ## 7. 未来能力落位
 

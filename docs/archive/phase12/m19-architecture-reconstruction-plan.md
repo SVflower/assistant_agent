@@ -1,6 +1,6 @@
 # M19 项目架构重建方案
 
-> 状态：已确认，实施中（M19a-M19f 已完成）。用户已授权 M19d 修改 `agent/loop.py`。
+> 状态：已完成并归档。用户已授权 M19d 修改 `agent/loop.py`。
 > 版本：v3（2026-07-19，吸收外部评审并完成实施可行性复审，替代 v2）。核心决策：
 > ①砍掉低价值 churn——builtin 工具聚类、`ui/` 合并、测试四象限重排全部出局；
 > ②`service/` 收敛为纯 re-export，允许转发 bootstrap composition root，但自身零逻辑；
@@ -509,6 +509,14 @@ Session/Run 生命周期和 CLI 行为无变化。
 - 实测测试数、覆盖率、源码行数、eval 和大模块评审结果后归档 M19。
 
 验收：全部 DoD、CI 矩阵和跨项目契约闭环完成，工作区无旧内部实现或无主模块。
+
+实施记录（2026-07-19）：删除私有临时 `service._runtime_builders`，保留并测试历史公共根与
+identity-compatible 旧路径；同步 AGENTS/CLAUDE/README/DESIGN/ROADMAP/TECH_DEBT、架构事实源、
+正式 Service 契约和 API AI 交接。D11/D22 已还清，剩余 5 项技术债。公共契约结论：StepEvent v1、
+checkpoint v3、Interaction/Run/Session/failure/生命周期语义无破坏；`RunExecution.warning` 是默认空串的
+向后兼容扩展，API 无阻断性修改。最终验收：606 passed / 5 skipped、coverage 84%、Ruff/mypy、
+12/12 import-linter、scripted 18/18、recovery 4/4 全绿；13974 行生产 Python、1366 行 eval，
+无超过 600 行生产模块。
 
 ## 12. 提交策略
 

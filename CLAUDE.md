@@ -70,7 +70,8 @@ python -m assistant_agent
 
 ## 质量护栏（防迭代劣化）
 
-- **架构适应度测试** `tests/test_architecture.py`：自动检查分层依赖（config→llm→tools→agent→ui→main，只能依赖同层或更低层）、内核 UI 无关、工具不反向依赖、单文件行数（软线 300 仅警告交人评审、硬线 500 才失败）。**报红时应拆分/修依赖，而不是放宽规则。**
+- **架构适应度测试**：`.importlinter` 强制 contracts、Agent、Application、Service、Execution、Persistence、Observability 与 Integrations 的依赖方向；`tests/test_architecture.py` 保留内核 UI 无关、Service 纯转发和业务 MCP 外置等项目规则。生产文件超过 600 行只发非阻断预警，必须按职责、状态不变量和依赖做具体评审并记录到 `docs/ARCHITECTURE.md`，不得按行数机械拆分。
+- **架构事实源** `docs/ARCHITECTURE.md`：新增目录、移动所有权或增加跨包依赖前先核对；`bootstrap` 是唯一 composition root，`service` 只做稳定公共转发。
 - **技术债登记册** `docs/TECH_DEBT.md`：新债即时登记，每次里程碑评审更新，防隐形复利。
 - **覆盖率** `pytest --cov`：不设强制门槛，但关键路径（流式碎片拼接、confirm 解析）低覆盖要显形并补测。
 - **跨项目契约同步**：`docs/agent-service-integration-guide.md` 是 Agent 对 API 及其他调用方的长期正式契约。凡里程碑修改 `assistant_agent.service` / `assistant_agent.interaction` 公共出口、StepEvent/DTO、Interaction、Run/Session 状态、失败码、生命周期或兼容语义，必须在同一里程碑同步该文档、契约版本/迁移说明、完整事件序列和契约测试；归档 plan/handoff 只能记录历史，不能替代正式契约。破坏性变化必须提升契约版本；向后兼容扩展也必须写明。若确认无影响，方案和验收报告必须明确记录“公共服务契约无变化”及依据。阶段收尾时还必须输出一份可直接交给 API 项目 AI 的变更清单，包含 Agent commit、API 必改项、兼容影响和联调测试。
@@ -88,7 +89,7 @@ python -m assistant_agent
 
 ## 当前状态
 
-**第一至第十一阶段已完成**。里程碑详情见 ROADMAP.md。
+**第一至第十二阶段已完成**。里程碑详情见 ROADMAP.md。
 - 第一阶段：配置/模型抽象/工具/ReAct 循环/CLI，加流式输出、会话持久化、工具集扩展（edit/multi_edit/code_search/git 只读）、模型切换、循环工程与写入安全、slash 命令、init 向导，全部落地。
 - **第二阶段 M6/M6.5/M7a/M7b/M7c/M8a/M8b 已完成**：结构化日志与工具审计；任务级工具调用/累计输出预算与批次协议完整终止；Agent Skills 系统（SKILL.md 发现 + 渐进披露 + load_skill）；MCP client（stdio + HTTP 两种 transport）——外部 server 工具接入 + 同步桥 + 命名空间 + 每工具确认 + 过滤/上限 + HTTP 委托 SDK 管 session/重连不重放 + cli/setup.py Runtime，还清 D7；上下文进化——M8a 预算口径计入 tools schema + reserved（还 D10），M8b 摘要压缩替代硬截断（双历史 + checkpoint 持久化 + 按轮分组 + 降级兜底，默认关闭时逐字节等于现状）。
 - 双后端实测通过：云端 DeepSeek + 本地 LM Studio，切换只改 `config.yaml`，业务代码零改动。
@@ -117,11 +118,14 @@ python -m assistant_agent
   脱敏 RuntimeCapabilities 和一次性能力探测；CLI 保持兼容，未修改 Loop。
 - M18 已完成：结构化 RunFailure/activity/BudgetSnapshot；三类预算 continuation 统一经 InteractionPort
   并在继续前 checkpoint；Provider/工具/权限/依赖稳定分类；RunState v3 兼容迁移。经授权修改 Loop。
-- 594 个测试通过（5 个平台能力测试跳过），覆盖率 84%，ruff/mypy 全绿；14930 行生产 Python
-  源码 + 1564 行 eval 基础设施。
+- M19 已完成：稳定 contracts、Provider/Tool ports、Agent Context/Run 收敛、Application/Bootstrap/Service
+  分离，以及 execution/persistence/observability/integrations 适配器归位；旧路径薄兼容，12 条架构契约全绿。
+- 606 个测试通过（5 个平台能力测试跳过），覆盖率 84%，ruff/mypy 全绿；13974 行生产 Python
+  源码 + 1366 行 eval 基础设施。
 
 第三阶段总规划及 M9a-M10c 方案/决策已归档到 `docs/archive/phase3/`，还清
 D8/D9/D13/D14/D15/D16/D17。剩余工作按技术债和真实触发信号立项，
 不自动进入全栈 async 重构。M11a-M18 方案已分别归档到 `docs/archive/phase4/`、
 `docs/archive/phase5/`、`docs/archive/phase6/`、`docs/archive/phase7/`、`docs/archive/phase8/`、
-`docs/archive/phase9/`、`docs/archive/phase10/`、`docs/archive/phase11/`。
+`docs/archive/phase9/`、`docs/archive/phase10/`、`docs/archive/phase11/`。M19 架构重建归档于
+`docs/archive/phase12/`。

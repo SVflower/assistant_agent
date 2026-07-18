@@ -219,24 +219,30 @@ python -m evals compare evals/reports/run-a/results.jsonl evals/reports/run-b/re
 `scripted` 使用确定性脚本验证真实 AgentLoop 的工具轨迹、权限、预算、终止协议和文件副作用；
 `recovery` 在真实 checkpoint 边界注入崩溃，验证不重放和预算恢复。
 确定性评测已接入 CI，但不代表模型能力。`real` 才调用配置中的真实 provider，结果可能波动，不作为 PR
-硬门；外部 Skills/MCP 默认关闭，需要时显式加 `--skills` / `--mcp`。当前没有 OS 沙箱，真实
-评测只应运行仓库自有、可信的小型 fixture。
+硬门；外部 Skills/MCP 默认关闭，需要时显式加 `--skills` / `--mcp`。真实评测仍应使用受信 fixture，
+并按风险选择 workspace/container sandbox。
 
 ## 架构
 
+```text
+contracts/      稳定公共 DTO、事件、错误与 Interaction 协议
+agent/          ReAct Loop、Context 与 Run 状态机
+application/    Runtime、Session、Run 用例和消费方 ports
+bootstrap/      唯一 composition root，装配所有具体资源
+service/        面向 API/其他 Python 调用方的稳定 re-export
+providers/      模型端口与 LiteLLM adapter
+tools/          工具模型、端口、权限、Registry 与内置能力
+execution/      Workspace、进程监管、暂停/取消和容器执行
+persistence/    Session、Run checkpoint 与 Artifact 存储
+observability/  结构化日志、审计与脱敏 adapter
+integrations/   MCP、Skills 与 Web Access 外部系统 adapter
+cli/ + ui/      终端命令、交互端口与 Rich 渲染
+config/         Pydantic/YAML 配置与路径策略
 ```
-config/   配置加载与校验（Pydantic + YAML）
-cli/      CLI 层：slash 命令系统（/help /model 等）+ init 配置向导 + Runtime 生命周期
-llm/      模型抽象层（封装 LiteLLM，统一云端/本地）
-web/      可替换搜索 backend、安全 URL 策略、流式抓取与正文提取
-tools/    工具系统（base/registry + 内置：读/写/局部编辑/多处编辑/列目录/shell/代码检索/git 只读/澄清）
-session/  Session 存档 + Run checkpoint 双槽原子存储
-skills/   Agent Skills（SKILL.md 发现 + 渐进披露 + load_skill）
-mcp/      MCP client（stdio/HTTP、同步桥、隔离探测、配置事务与受管清单）
-obs/      结构化 JSONL 事件日志与工具审计（尽力脱敏，禁用零副作用）
-agent/    ReAct 主循环 + RunState/恢复协调 + 上下文管理（token 截断/摘要）+ 提示词
-ui/       终端输入输出（Rich 流式渲染）
-```
+
+架构采用 Ports and Adapters，依赖规则由 import-linter 强制；完整所有权、依赖图和拆分准则见
+[架构事实源](docs/ARCHITECTURE.md)。外部服务只应依赖 `assistant_agent.service`、
+`assistant_agent.contracts` 和必要的 `assistant_agent.interaction` 安全实现。
 
 业务 MCP 与 Agent 仓库分开存放，独立安装、测试和运行。它们不进入 `assistant_agent` Python 包，
 只通过标准 MCP 接入。Agent 的 MCP client 支持稳定调用 ID 透传、受信 tool annotations、按工具
@@ -246,7 +252,8 @@ ui/       终端输入输出（Rich 流式渲染）
 完整经过 Registry 的参数校验、权限、预算、审计、observer 和恢复链路。未声明权限时沿用未知扩展
 工具的保守权限声明，最终行为由统一权限策略决定。
 
-扩展点：换模型动 `config.yaml`；加能力优先在 `tools/` 加文件并在 `registry.py` 注册，或接 `skills/`（SKILL.md）与 `mcp/`（外部 server）——内核 `agent/loop.py` 通常不必动（确需演进时先确认）。
+扩展点：换模型动 `config.yaml`；加本地能力优先在 `tools/` 加文件并注册，外部能力通过
+Skills/MCP 接入。`agent/loop.py` 保留为可见内核；预算、终止、恢复等确需演进时先确认并跑行为评测。
 
 第三阶段“可信执行与质量闭环”已完成：M9a-M10b 已交付，M10c 决定不进行全栈 async 重构。
 第四阶段 M11a-M11c 已完成 CLI 展示、可信联网检索和
@@ -257,9 +264,9 @@ M13a 已完成声明式工具适配层；第七阶段 M14 已完成暂停/取消
 InteractionPort、Session/Run 公共服务门面和稳定 StepEvent 契约，可供安装后的 Python 包直接调用。
 第十阶段 M17 已完成部署级 RuntimePolicy、MCP 有界降级启动和脱敏能力快照。第十一阶段 M18
 已完成结构化失败、安全 activity/预算快照，以及可 checkpoint 恢复的三类预算 continuation。
-当前 594 个测试通过（5 个平台能力测试跳过）、覆盖率 84%、14930 行生产 Python 源码 + 1564 行
-eval 基础设施。详见 [M18 方案](docs/archive/phase11/m18-run-explainability-and-budget-continuation-plan.md)和
-[通用服务调用指南](docs/agent-service-integration-guide.md)；`assistant_agent_api` 的阶段性交接见
-[M18 API 交接](docs/archive/phase11/m18-agent-api-handoff.md)。
+第十二阶段 M19 已完成 contracts/agent/application/bootstrap/service 与 adapter 包重建，旧路径保持
+薄兼容。当前 606 个测试通过（5 个平台能力测试跳过）、覆盖率 84%、13974 行生产 Python 源码 +
+1366 行 eval 基础设施；scripted 18/18、recovery 4/4。详见
+[M19 架构](docs/ARCHITECTURE.md)和[通用服务调用指南](docs/agent-service-integration-guide.md)。
 
 详见 [DESIGN.md](DESIGN.md)。

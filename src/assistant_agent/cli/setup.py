@@ -1,4 +1,4 @@
-"""CLI Runtime 适配器；实际装配由公共 service.runtime 唯一拥有。"""
+"""CLI Runtime 适配器；实际装配由 bootstrap composition root 唯一拥有。"""
 
 from __future__ import annotations
 

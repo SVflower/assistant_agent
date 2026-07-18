@@ -5,7 +5,7 @@
 >
 > 本文是公共服务契约的长期唯一正式入口；里程碑归档和阶段性交接不能替代本文。
 > 当前公共事件契约：`EVENT_CONTRACT_VERSION == 1`；当前 Run checkpoint：schema v3。
-> 最近同步：M18，Agent commit `0ef635ab5b14cec4b4e7ffa844956a1811881e99`。
+> 最近同步：M19，Agent implementation commit `f6b1bcb39129b1fbb8d75b34f42d8bb8bd5871ae`。
 
 ## 1. 集成边界
 
@@ -14,8 +14,9 @@ Rich 终端输出。
 
 ```text
 上层服务
-  -> assistant_agent.service       Runtime、Session、Run、恢复和事件
-  -> assistant_agent.interaction   授权、澄清和恢复决策
+  -> assistant_agent.service       Runtime、Session、Run 与恢复用例
+  -> assistant_agent.contracts     StepEvent、失败、能力与 Interaction DTO/Protocol
+  -> assistant_agent.interaction   安全默认和同步阻塞 Interaction 实现
   -> assistant_agent 内部实现      LLM、Tools、Skills、MCP、Workspace、checkpoint
 ```
 
@@ -63,9 +64,14 @@ if EVENT_CONTRACT_VERSION != EXPECTED_EVENT_CONTRACT_VERSION:
 只从以下公共模块导入：
 
 ```python
+from assistant_agent.contracts import ...
 from assistant_agent.interaction import ...
 from assistant_agent.service import ...
 ```
+
+M19 前从 `assistant_agent.service` 或 `assistant_agent.interaction` 根入口导入的既有公共类型仍保持
+同一 Python 类型身份。新代码优先从 `contracts` 获取 DTO/Protocol，从 `interaction` 获取
+`SafeDefaultInteractionPort` / `BlockingInteractionPort` 实现，从 `service` 获取生命周期门面。
 
 不要导入：
 
@@ -77,6 +83,17 @@ assistant_agent.cli.recovery
 ```
 
 这些模块不是服务集成协议，直接依赖会绕过公共生命周期或造成升级耦合。
+
+### 2.1 M19 兼容说明
+
+- `EVENT_CONTRACT_VERSION` 保持 `1`，StepEvent 字段、默认值和事件顺序未破坏；
+- Run checkpoint 保持 schema v3，旧 checkpoint 无需迁移；
+- `AgentService`、`AgentRuntime`、`SessionRuntime`、`create_runtime` 的公共根导入和构造签名不变；
+- `RuntimeNotice` 等稳定 DTO 可统一从 `assistant_agent.contracts` 根入口导入；
+- `RunExecution` 向后兼容新增可选 `warning: str = ""`，用于 checkpoint 回退等诊断；调用方须
+  自行脱敏，不能直接透传网络；
+- `runtime/session/obs/mcp/skills/web` 等旧内部路径仅作迁移兼容，不属于服务契约，新服务不得导入；
+- API 若已只依赖公共根入口，本次没有强制代码修改；建议增加契约版本和 warning 回归测试。
 
 ## 3. 推荐入口
 
@@ -187,6 +204,8 @@ session.close()  # 幂等
 ```python
 execution = session.start_run("分析失败测试")
 print(execution.run_id)
+if execution.warning:
+    publish_safe_notice(execution.warning)
 
 for event in execution.events:
     publish(event)
@@ -199,6 +218,7 @@ for event in execution.events:
 - 不要先 `list(events)` 再向客户端一次性发送，这会失去流式能力；
 - 正常公共流最后有一个 `kind == "run_terminal"`；
 - 调用方提前关闭或放弃 Iterator 时，Agent 会尝试把 Run 安全暂停，而不是误记为 completed。
+- `warning` 不是事件或终态，须经调用方脱敏，不得据此把 Run 标记为 failed/paused/completed。
 
 终态规则：
 
@@ -566,7 +586,7 @@ DTO，不能重新迭代 Agent 或重新执行工具。
 
 ## 14. 接入验收清单
 
-1. 只导入 `assistant_agent.service` 和 `assistant_agent.interaction`；
+1. 只导入 `assistant_agent.service`、`assistant_agent.contracts` 和必要的 `assistant_agent.interaction` 实现；
 2. 启动时验证 `EVENT_CONTRACT_VERSION`；
 3. config/workspace 路径由服务端固定；
 4. Iterator 在有界工作线程中逐事件消费；
@@ -582,7 +602,8 @@ DTO，不能重新迭代 Agent 或重新执行工具。
 14. reasoning、原始异常、密钥、环境变量和敏感工具参数不会进入网络 DTO；
 15. Agent 与调用方分别通过各自的 pytest、Ruff 和 mypy 质量门。
 
-`assistant_agent_api` 的具体交接记录见
-[archive/phase11/m18-agent-api-handoff.md](archive/phase11/m18-agent-api-handoff.md)；M16 初始边界记录见
+`assistant_agent_api` 的最新架构交接见
+[archive/phase12/m19-agent-api-handoff.md](archive/phase12/m19-agent-api-handoff.md)；M18 功能交接见
+[archive/phase11/m18-agent-api-handoff.md](archive/phase11/m18-agent-api-handoff.md)，M16 初始边界记录见
 [archive/phase9/m16-assistant-agent-api-handoff.md](archive/phase9/m16-assistant-agent-api-handoff.md)。这些文件是历史交接，发生冲突时
 以本文和安装版本导出的公共 Python 类型为准。

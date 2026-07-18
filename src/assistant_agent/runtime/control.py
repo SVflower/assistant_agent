@@ -3,13 +3,8 @@
 from __future__ import annotations
 
 import threading
-from enum import IntEnum
 
-
-class ControlState(IntEnum):
-    RUNNING = 0
-    PAUSE_REQUESTED = 1
-    CANCEL_REQUESTED = 2
+from assistant_agent.agent.run.ports import ControlState
 
 
 class RunInterrupted(RuntimeError):

@@ -1,0 +1,294 @@
+"""可恢复执行的数据契约与稳定标识。"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import secrets
+from datetime import datetime
+from typing import Any, Literal
+
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+from assistant_agent.contracts.failures import BudgetResource, RunFailure
+
+RunStatus = Literal["running", "paused", "cancelled", "completed", "failed"]
+RunPhase = Literal[
+    "model_pending",
+    "tools_pending",
+    "awaiting_approval",
+    "tool_uncertain",
+    "terminal",
+]
+ToolCallStatus = Literal[
+    "planned",
+    "awaiting_approval",
+    "started",
+    "completed",
+    "failed",
+    "skipped",
+]
+ReplayPolicy = Literal["safe_readonly", "requires_decision"]
+
+_RESOLVED_TOOL_STATUSES = {"completed", "failed", "skipped"}
+_SCHEMA_VERSION: Literal[3] = 3
+
+
+def now_iso() -> str:
+    return datetime.now().isoformat(timespec="seconds")
+
+
+def new_run_id() -> str:
+    """生成可读、可排序且满足存储路径约束的运行 ID。"""
+    return f"run-{datetime.now():%Y%m%d-%H%M%S}-{secrets.token_hex(4)}"
+
+
+def stable_call_id(run_id: str, iteration: int, index: int) -> str:
+    """为缺失或冲突的 provider call ID 生成确定性替代值。"""
+    seed = f"{run_id}:{iteration}:{index}".encode()
+    return f"call-{hashlib.sha256(seed).hexdigest()[:16]}"
+
+
+def canonical_hash(value: Any) -> str:
+    """对 JSON 数据生成与 key 顺序无关的 SHA-256 指纹。"""
+    payload = json.dumps(
+        value,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
+    ).encode("utf-8")
+    return hashlib.sha256(payload).hexdigest()
+
+
+class StrictStateModel(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+
+class PermissionGrantState(StrictStateModel):
+    capability: str
+    tool: str
+    target: str
+
+
+class ToolBudgetState(StrictStateModel):
+    max_calls: int = Field(ge=1)
+    max_total_output_chars: int = Field(ge=0)
+    used_calls: int = Field(ge=0)
+    used_output_chars: int = Field(ge=0)
+
+    @model_validator(mode="after")
+    def _usage_is_consistent(self) -> ToolBudgetState:
+        if self.used_calls > self.max_calls:
+            raise ValueError("工具调用用量不能超过上限")
+        if self.max_total_output_chars > 0 and self.used_output_chars > self.max_total_output_chars:
+            raise ValueError("工具输出用量不能超过上限")
+        return self
+
+
+class ContinuationBudgetState(StrictStateModel):
+    resource: BudgetResource
+    increment: int = Field(gt=0)
+    hard_limit: int = Field(gt=0)
+    extension_count: int = Field(default=0, ge=0)
+    max_extensions: int = Field(default=2, ge=0)
+
+
+class ContinuationDecisionState(StrictStateModel):
+    request_id: str = Field(min_length=1)
+    resource: BudgetResource
+    old_limit: int = Field(ge=0)
+    new_limit: int = Field(ge=0)
+    continued: bool
+
+
+class ToolResultState(StrictStateModel):
+    output: str
+    is_error: bool
+    code: str
+    retryable: bool = False
+    executed: bool = True
+    budget_exhausted: str | None = None
+
+
+class PermissionRequestState(StrictStateModel):
+    tool: str
+    capability: str
+    target: str
+    risk: str
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class ToolCallState(StrictStateModel):
+    id: str = Field(min_length=1)
+    name: str = Field(min_length=1)
+    arguments: dict[str, Any]
+    status: ToolCallStatus = "planned"
+    replay_policy: ReplayPolicy = "requires_decision"
+    permission_requests: list[PermissionRequestState] = Field(default_factory=list)
+    result: ToolResultState | None = None
+
+    @model_validator(mode="after")
+    def _result_matches_status(self) -> ToolCallState:
+        resolved = self.status in _RESOLVED_TOOL_STATUSES
+        if resolved != (self.result is not None):
+            raise ValueError("已结束工具状态必须有结果，未结束状态不得带结果")
+        return self
+
+
+class RunState(StrictStateModel):
+    schema_version: Literal[3] = _SCHEMA_VERSION
+    run_id: str = Field(min_length=1)
+    session_id: str | None = None
+    task: str
+    status: RunStatus = "running"
+    phase: RunPhase = "model_pending"
+    interactive: bool
+    provider: str = Field(min_length=1)
+    model: str = Field(min_length=1)
+    system_prompt_hash: str = Field(min_length=64, max_length=64)
+    tool_schema_hash: str = Field(min_length=64, max_length=64)
+    messages: list[dict[str, Any]] = Field(default_factory=list)
+    compaction_checkpoint: dict[str, Any] | None = None
+    iteration: int = Field(default=0, ge=0)
+    iteration_budget: int = Field(ge=1)
+    tool_budget: ToolBudgetState
+    iteration_continuation: ContinuationBudgetState = Field(
+        default_factory=lambda: ContinuationBudgetState(
+            resource="iterations", increment=25, hard_limit=100
+        )
+    )
+    tool_call_continuation: ContinuationBudgetState = Field(
+        default_factory=lambda: ContinuationBudgetState(
+            resource="tool_calls", increment=50, hard_limit=200
+        )
+    )
+    tool_output_continuation: ContinuationBudgetState = Field(
+        default_factory=lambda: ContinuationBudgetState(
+            resource="tool_output", increment=50_000, hard_limit=400_000
+        )
+    )
+    continuation_decisions: list[ContinuationDecisionState] = Field(default_factory=list)
+    last_signature: str | None = None
+    repeat_count: int = Field(default=0, ge=0)
+    tool_calls: list[ToolCallState] = Field(default_factory=list)
+    permission_grants: list[PermissionGrantState] = Field(default_factory=list)
+    terminal_text: str = ""
+    failure: RunFailure | None = None
+    session_synced: bool = False
+    created_at: str
+    updated_at: str
+
+    @model_validator(mode="after")
+    def _state_is_consistent(self) -> RunState:
+        is_terminal = self.status in {"cancelled", "completed", "failed"}
+        if is_terminal != (self.phase == "terminal"):
+            raise ValueError("completed/failed 与 terminal phase 必须一致")
+        if is_terminal and any(
+            call.status not in _RESOLVED_TOOL_STATUSES for call in self.tool_calls
+        ):
+            raise ValueError("terminal Run 不能保留未结束工具调用")
+        if self.status == "failed" and (
+            self.failure is None or self.failure.terminal_status != "failed"
+        ):
+            raise ValueError("failed Run 必须保存结构化 failure")
+        if self.status == "paused" and self.failure is not None:
+            if self.failure.terminal_status != "paused":
+                raise ValueError("paused Run failure 必须标记 paused")
+        if self.status not in {"failed", "paused"} and self.failure is not None:
+            raise ValueError("只有 failed/paused Run 可以保存 failure")
+        if self.iteration_continuation.hard_limit < self.iteration_budget:
+            raise ValueError("iteration continuation 硬上限不能小于当前预算")
+        if self.tool_call_continuation.hard_limit < self.tool_budget.max_calls:
+            raise ValueError("tool call continuation 硬上限不能小于当前预算")
+        if (
+            self.tool_budget.max_total_output_chars > 0
+            and self.tool_output_continuation.hard_limit < self.tool_budget.max_total_output_chars
+        ):
+            raise ValueError("tool output continuation 硬上限不能小于当前预算")
+        if self.repeat_count and self.last_signature is None:
+            raise ValueError("repeat_count 非零时必须保存 last_signature")
+        ids = [call.id for call in self.tool_calls]
+        if len(ids) != len(set(ids)):
+            raise ValueError("当前工具批次存在重复 call ID")
+        self._validate_tool_messages()
+        return self
+
+    def _validate_tool_messages(self) -> None:
+        assistant_ids: set[str] = set()
+        result_ids: set[str] = set()
+        for message in self.messages:
+            for raw_call in message.get("tool_calls") or []:
+                call_id = raw_call.get("id") if isinstance(raw_call, dict) else None
+                if isinstance(call_id, str):
+                    assistant_ids.add(call_id)
+            if message.get("role") == "tool" and isinstance(message.get("tool_call_id"), str):
+                result_ids.add(message["tool_call_id"])
+
+        for call in self.tool_calls:
+            if call.id not in assistant_ids:
+                raise ValueError(f"工具状态缺少 assistant tool_call：{call.id}")
+            has_message = call.id in result_ids
+            is_resolved = call.status in _RESOLVED_TOOL_STATUSES
+            if has_message != is_resolved:
+                raise ValueError(f"工具状态与 tool result 消息不配对：{call.id}")
+
+
+def migrate_run_document(document: dict[str, Any]) -> dict[str, Any]:
+    """升级已知旧版本；未知未来版本必须明确拒绝。"""
+    version = document.get("schema_version")
+    if version == _SCHEMA_VERSION:
+        return document
+    if version in {1, 2}:
+        migrated = dict(document)
+        migrated["schema_version"] = _SCHEMA_VERSION
+        iteration_limit = max(int(migrated.get("iteration_budget", 1)), 1)
+        tool_budget = migrated.get("tool_budget") or {}
+        call_limit = max(int(tool_budget.get("max_calls", 1)), 1)
+        output_limit = max(int(tool_budget.get("max_total_output_chars", 0)), 1)
+        migrated.setdefault(
+            "iteration_continuation",
+            {
+                "resource": "iterations",
+                "increment": iteration_limit,
+                "hard_limit": max(iteration_limit * 4, iteration_limit),
+                "extension_count": 0,
+                "max_extensions": 2,
+            },
+        )
+        migrated.setdefault(
+            "tool_call_continuation",
+            {
+                "resource": "tool_calls",
+                "increment": call_limit,
+                "hard_limit": max(call_limit * 4, call_limit),
+                "extension_count": 0,
+                "max_extensions": 2,
+            },
+        )
+        migrated.setdefault(
+            "tool_output_continuation",
+            {
+                "resource": "tool_output",
+                "increment": max(output_limit, 1),
+                "hard_limit": max(output_limit * 4, output_limit),
+                "extension_count": 0,
+                "max_extensions": 2,
+            },
+        )
+        migrated.setdefault("continuation_decisions", [])
+        if migrated.get("status") == "failed" and not migrated.get("failure"):
+            migrated["failure"] = {
+                "code": "internal_error",
+                "safe_message": "旧版本 Run 已失败，未保存结构化失败详情。",
+                "retryable": False,
+                "allowed_actions": ["start_new_run"],
+                "resource": None,
+                "used": None,
+                "limit": None,
+                "terminal_status": "failed",
+                "phase": "saving_checkpoint",
+                "unknown_side_effect": False,
+            }
+        return migrated
+    raise ValueError(f"不支持的 RunState schema_version：{version!r}")

@@ -45,8 +45,8 @@ target-version = "py311"
 select = ["E", "F", "I", "UP", "B", "C901"]
 
 [tool.ruff.lint.mccabe]
-# M19a 先锁住现状最高复杂度；完成内核收敛后按实测下调。
-max-complexity = 35
+# M19d 提取单轮模型流后，按实测最高复杂度收紧，后续不得回退。
+max-complexity = 27
 
 [tool.ruff.lint.per-file-ignores]
 # Typer 的命令参数默认值必须是 typer.Option()/Argument() 调用，这是其惯用法

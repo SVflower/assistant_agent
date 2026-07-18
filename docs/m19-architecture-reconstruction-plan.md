@@ -453,6 +453,14 @@ Logger/Workspace/RunControl/ArtifactStore。旧 `llm.client`、`tools.base/resul
 前置条件（已核实满足，见文首）：M18 全部合入 main；若实施期间 budgets/continuation/recovery
 出现未合并功能分支，本阶段冻结。改动前后跑全量测试、scripted eval、recovery eval，并对比事件序列。
 
+实施记录（2026-07-19，已获用户授权）：已建立 `agent/context/`、`agent/run/`、`turn.py` 和
+`tool_batch.py`，Loop 保留在 `agent/loop.py`。ControlState、RunControl、checkpoint repository 和
+Run telemetry 均改为消费方端口；Agent 不再依赖 runtime/obs logger/session/具体 provider。
+`_drive` C901 从 35 降至 27，项目基线同步收紧。迁移前后 scripted eval 均为 18/18 PASS，
+tool calls 27→27、input/output tokens 120/31 保持不变；recovery eval 4/4 PASS；StepEvent v1、
+checkpoint v3、ID、权限、continuation、tool_uncertain 和 session_synced 语义无变化。公共服务契约
+无变化，旧 Agent 模块路径保留 identity-compatible 转发。
+
 ### M19e：Application、Bootstrap 与 Service
 
 - 建立 `application/runtime.py/runs.py/sessions.py/interactions.py/capabilities.py/ports.py`；

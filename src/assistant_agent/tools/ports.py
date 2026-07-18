@@ -151,3 +151,23 @@ class ToolPort(Protocol):
     def permission_requests(
         self, args: dict[str, Any], ctx: ToolContext
     ) -> list[PermissionRequest]: ...
+
+
+class ToolRegistryPort(Protocol):
+    def schemas(self) -> list[dict[str, Any]]: ...
+
+    def display_call(self, name: str, args: dict[str, Any]) -> ToolDisplay: ...
+
+    def display_result(
+        self, name: str, args: dict[str, Any], result: ToolResult
+    ) -> ToolDisplay: ...
+
+    def execute(
+        self,
+        name: str,
+        args: dict[str, Any],
+        ctx: ToolContext,
+        *,
+        call_id: str = "",
+        lifecycle: Any | None = None,
+    ) -> ToolResult: ...

@@ -1,11 +1,22 @@
-"""可观测性层（observability）：结构化事件日志与工具审计。
+"""可观测性兼容入口；按需加载，避免纯脱敏工具启动具体 logger。"""
 
-底层基础设施（与 config/session 同级）：被 tools/agent/main 使用，
-自身不依赖任何更高层。日志只落本地文件，不进 UI 主通道。
-"""
+from importlib import import_module
+from typing import Any
 
-from assistant_agent.obs.logger import EventLogger, NullLogger, create_logger, new_trace_id
-from assistant_agent.obs.redaction import sanitize_for_display
+
+def __getattr__(name: str) -> Any:
+    modules = {
+        "EventLogger": "assistant_agent.obs.logger",
+        "NullLogger": "assistant_agent.obs.logger",
+        "create_logger": "assistant_agent.obs.logger",
+        "new_trace_id": "assistant_agent.obs.logger",
+        "sanitize_for_display": "assistant_agent.obs.redaction",
+    }
+    module = modules.get(name)
+    if module is not None:
+        return getattr(import_module(module), name)
+    raise AttributeError(name)
+
 
 __all__ = [
     "EventLogger",

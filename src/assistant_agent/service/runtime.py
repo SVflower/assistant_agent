@@ -10,7 +10,7 @@ from pathlib import Path
 
 from assistant_agent.agent.loop import AgentLoop
 from assistant_agent.agent.prompts import build_system_prompt
-from assistant_agent.agent.recovery import RunCoordinator
+from assistant_agent.agent.run.coordinator import RunCoordinator
 from assistant_agent.config.loader import ConfigError, load_config
 from assistant_agent.config.paths import resolve_log_dir, resolve_run_dir, state_paths
 from assistant_agent.config.schema import AppConfig

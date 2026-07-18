@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
 
-from assistant_agent.agent.token_budget import estimate_message_tokens, estimate_tools_tokens
+from assistant_agent.agent.context.window import estimate_message_tokens, estimate_tools_tokens
 from assistant_agent.config.paths import project_skills_dir, user_skills_dir
 from assistant_agent.config.schema import AppConfig, MCPConfig, SkillsConfig, WebConfig
 from assistant_agent.contracts.errors import RuntimeDependencyError

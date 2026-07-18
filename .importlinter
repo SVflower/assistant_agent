@@ -24,13 +24,55 @@ forbidden_modules =
     assistant_agent.main
 
 [importlinter:contract:agent-does-not-depend-on-provider-adapters]
-name = Agent does not depend on provider adapters
+name = Agent does not depend on infrastructure or provider adapters
 type = forbidden
 source_modules =
     assistant_agent.agent
 forbidden_modules =
     assistant_agent.providers.litellm
     assistant_agent.llm
+    assistant_agent.runtime
+    assistant_agent.obs.logger
+    assistant_agent.session
+    assistant_agent.service
+    assistant_agent.ui
+    assistant_agent.cli
+
+[importlinter:contract:run-state-is-independent]
+name = Run state is independent from sibling behavior
+type = forbidden
+source_modules =
+    assistant_agent.agent.run.state
+forbidden_modules =
+    assistant_agent.agent.run.budgets
+    assistant_agent.agent.run.checkpoint
+    assistant_agent.agent.run.control
+    assistant_agent.agent.run.coordinator
+    assistant_agent.agent.run.recovery
+    assistant_agent.agent.run.resume
+
+[importlinter:contract:run-checkpoint-only-depends-on-state]
+name = Run checkpoint does not depend on state transition modules
+type = forbidden
+source_modules =
+    assistant_agent.agent.run.checkpoint
+forbidden_modules =
+    assistant_agent.agent.run.budgets
+    assistant_agent.agent.run.control
+    assistant_agent.agent.run.coordinator
+    assistant_agent.agent.run.recovery
+    assistant_agent.agent.run.resume
+
+[importlinter:contract:run-budget-and-recovery-do-not-depend-on-coordinator]
+name = Run budget and recovery policies do not depend on coordinator
+type = forbidden
+source_modules =
+    assistant_agent.agent.run.budgets
+    assistant_agent.agent.run.recovery
+forbidden_modules =
+    assistant_agent.agent.run.control
+    assistant_agent.agent.run.coordinator
+    assistant_agent.agent.run.resume
 
 [importlinter:contract:tool-core-does-not-depend-on-concrete-adapters]
 name = Tool ports and context do not depend on concrete adapters

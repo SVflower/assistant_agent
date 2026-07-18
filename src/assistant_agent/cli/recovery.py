@@ -8,8 +8,8 @@ from pathlib import Path
 
 import typer
 
-from assistant_agent.agent.recovery import RecoveryChoice, RunCoordinator
-from assistant_agent.agent.run_state import ToolCallState
+from assistant_agent.agent.run.coordinator import RecoveryChoice, RunCoordinator
+from assistant_agent.agent.run.state import ToolCallState
 from assistant_agent.cli.setup import build_runtime
 from assistant_agent.config.loader import ConfigError, load_config
 from assistant_agent.config.paths import resolve_run_dir

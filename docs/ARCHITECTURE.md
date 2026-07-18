@@ -32,7 +32,7 @@ bootstrap -> concrete providers / tools / integrations / execution / persistence
 ## 2. 当前迁移状态
 
 M19a 已建立契约基线和依赖护栏，M19b 已迁入稳定公共契约，M19c 已隔离 Provider 与
-Tool 端口。M19d-M19f 继续按依赖从内到外迁移。迁移期间旧路径仅作兼容转发，
+Tool 端口，M19d 已收敛 Agent Context/Run/Loop。M19e-M19f 继续向外迁移。旧路径仅作兼容转发，
 不允许形成双实现。
 完整迁移矩阵见 `docs/m19-architecture-reconstruction-plan.md`。
 
@@ -73,7 +73,7 @@ state <- ports
 state <- checkpoint
 state <- budgets
 state <- recovery
-{state, ports, checkpoint, budgets, recovery} <- coordinator <- agent/loop
+{state, ports, checkpoint, budgets, recovery} <- coordinator <- {resume, agent/loop}
 ```
 
 `checkpoint` 只负责编解码、迁移和 repository 调用；状态转换统一由 coordinator 维护。
@@ -103,12 +103,12 @@ state <- recovery
 
 ## 6. 复杂度基线
 
-Ruff C901 是循环检查而非立即重写指标。M19a 以当前最高复杂度 35 为非回退基线；M19d 完成
-Agent 核心收敛后按实测下调。高复杂度函数应结合状态不变量判断，不能为降低数字拆出隐式共享状态。
+Ruff C901 是循环检查而非机械拆分指标。M19a 的最高复杂度基线为 35；M19d 提取单轮模型流后
+已按实测收紧到 27。高复杂度函数应结合状态不变量判断，不能为降低数字拆出隐式共享状态。
 
 | 函数 | M19a 复杂度 | 处理阶段 |
 |---|---:|---|
-| `agent.loop.AgentLoop._drive` | 35 | M19d 复审 |
+| `agent.loop.AgentLoop._drive` | 35 -> 27 | 已提取 `agent/turn.py`，事件顺序不变 |
 | `ui.conversation_renderer.ConversationRenderer.render` | 23 | 本期不移动 UI，观察 |
 | `service.runtime.create_runtime` | 20 | M19e 装配收敛 |
 

@@ -7,9 +7,9 @@ from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
 
-from assistant_agent.agent.recovery import RecoveryChoice as LoopRecoveryChoice
-from assistant_agent.agent.recovery import RunCoordinator
-from assistant_agent.agent.run_state import ToolCallState, canonical_hash
+from assistant_agent.agent.run.coordinator import RecoveryChoice as LoopRecoveryChoice
+from assistant_agent.agent.run.coordinator import RunCoordinator
+from assistant_agent.agent.run.state import ToolCallState, canonical_hash
 from assistant_agent.config.loader import ConfigError, load_config
 from assistant_agent.config.paths import resolve_run_dir, state_paths
 from assistant_agent.contracts.capabilities import RuntimeCapabilities

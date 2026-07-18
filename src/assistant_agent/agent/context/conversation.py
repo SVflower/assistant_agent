@@ -10,14 +10,14 @@ from __future__ import annotations
 
 from typing import Any
 
-from assistant_agent.agent.prompts import build_system_prompt
-from assistant_agent.agent.token_budget import (
+from assistant_agent.agent.context.window import (
     DEFAULT_ESTIMATOR,
     ContextWindowError,
     TokenEstimator,
     estimate_message_tokens,
     truncate_text_to_tokens,
 )
+from assistant_agent.agent.prompts import build_system_prompt
 
 
 def _estimate_message_tokens(message: dict[str, Any]) -> int:
@@ -32,7 +32,7 @@ def estimate_tools_tokens(schemas: list[dict[str, Any]]) -> int:
     MCP 接入大量工具后会显著偏低。序列化成紧凑 JSON 后按字符数近似（与消息同口径）。
     空列表返回 0——保证"无工具"时预算与旧口径一致。
     """
-    from assistant_agent.agent.token_budget import estimate_tools_tokens as estimate
+    from assistant_agent.agent.context.window import estimate_tools_tokens as estimate
 
     return estimate(schemas)
 

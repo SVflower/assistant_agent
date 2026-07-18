@@ -6,32 +6,33 @@ import json
 from collections.abc import Callable, Iterator
 from typing import Any
 
-from assistant_agent.agent.compaction import Compactor
-from assistant_agent.agent.context import Conversation, estimate_tools_tokens
-from assistant_agent.agent.continuation import (
+from assistant_agent.agent.context.compaction import Compactor
+from assistant_agent.agent.context.conversation import Conversation, estimate_tools_tokens
+from assistant_agent.agent.context.window import ContextWindowError
+from assistant_agent.agent.failures import budget_failure
+from assistant_agent.agent.prompts import build_system_prompt
+from assistant_agent.agent.run.budgets import (
     BudgetContinueCheck,
     ContinuationController,
     budget_snapshot,
 )
-from assistant_agent.agent.execution import LoopCursor, execute_tool_batch
-from assistant_agent.agent.failures import budget_failure, provider_failure
-from assistant_agent.agent.loop_resume import resume_loop, sync_loop_state
-from assistant_agent.agent.prompts import build_system_prompt
-from assistant_agent.agent.recovery import RecoveryChoice, RunCoordinator
-from assistant_agent.agent.run_control import finish_control
-from assistant_agent.agent.run_state import ToolCallState
-from assistant_agent.agent.token_budget import ContextWindowError
+from assistant_agent.agent.run.control import finish_control
+from assistant_agent.agent.run.coordinator import RecoveryChoice, RunCoordinator
+from assistant_agent.agent.run.ports import ControlState, RunControlPort
+from assistant_agent.agent.run.resume import resume_loop, sync_loop_state
+from assistant_agent.agent.run.state import ToolCallState
+from assistant_agent.agent.tool_batch import LoopCursor, execute_tool_batch
+from assistant_agent.agent.turn import stream_model_turn
 from assistant_agent.config.schema import AppConfig
 from assistant_agent.contracts.events import StepEvent
 from assistant_agent.contracts.failures import (
     BudgetResource,
     RunFailure,
 )
-from assistant_agent.providers.ports import ModelProviderPort, ToolCall
-from assistant_agent.runtime import ControlState, RunControl
+from assistant_agent.providers.ports import ModelProviderPort
 from assistant_agent.tools.context import ToolContext
 from assistant_agent.tools.models import ToolBudget
-from assistant_agent.tools.registry import ToolRegistry
+from assistant_agent.tools.ports import ToolRegistryPort
 
 _REPEAT_LIMIT = 3
 RecoveryCheck = Callable[[ToolCallState], RecoveryChoice]
@@ -44,11 +45,11 @@ class AgentLoop:
         self,
         config: AppConfig,
         client: ModelProviderPort,
-        registry: ToolRegistry,
+        registry: ToolRegistryPort,
         tool_context: ToolContext,
         interactive: bool = True,
         interrupt_check: Callable[[], bool] | None = None,
-        run_control: RunControl | None = None,
+        run_control: RunControlPort | None = None,
         continue_check: Callable[[int], bool] | None = None,
         budget_continue_check: BudgetContinueCheck | None = None,
         system_prompt: str | None = None,
@@ -259,47 +260,21 @@ class AgentLoop:
                     budget=budget,
                 )
 
-            content_parts: list[str] = []
-            tool_calls: list[ToolCall] = []
-            stream_failure: RunFailure | None = None
-            interrupted = ControlState.RUNNING
             yield StepEvent(
                 kind="activity",
                 phase="calling_model",
                 budget=budget_snapshot(cursor, budget),
             )
-            for event in self._client.complete_stream(
-                messages=request_messages, tools=self._tool_schemas
-            ):
-                if event.kind == "reasoning":
-                    yield StepEvent(kind="reasoning", text=event.text)
-                elif event.kind == "content":
-                    content_parts.append(event.text)
-                    yield StepEvent(kind="content_delta", text=event.text)
-                elif event.kind == "tool_calls":
-                    tool_calls = event.tool_calls
-                elif event.kind == "usage":
-                    yield StepEvent(kind="usage", usage=event.usage)
-                elif event.kind == "error":
-                    if event.failure is not None:
-                        stream_failure = provider_failure(
-                            event.failure.code,
-                            event.failure.safe_message,
-                            event.failure.retryable,
-                        )
-                    else:
-                        stream_failure = RunFailure(
-                            code="internal_error",
-                            safe_message="模型调用失败。",
-                            allowed_actions=("retry_run", "stop"),
-                            phase="calling_model",
-                            terminal_status="failed",
-                        )
-                if self._interrupted():
-                    interrupted = self._control_state()
-                    break
-
-            content = "".join(content_parts)
+            turn = yield from stream_model_turn(
+                self._client,
+                messages=request_messages,
+                tools=self._tool_schemas,
+                control_state=self._control_state,
+            )
+            content = turn.content
+            tool_calls = turn.tool_calls
+            stream_failure = turn.failure
+            interrupted = turn.control_state
             if interrupted is not ControlState.RUNNING or stream_failure is not None:
                 if content:
                     self._conversation.add_assistant(content)

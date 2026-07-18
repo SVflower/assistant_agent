@@ -7,7 +7,7 @@ import re
 
 import pytest
 
-from assistant_agent.session.store import Session, SessionStore, new_session_id
+from assistant_agent.persistence.store import Session, SessionStore, new_session_id
 
 
 def _store(tmp_path) -> SessionStore:

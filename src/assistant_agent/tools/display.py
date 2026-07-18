@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 from assistant_agent.contracts.events import ToolDisplay, ToolPreview
-from assistant_agent.obs.redaction import redact_text, sanitize_for_display, truncate_text
+from assistant_agent.observability.redaction import redact_text, sanitize_for_display, truncate_text
 from assistant_agent.tools.models import ToolResult
 
 _CONTROL_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]|\x1b(?:\[[0-?]*[ -/]*[@-~])?")

@@ -11,7 +11,7 @@ from assistant_agent.agent.run.ports import ControlState
 from assistant_agent.agent.run.state import RunState
 from assistant_agent.agent.run_state import RunState as LegacyRunState
 from assistant_agent.agent.tool_batch import LoopCursor
-from assistant_agent.runtime import ControlState as RuntimeControlState
+from assistant_agent.execution import ControlState as RuntimeControlState
 
 
 def test_agent_legacy_paths_keep_type_identity():

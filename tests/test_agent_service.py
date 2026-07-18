@@ -14,13 +14,13 @@ from assistant_agent.interaction import (
     SafeDefaultInteractionPort,
 )
 from assistant_agent.llm.client import StreamEvent, ToolCall
+from assistant_agent.persistence.store import SessionStore
 from assistant_agent.service import (
     AgentService,
     RuntimeConfigError,
     SessionBusyError,
     SessionRunConflictError,
 )
-from assistant_agent.session.store import SessionStore
 from assistant_agent.tools.base import ToolBudget
 
 

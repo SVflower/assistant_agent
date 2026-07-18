@@ -9,9 +9,7 @@ from assistant_agent.config.paths import project_skills_dir, user_skills_dir
 from assistant_agent.config.schema import AppConfig, MCPConfig, SkillsConfig, WebConfig
 from assistant_agent.contracts.capabilities import RuntimeNotice
 from assistant_agent.contracts.errors import RuntimeDependencyError
-from assistant_agent.mcp import MCPManager, MCPRequiredServerError
-from assistant_agent.obs import NullLogger
-from assistant_agent.runtime import (
+from assistant_agent.execution import (
     BaseWorkspace,
     ConfinedWorkspace,
     ContainerWorkspace,
@@ -19,13 +17,15 @@ from assistant_agent.runtime import (
     ProcessSupervisor,
     RunControl,
 )
-from assistant_agent.skills import SkillSource, SkillStore
+from assistant_agent.integrations.mcp import MCPManager, MCPRequiredServerError
+from assistant_agent.integrations.skills import SkillSource, SkillStore
+from assistant_agent.integrations.web_access import WebClient
+from assistant_agent.observability import NullLogger
 from assistant_agent.tools.permissions import Capability, PermissionRule
 from assistant_agent.tools.policy import PermissionPolicy
 from assistant_agent.tools.registry import ToolRegistry
 from assistant_agent.tools.tool import Tool
 from assistant_agent.tools.web import FetchURLTool, WebSearchTool
-from assistant_agent.web import WebClient
 
 
 def discover_skills(

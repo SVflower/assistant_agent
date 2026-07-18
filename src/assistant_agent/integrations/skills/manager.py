@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Literal
 
 from assistant_agent.config.paths import project_skills_dir, user_skills_dir
-from assistant_agent.skills.store import _parse_skill_file
+from assistant_agent.integrations.skills.store import _parse_skill_file
 
 SkillScope = Literal["user", "project"]
 _MANIFEST = ".assistant-agent-install.json"

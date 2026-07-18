@@ -5,10 +5,10 @@ from __future__ import annotations
 from assistant_agent.agent.loop import AgentLoop
 from assistant_agent.cli.commands import ChatContext, build_default_slash_registry
 from assistant_agent.config.schema import AppConfig
+from assistant_agent.integrations.mcp.configure import MCPProbeResult, MCPService
+from assistant_agent.integrations.skills import SkillManager
 from assistant_agent.llm.client import StreamEvent
-from assistant_agent.mcp.configure import MCPProbeResult, MCPService
-from assistant_agent.session.store import SessionStore
-from assistant_agent.skills import SkillManager
+from assistant_agent.persistence.store import SessionStore
 from assistant_agent.tools.base import ToolContext
 from assistant_agent.tools.registry import build_default_registry
 

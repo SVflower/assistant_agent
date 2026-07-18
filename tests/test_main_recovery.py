@@ -8,9 +8,9 @@ from typer.testing import CliRunner
 
 from assistant_agent.agent.recovery import RunCoordinator
 from assistant_agent.main import app
+from assistant_agent.persistence.run_store import RunStore
+from assistant_agent.persistence.store import SessionStore
 from assistant_agent.service import sync_terminal_session
-from assistant_agent.session.run_store import RunStore
-from assistant_agent.session.store import SessionStore
 from assistant_agent.tools.base import ToolBudget
 
 

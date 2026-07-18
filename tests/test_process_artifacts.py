@@ -9,7 +9,7 @@ import sys
 import time
 from pathlib import Path
 
-from assistant_agent.tools.artifacts import ArtifactStore
+from assistant_agent.persistence.artifacts import ArtifactStore
 from assistant_agent.tools.base import ToolContext
 from assistant_agent.tools.process import run_bounded_process
 from assistant_agent.tools.shell import ShellTool

@@ -8,15 +8,15 @@ import httpx
 import pytest
 
 from assistant_agent.config.schema import WebConfig
-from assistant_agent.runtime import RunControl
+from assistant_agent.execution import RunControl
+from assistant_agent.integrations.web_access.backends import DuckDuckGoBackend, SearxngBackend
+from assistant_agent.integrations.web_access.client import WebClient, WebError
+from assistant_agent.integrations.web_access.extract import extract_html_text
+from assistant_agent.integrations.web_access.security import URLPolicyError, validate_public_url
 from assistant_agent.tools.base import ToolContext
 from assistant_agent.tools.permissions import Capability
 from assistant_agent.tools.registry import ToolRegistry
 from assistant_agent.tools.web import FetchURLTool, WebSearchTool
-from assistant_agent.web.backends import DuckDuckGoBackend, SearxngBackend
-from assistant_agent.web.client import WebClient, WebError
-from assistant_agent.web.extract import extract_html_text
-from assistant_agent.web.security import URLPolicyError, validate_public_url
 
 PUBLIC_IP = "93.184.216.34"
 

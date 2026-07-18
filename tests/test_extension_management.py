@@ -10,9 +10,9 @@ from assistant_agent.config.loader import load_config
 from assistant_agent.config.paths import state_paths
 from assistant_agent.config.schema import MCPServerConfig
 from assistant_agent.config.writer import ConfigWriteError, MCPConfigStore
-from assistant_agent.mcp.configure import MCPConfigureError, MCPProbeResult, MCPService
-from assistant_agent.skills.manager import SkillInstallError, SkillManager
-from assistant_agent.skills.store import SkillStore
+from assistant_agent.integrations.mcp.configure import MCPConfigureError, MCPProbeResult, MCPService
+from assistant_agent.integrations.skills.manager import SkillInstallError, SkillManager
+from assistant_agent.integrations.skills.store import SkillStore
 from assistant_agent.tools.base import ToolContext
 from assistant_agent.tools.extensions import ConfigureMCPServerTool, ManageSkillTool
 from assistant_agent.tools.permissions import Capability

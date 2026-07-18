@@ -8,9 +8,9 @@ import shutil
 import uuid
 from pathlib import Path
 
-from assistant_agent.runtime.control import RunControl
-from assistant_agent.runtime.process import BoundedProcessResult, ProcessSupervisor
-from assistant_agent.runtime.workspace import ConfinedWorkspace, WorkspaceError
+from assistant_agent.execution.control import RunControl
+from assistant_agent.execution.process import BoundedProcessResult, ProcessSupervisor
+from assistant_agent.execution.workspace import ConfinedWorkspace, WorkspaceError
 
 _CONTAINER_ROOT = "/workspace"
 

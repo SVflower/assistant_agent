@@ -8,7 +8,7 @@ from contextlib import AsyncExitStack
 from pathlib import Path
 
 from assistant_agent.config.schema import MCPServerConfig
-from assistant_agent.mcp.discovery import _sanitize
+from assistant_agent.integrations.mcp.discovery import _sanitize
 
 _ENV_REF = re.compile(r"\$\{([^}]+)\}")
 _BASE_ENV_KEYS = {

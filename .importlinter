@@ -22,6 +22,13 @@ forbidden_modules =
     assistant_agent.ui
     assistant_agent.web
     assistant_agent.main
+    assistant_agent.application
+    assistant_agent.bootstrap
+    assistant_agent.execution
+    assistant_agent.integrations
+    assistant_agent.observability
+    assistant_agent.persistence
+    assistant_agent.providers
 
 [importlinter:contract:agent-does-not-depend-on-provider-adapters]
 name = Agent does not depend on infrastructure or provider adapters
@@ -37,6 +44,10 @@ forbidden_modules =
     assistant_agent.service
     assistant_agent.ui
     assistant_agent.cli
+    assistant_agent.execution
+    assistant_agent.observability.logger
+    assistant_agent.persistence
+    assistant_agent.integrations
 
 [importlinter:contract:run-state-is-independent]
 name = Run state is independent from sibling behavior
@@ -84,6 +95,9 @@ forbidden_modules =
     assistant_agent.obs.logger
     assistant_agent.runtime
     assistant_agent.tools.artifacts
+    assistant_agent.observability.logger
+    assistant_agent.execution
+    assistant_agent.persistence.artifacts
 
 [importlinter:contract:application-does-not-depend-on-adapters]
 name = Application does not depend on concrete adapters
@@ -104,6 +118,54 @@ forbidden_modules =
     assistant_agent.obs
     assistant_agent.service
     assistant_agent.cli
+    assistant_agent.ui
+
+[importlinter:contract:execution-is-independent]
+name = Execution adapter is independent from other infrastructure
+type = forbidden
+source_modules =
+    assistant_agent.execution
+forbidden_modules =
+    assistant_agent.bootstrap
+    assistant_agent.integrations
+    assistant_agent.observability
+    assistant_agent.persistence
+    assistant_agent.service
+
+[importlinter:contract:persistence-is-independent]
+name = Persistence adapter is independent from other infrastructure
+type = forbidden
+source_modules =
+    assistant_agent.persistence
+forbidden_modules =
+    assistant_agent.bootstrap
+    assistant_agent.execution
+    assistant_agent.integrations
+    assistant_agent.observability
+    assistant_agent.service
+
+[importlinter:contract:observability-is-independent]
+name = Observability adapter is independent from other infrastructure
+type = forbidden
+source_modules =
+    assistant_agent.observability
+forbidden_modules =
+    assistant_agent.bootstrap
+    assistant_agent.execution
+    assistant_agent.integrations
+    assistant_agent.persistence
+    assistant_agent.service
+
+[importlinter:contract:integrations-do-not-own-use-cases]
+name = Integrations do not own application or composition
+type = forbidden
+source_modules =
+    assistant_agent.integrations
+forbidden_modules =
+    assistant_agent.application
+    assistant_agent.bootstrap
+    assistant_agent.cli
+    assistant_agent.service
     assistant_agent.ui
 
 [importlinter:contract:service-is-only-a-public-facade]

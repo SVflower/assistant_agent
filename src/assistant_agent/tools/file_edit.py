@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from assistant_agent.runtime import WorkspaceError
+from assistant_agent.execution import WorkspaceError
 from assistant_agent.tools.context import ToolContext
 from assistant_agent.tools.file_io import (
     adapt_newlines,

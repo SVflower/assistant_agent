@@ -8,7 +8,7 @@ import subprocess
 import pytest
 
 from assistant_agent.config.schema import SandboxConfig
-from assistant_agent.runtime import (
+from assistant_agent.execution import (
     BoundedProcessResult,
     CapturedStream,
     ContainerWorkspace,
@@ -16,7 +16,7 @@ from assistant_agent.runtime import (
     TerminationReason,
     WorkspaceError,
 )
-from assistant_agent.runtime.container_workspace import _resolve_user
+from assistant_agent.execution.container_workspace import _resolve_user
 
 
 def _result(
@@ -200,7 +200,7 @@ def test_real_docker_lifecycle_when_engine_and_image_are_available(tmp_path):
     if inspected.returncode != 0:
         pytest.skip(f"本地没有测试镜像 {image}")
 
-    from assistant_agent.runtime import ProcessSupervisor
+    from assistant_agent.execution import ProcessSupervisor
 
     workspace = ContainerWorkspace(
         tmp_path,

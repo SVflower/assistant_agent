@@ -13,9 +13,9 @@ from pathlib import Path
 from assistant_agent.config.paths import managed_mcp_dir, state_paths, workspace_id
 from assistant_agent.config.schema import MCPConfig, MCPServerConfig
 from assistant_agent.config.writer import ConfigScope, MCPConfigStore
-from assistant_agent.mcp.manager import MCPManager
-from assistant_agent.mcp.status import MCPRequiredServerError
-from assistant_agent.obs import NullLogger
+from assistant_agent.integrations.mcp.manager import MCPManager
+from assistant_agent.integrations.mcp.status import MCPRequiredServerError
+from assistant_agent.observability import NullLogger
 
 _ENV_REFERENCE = re.compile(r"^(?:[^$]*\$\{[A-Za-z_][A-Za-z0-9_]*\}[^$]*)+$")
 _SECRET_LIKE = re.compile(r"(?i)(?:sk-[a-z0-9_-]{12,}|gh[ps]_[a-z0-9]{12,}|bearer\s+[^$\s]+)")

@@ -8,8 +8,8 @@ from typing import Protocol, cast
 
 from assistant_agent.config.schema import MCPServerConfig
 from assistant_agent.config.writer import ConfigScope, ConfigWriteError
-from assistant_agent.mcp import MCPConfigureError, MCPService
-from assistant_agent.skills import SkillInstallError, SkillManager
+from assistant_agent.integrations.mcp import MCPConfigureError, MCPService
+from assistant_agent.integrations.skills import SkillInstallError, SkillManager
 from assistant_agent.ui.console import Console
 
 

@@ -20,9 +20,9 @@ from assistant_agent.cli.recovery import resume_command, runs_command
 from assistant_agent.cli.setup import build_runtime
 from assistant_agent.config.loader import ConfigError, load_config
 from assistant_agent.contracts.events import StepEvent
-from assistant_agent.runtime import RunControl
+from assistant_agent.execution import RunControl
+from assistant_agent.persistence.store import SessionStore
 from assistant_agent.service import SessionRuntime
-from assistant_agent.session.store import SessionStore
 from assistant_agent.ui.console import Console
 
 app = typer.Typer(

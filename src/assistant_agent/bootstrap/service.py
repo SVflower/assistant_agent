@@ -13,8 +13,8 @@ from assistant_agent.config.loader import ConfigError, load_config
 from assistant_agent.config.paths import resolve_run_dir, state_paths
 from assistant_agent.contracts.errors import RuntimeConfigError
 from assistant_agent.contracts.interactions import InteractionPort
-from assistant_agent.session.run_store import RunStore
-from assistant_agent.session.store import SessionStore
+from assistant_agent.persistence.run_store import RunStore
+from assistant_agent.persistence.store import SessionStore
 
 
 @dataclass(frozen=True)

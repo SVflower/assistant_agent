@@ -7,7 +7,7 @@ from collections.abc import Callable
 from typing import Any
 
 from assistant_agent.config.schema import MCPConfig, MCPServerConfig
-from assistant_agent.mcp.tool import MCPTool
+from assistant_agent.integrations.mcp.tool import MCPTool
 from assistant_agent.tools.validation import ToolSchemaError, build_validator
 
 _NAME_SANITIZE = re.compile(r"[^a-zA-Z0-9_]")

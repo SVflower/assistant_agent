@@ -18,21 +18,21 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from assistant_agent.mcp.discovery import build_discovered_tools
-from assistant_agent.mcp.status import (
+from assistant_agent.execution import RunControl, RunInterrupted
+from assistant_agent.integrations.mcp.discovery import build_discovered_tools
+from assistant_agent.integrations.mcp.status import (
     MCPRequiredServerError,
     MCPServerStatus,
     startup_failure_status,
 )
-from assistant_agent.mcp.tool import MCPTool
-from assistant_agent.mcp.transport import (
+from assistant_agent.integrations.mcp.tool import MCPTool
+from assistant_agent.integrations.mcp.transport import (
     open_transport,
 )
-from assistant_agent.runtime import RunControl, RunInterrupted
 
 if TYPE_CHECKING:
     from assistant_agent.config.schema import MCPConfig, MCPServerConfig
-    from assistant_agent.obs import NullLogger
+    from assistant_agent.observability import NullLogger
 
 
 @dataclass

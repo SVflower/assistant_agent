@@ -8,7 +8,7 @@ import sys
 
 import pytest
 
-from assistant_agent.runtime import (
+from assistant_agent.execution import (
     ConfinedWorkspace,
     HostWorkspace,
     ProcessSupervisor,

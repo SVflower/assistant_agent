@@ -15,7 +15,7 @@ from assistant_agent.tools.permissions import Capability, PermissionRequest
 from assistant_agent.tools.tool import Tool
 
 if TYPE_CHECKING:
-    from assistant_agent.skills.store import SkillStore
+    from assistant_agent.integrations.skills.store import SkillStore
 
 
 class LoadSkillTool(Tool):

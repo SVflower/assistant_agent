@@ -10,12 +10,12 @@ import typer
 from assistant_agent.bootstrap import runtime as service_runtime
 from assistant_agent.cli import setup
 from assistant_agent.config.schema import AppConfig
+from assistant_agent.integrations.skills import SkillStore
 from assistant_agent.interaction import SafeDefaultInteractionPort
-from assistant_agent.obs import NullLogger
+from assistant_agent.observability import NullLogger
+from assistant_agent.persistence.run_store import RunStore
+from assistant_agent.persistence.store import SessionStore
 from assistant_agent.service.runtime import AgentRuntime
-from assistant_agent.session.run_store import RunStore
-from assistant_agent.session.store import SessionStore
-from assistant_agent.skills import SkillStore
 from assistant_agent.tools.base import ToolContext
 
 

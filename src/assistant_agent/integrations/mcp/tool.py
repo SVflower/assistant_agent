@@ -15,8 +15,8 @@ import json
 from collections.abc import Callable
 from typing import Any
 
-from assistant_agent.obs import sanitize_for_display
-from assistant_agent.runtime import RunInterrupted
+from assistant_agent.execution import RunInterrupted
+from assistant_agent.observability import sanitize_for_display
 from assistant_agent.tools.context import ToolContext
 from assistant_agent.tools.models import ToolResult
 from assistant_agent.tools.permissions import Capability, PermissionRequest, PermissionScope

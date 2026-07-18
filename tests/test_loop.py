@@ -8,7 +8,7 @@ from assistant_agent.agent.failures import ContinuationResult
 from assistant_agent.agent.loop import AgentLoop
 from assistant_agent.config.schema import AppConfig
 from assistant_agent.llm.client import StreamEvent, ToolCall
-from assistant_agent.obs import NullLogger
+from assistant_agent.observability import NullLogger
 from assistant_agent.tools.base import Tool, ToolContext, ToolResult
 from assistant_agent.tools.registry import ToolRegistry, build_default_registry
 

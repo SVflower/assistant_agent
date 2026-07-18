@@ -10,9 +10,9 @@ import threading
 import time
 
 from assistant_agent.config.schema import MCPConfig
+from assistant_agent.execution import ControlState, ProcessSupervisor, RunControl, RunInterrupted
+from assistant_agent.integrations.mcp.manager import MCPManager
 from assistant_agent.main import _interruptible, _run_control
-from assistant_agent.mcp.manager import MCPManager
-from assistant_agent.runtime import ControlState, ProcessSupervisor, RunControl, RunInterrupted
 
 
 def test_run_control_only_upgrades_and_resets():

@@ -6,7 +6,7 @@ import json
 import time
 from pathlib import Path
 
-from assistant_agent.obs import EventLogger, NullLogger
+from assistant_agent.observability import EventLogger, NullLogger
 from assistant_agent.tools.base import Tool, ToolBudget, ToolContext, ToolResult
 from assistant_agent.tools.registry import ToolRegistry, build_default_registry
 

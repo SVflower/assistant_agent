@@ -10,7 +10,7 @@ import httpx
 
 if TYPE_CHECKING:
     from assistant_agent.config.schema import WebConfig
-    from assistant_agent.web.client import SearchResult
+    from assistant_agent.integrations.web_access.client import SearchResult
 
 
 class SearchBackend(Protocol):
@@ -61,7 +61,7 @@ class DuckDuckGoBackend:
         self._client = client
 
     def search(self, query: str, max_results: int, freshness: str | None) -> list[SearchResult]:
-        from assistant_agent.web.client import SearchResult
+        from assistant_agent.integrations.web_access.client import SearchResult
 
         data = {"q": query}
         if freshness:
@@ -95,7 +95,7 @@ class SearxngBackend:
         self.network_target = urlparse(endpoint).hostname or "searxng"
 
     def search(self, query: str, max_results: int, freshness: str | None) -> list[SearchResult]:
-        from assistant_agent.web.client import SearchResult
+        from assistant_agent.integrations.web_access.client import SearchResult
 
         params: dict[str, Any] = {"q": query, "format": "json"}
         if freshness:

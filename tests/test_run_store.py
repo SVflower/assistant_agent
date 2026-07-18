@@ -6,7 +6,7 @@ import json
 
 import pytest
 
-from assistant_agent.session.run_store import RunStore
+from assistant_agent.persistence.run_store import RunStore
 
 
 def _document(run_id: str, *, updated: str = "1", status: str = "running") -> dict:
@@ -114,7 +114,7 @@ def test_save_after_fallback_does_not_rotate_corrupt_current(tmp_path, monkeypat
             raise OSError("replace failed")
         return real_replace(source, target)
 
-    monkeypatch.setattr("assistant_agent.session.run_store.os.replace", fail_new_current)
+    monkeypatch.setattr("assistant_agent.persistence.run_store.os.replace", fail_new_current)
     with pytest.raises(OSError, match="replace failed"):
         store.save("run-1", _document("run-1", updated="3"))
 

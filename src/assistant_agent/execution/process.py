@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import IO
 
-from assistant_agent.runtime.control import RunControl
+from assistant_agent.execution.control import RunControl
 
 
 class TerminationReason(StrEnum):
@@ -158,7 +158,7 @@ class ProcessSupervisor:
         managed = _ManagedProcess(process)
         try:
             if os.name == "nt":
-                from assistant_agent.runtime.process_windows import WindowsJob
+                from assistant_agent.execution.process_windows import WindowsJob
 
                 managed.job = WindowsJob(process)
         except BaseException:

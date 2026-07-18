@@ -6,11 +6,11 @@ from typing import Any
 
 def __getattr__(name: str) -> Any:
     modules = {
-        "EventLogger": "assistant_agent.obs.logger",
-        "NullLogger": "assistant_agent.obs.logger",
-        "create_logger": "assistant_agent.obs.logger",
-        "new_trace_id": "assistant_agent.obs.logger",
-        "sanitize_for_display": "assistant_agent.obs.redaction",
+        "EventLogger": "assistant_agent.observability.logger",
+        "NullLogger": "assistant_agent.observability.logger",
+        "create_logger": "assistant_agent.observability.logger",
+        "new_trace_id": "assistant_agent.observability.logger",
+        "sanitize_for_display": "assistant_agent.observability.redaction",
     }
     module = modules.get(name)
     if module is not None:

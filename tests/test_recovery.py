@@ -7,7 +7,7 @@ import pytest
 from assistant_agent.agent.recovery import RunCoordinator
 from assistant_agent.agent.run_state import PermissionGrantState
 from assistant_agent.llm.client import ToolCall
-from assistant_agent.session.run_store import RunStore
+from assistant_agent.persistence.run_store import RunStore
 from assistant_agent.tools.base import ToolBudget, ToolContext, ToolResult
 from assistant_agent.tools.permissions import Capability, PermissionRequest, PermissionScope
 

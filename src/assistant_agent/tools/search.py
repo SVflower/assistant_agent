@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from assistant_agent.runtime import WorkspaceError
+from assistant_agent.execution import WorkspaceError
 from assistant_agent.tools.context import ToolContext
 from assistant_agent.tools.models import ToolResult
 from assistant_agent.tools.permissions import Capability, PermissionRequest

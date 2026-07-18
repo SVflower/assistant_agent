@@ -36,18 +36,18 @@ from assistant_agent.contracts.errors import (
 )
 from assistant_agent.contracts.failures import ContinuationPrompt, ContinuationResult
 from assistant_agent.contracts.interactions import ContinueRequest, InteractionPort
-from assistant_agent.mcp import MCPManager, MCPService
-from assistant_agent.obs import create_logger, new_trace_id, sanitize_for_display
+from assistant_agent.execution import BaseWorkspace, ProcessSupervisor, RunControl
+from assistant_agent.integrations.mcp import MCPManager, MCPService
+from assistant_agent.integrations.skills import LoadSkillTool, SkillManager
+from assistant_agent.integrations.web_access import WebClient
+from assistant_agent.observability import create_logger, new_trace_id, sanitize_for_display
+from assistant_agent.persistence.artifacts import ArtifactStore
+from assistant_agent.persistence.run_store import RunStore
+from assistant_agent.persistence.store import SessionStore
 from assistant_agent.providers.litellm import LLMClient
-from assistant_agent.runtime import BaseWorkspace, ProcessSupervisor, RunControl
-from assistant_agent.session.run_store import RunStore
-from assistant_agent.session.store import SessionStore
-from assistant_agent.skills import LoadSkillTool, SkillManager
-from assistant_agent.tools.artifacts import ArtifactStore
 from assistant_agent.tools.context import ToolContext
 from assistant_agent.tools.extensions import ConfigureMCPServerTool, ManageSkillTool
 from assistant_agent.tools.registry import build_default_registry
-from assistant_agent.web import WebClient
 
 
 def create_runtime(

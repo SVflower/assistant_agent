@@ -14,8 +14,8 @@ from assistant_agent.cli.setup import build_runtime
 from assistant_agent.config.loader import find_config_file
 from assistant_agent.contracts.errors import RuntimeConfigError, SessionRunConflictError
 from assistant_agent.contracts.events import StepEvent
+from assistant_agent.execution import RunControl
 from assistant_agent.interaction import SafeDefaultInteractionPort
-from assistant_agent.runtime import RunControl
 from assistant_agent.service import AgentService, SessionRuntime
 from assistant_agent.ui.console import Console
 

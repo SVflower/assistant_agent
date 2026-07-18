@@ -33,8 +33,7 @@ bootstrap -> concrete providers / tools / integrations / execution / persistence
 
 M19a 已建立契约基线和依赖护栏，M19b 已迁入稳定公共契约，M19c 已隔离 Provider 与
 Tool 端口，M19d 已收敛 Agent Context/Run/Loop，M19e 已分离 Application、Bootstrap 与 Service。
-M19f 继续迁移基础设施与集成包。旧路径仅作兼容转发，
-不允许形成双实现。
+M19f 已将基础设施与集成实现迁入目标包。旧路径仅作兼容转发，不允许形成双实现。
 完整迁移矩阵见 `docs/m19-architecture-reconstruction-plan.md`。
 
 目标所有权：

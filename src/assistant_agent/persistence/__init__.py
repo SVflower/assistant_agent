@@ -1,6 +1,6 @@
 """会话持久化层。"""
 
-from assistant_agent.session.store import (
+from assistant_agent.persistence.store import (
     Session,
     SessionMeta,
     SessionStore,

@@ -5,8 +5,8 @@ from __future__ import annotations
 from pathlib import Path
 
 from assistant_agent.agent.prompts import build_system_prompt
-from assistant_agent.skills.store import SkillStore, _split_frontmatter
-from assistant_agent.skills.tool import LoadSkillTool
+from assistant_agent.integrations.skills.store import SkillStore, _split_frontmatter
+from assistant_agent.integrations.skills.tool import LoadSkillTool
 from assistant_agent.tools.base import ToolContext
 from assistant_agent.tools.registry import ToolRegistry
 

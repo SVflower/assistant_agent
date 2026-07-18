@@ -9,12 +9,12 @@ from typing import Any
 import pytest
 
 from assistant_agent.config.schema import MCPConfig, MCPServerConfig, MCPToolPolicyConfig
-from assistant_agent.mcp import MCPManager, MCPTool, extract_content
-from assistant_agent.mcp.discovery import _sanitize
-from assistant_agent.mcp.manager import _Server
-from assistant_agent.mcp.tool import extract_result
-from assistant_agent.mcp.transport import _interpolate_env, _managed_args, _minimal_env
-from assistant_agent.obs import NullLogger
+from assistant_agent.integrations.mcp import MCPManager, MCPTool, extract_content
+from assistant_agent.integrations.mcp.discovery import _sanitize
+from assistant_agent.integrations.mcp.manager import _Server
+from assistant_agent.integrations.mcp.tool import extract_result
+from assistant_agent.integrations.mcp.transport import _interpolate_env, _managed_args, _minimal_env
+from assistant_agent.observability import NullLogger
 from assistant_agent.tools.base import ToolContext
 from assistant_agent.tools.permissions import Capability
 from assistant_agent.tools.registry import ToolRegistry
@@ -346,7 +346,7 @@ def test_interpolate_env(monkeypatch):
 # ---- manager 发现/过滤/命名空间（fake session）----
 def _mgr(servers: dict, **mcp_kw) -> MCPManager:
     cfg = MCPConfig(servers=servers, **mcp_kw)
-    from assistant_agent.obs import NullLogger
+    from assistant_agent.observability import NullLogger
 
     return MCPManager(cfg, NullLogger())
 

@@ -9,10 +9,10 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, cast
 
-from assistant_agent.obs import NullLogger
-from assistant_agent.obs.redaction import sanitize_for_display
-from assistant_agent.runtime import HostWorkspace, ProcessSupervisor, RunControl
-from assistant_agent.tools.artifacts import ArtifactStore
+from assistant_agent.execution import HostWorkspace, ProcessSupervisor, RunControl
+from assistant_agent.observability import NullLogger
+from assistant_agent.observability.redaction import sanitize_for_display
+from assistant_agent.persistence.artifacts import ArtifactStore
 from assistant_agent.tools.context import (
     NO_USER_AVAILABLE,
     ConfirmChoice,

@@ -9,9 +9,9 @@ from urllib.parse import urljoin, urlparse
 
 import httpx
 
-from assistant_agent.runtime import RunControl
-from assistant_agent.web.extract import extract_html_text
-from assistant_agent.web.security import (
+from assistant_agent.execution import RunControl
+from assistant_agent.integrations.web_access.extract import extract_html_text
+from assistant_agent.integrations.web_access.security import (
     Resolver,
     URLPolicyError,
     system_resolver,
@@ -20,7 +20,7 @@ from assistant_agent.web.security import (
 
 if TYPE_CHECKING:
     from assistant_agent.config.schema import WebConfig
-    from assistant_agent.web.backends import SearchBackend
+    from assistant_agent.integrations.web_access.backends import SearchBackend
 
 _REDIRECTS = {301, 302, 303, 307, 308}
 _TEXT_TYPES = ("text/", "application/json", "application/xml", "application/xhtml+xml")
@@ -65,7 +65,7 @@ class WebClient:
         resolver: Resolver = system_resolver,
         run_control: RunControl | None = None,
     ) -> None:
-        from assistant_agent.web.backends import build_search_backend
+        from assistant_agent.integrations.web_access.backends import build_search_backend
 
         self.config = config
         self._http = http_client or httpx.Client(timeout=config.request_timeout)

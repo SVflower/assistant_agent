@@ -9,8 +9,8 @@ from pydantic import ValidationError
 
 from assistant_agent.config.schema import MCPServerConfig
 from assistant_agent.config.writer import ConfigScope, ConfigWriteError
-from assistant_agent.mcp.configure import MCPConfigureError, MCPService
-from assistant_agent.skills.manager import SkillInstallError, SkillManager, SkillScope
+from assistant_agent.integrations.mcp.configure import MCPConfigureError, MCPService
+from assistant_agent.integrations.skills.manager import SkillInstallError, SkillManager, SkillScope
 from assistant_agent.tools.context import ToolContext
 from assistant_agent.tools.display import ToolDisplay, safe_text
 from assistant_agent.tools.models import ToolResult

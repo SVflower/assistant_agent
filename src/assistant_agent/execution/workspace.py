@@ -5,8 +5,8 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from pathlib import Path
 
-from assistant_agent.runtime.control import RunControl
-from assistant_agent.runtime.process import BoundedProcessResult, ProcessSupervisor
+from assistant_agent.execution.control import RunControl
+from assistant_agent.execution.process import BoundedProcessResult, ProcessSupervisor
 
 
 class WorkspaceError(RuntimeError):

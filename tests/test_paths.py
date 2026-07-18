@@ -15,9 +15,9 @@ from assistant_agent.config.paths import (
     workspace_id,
 )
 from assistant_agent.config.schema import SkillsConfig
+from assistant_agent.persistence.run_store import RunStore
+from assistant_agent.persistence.store import SessionStore
 from assistant_agent.service._runtime_builders import discover_skills
-from assistant_agent.session.run_store import RunStore
-from assistant_agent.session.store import SessionStore
 
 
 def _write_skill(base: Path, name: str, description: str) -> None:

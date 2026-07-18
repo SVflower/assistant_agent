@@ -9,9 +9,9 @@ from contextlib import AsyncExitStack
 import pytest
 
 from assistant_agent.config.schema import MCPConfig, MCPServerConfig
-from assistant_agent.mcp.manager import MCPManager, _Server, _StartupResult
-from assistant_agent.mcp.status import MCPRequiredServerError
-from assistant_agent.obs import NullLogger
+from assistant_agent.integrations.mcp.manager import MCPManager, _Server, _StartupResult
+from assistant_agent.integrations.mcp.status import MCPRequiredServerError
+from assistant_agent.observability import NullLogger
 
 
 class _Tool:

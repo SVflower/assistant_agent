@@ -126,7 +126,7 @@ def test_export_history_stays_full_after_checkpoint():
 # ---- loop 集成 + 持久化 + 兜底 ----
 from assistant_agent.agent.loop import AgentLoop  # noqa: E402
 from assistant_agent.config.schema import AppConfig  # noqa: E402
-from assistant_agent.session.store import SessionStore  # noqa: E402
+from assistant_agent.persistence.store import SessionStore  # noqa: E402
 from assistant_agent.tools.base import ToolContext  # noqa: E402
 from assistant_agent.tools.registry import ToolRegistry  # noqa: E402
 

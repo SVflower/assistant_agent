@@ -1,6 +1,6 @@
 # M19 项目架构重建方案
 
-> 状态：已确认，实施中（M19a-M19e 已完成）。用户已授权 M19d 修改 `agent/loop.py`。
+> 状态：已确认，实施中（M19a-M19f 已完成）。用户已授权 M19d 修改 `agent/loop.py`。
 > 版本：v3（2026-07-19，吸收外部评审并完成实施可行性复审，替代 v2）。核心决策：
 > ①砍掉低价值 churn——builtin 工具聚类、`ui/` 合并、测试四象限重排全部出局；
 > ②`service/` 收敛为纯 re-export，允许转发 bootstrap composition root，但自身零逻辑；
@@ -490,6 +490,14 @@ Tool Interaction 脱敏改为由 composition root 注入，核心默认过度脱
 - 启用对应 independence/forbidden contracts，删除旧路径内部实现。
 
 验收：MCP optional/required、Skill、Web、安全执行、Session/Run Store、Artifact 和日志测试全绿。
+
+实施记录（2026-07-19）：宿主执行、持久化、日志与外部集成实现已分别迁至 `execution/`、
+`persistence/`、`observability/` 和 `integrations/{mcp,skills,web_access}/`，ArtifactStore 归入
+`persistence/`。源码和主体测试只使用新路径；旧 `runtime/session/obs/mcp/skills/web` 及
+`tools.artifacts` 保留 identity-compatible 薄别名并由独立 contract 测试覆盖。新增 execution、
+persistence、observability 独立性及 integrations 不拥有用例的护栏，import-linter 12/12 通过；
+全量 606 passed / 5 skipped，Ruff、mypy 全绿。公共 Service DTO、StepEvent v1、checkpoint v3、
+Session/Run 生命周期和 CLI 行为无变化。
 
 ### M19g：兼容层、文档与契约收尾
 

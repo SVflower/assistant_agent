@@ -19,7 +19,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from assistant_agent.obs.redaction import redact_text, sanitize_args, truncate_text
+from assistant_agent.observability.redaction import redact_text, sanitize_args, truncate_text
 
 if TYPE_CHECKING:
     from assistant_agent.config.schema import LoggingConfig

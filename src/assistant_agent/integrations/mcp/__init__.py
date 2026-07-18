@@ -4,10 +4,10 @@
 本层只依赖 tools/base 与官方 mcp 包，不依赖 agent/ui/cli/config。
 """
 
-from assistant_agent.mcp.configure import MCPConfigureError, MCPProbeResult, MCPService
-from assistant_agent.mcp.manager import MCPManager
-from assistant_agent.mcp.status import MCPRequiredServerError, MCPServerStatus
-from assistant_agent.mcp.tool import MCPTool, extract_content
+from assistant_agent.integrations.mcp.configure import MCPConfigureError, MCPProbeResult, MCPService
+from assistant_agent.integrations.mcp.manager import MCPManager
+from assistant_agent.integrations.mcp.status import MCPRequiredServerError, MCPServerStatus
+from assistant_agent.integrations.mcp.tool import MCPTool, extract_content
 
 __all__ = [
     "MCPConfigureError",

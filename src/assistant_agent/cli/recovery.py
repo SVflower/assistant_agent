@@ -8,45 +8,36 @@ from pathlib import Path
 
 import typer
 
-from assistant_agent.agent.run.coordinator import RecoveryChoice, RunCoordinator
-from assistant_agent.agent.run.state import ToolCallState
+from assistant_agent.application.models import Session
+from assistant_agent.application.runs import resume_standalone_run
 from assistant_agent.cli.setup import build_runtime
-from assistant_agent.config.loader import ConfigError, load_config
-from assistant_agent.config.paths import resolve_run_dir
+from assistant_agent.config.loader import find_config_file
+from assistant_agent.contracts.errors import RuntimeConfigError, SessionRunConflictError
 from assistant_agent.contracts.events import StepEvent
 from assistant_agent.interaction import SafeDefaultInteractionPort
-from assistant_agent.obs import sanitize_for_display
 from assistant_agent.runtime import RunControl
-from assistant_agent.service.sessions import SessionRuntime, sync_terminal_session
-from assistant_agent.session.run_store import RunStore
-from assistant_agent.session.store import Session
+from assistant_agent.service import AgentService, SessionRuntime
 from assistant_agent.ui.console import Console
 
 StreamRenderer = Callable[[Console, Iterator[StepEvent]], None]
 
 
-def recovery_choice(console: Console, call: ToolCallState) -> RecoveryChoice:
-    args = sanitize_for_display(call.arguments)
-    answer = console.ask_question(
-        f"工具 {call.name}（call_id={call.id}）执行结果未知。参数：{args}",
-        ["retry（可能重复副作用）", "skip（注入跳过结果）", "abort（保持暂停）"],
-    )
-    if answer.startswith("retry"):
-        return "retry"
-    if answer.startswith("skip"):
-        return "skip"
-    return "abort"
+def _build_service(config: Path | None, console: Console) -> AgentService:
+    resolved = Path(config).expanduser().resolve() if config else find_config_file()
+    if resolved is None:
+        console.error("未找到 config.yaml。请复制 config.example.yaml 为 config.yaml 并填写。")
+        raise typer.Exit(code=1)
+    try:
+        return AgentService(config_path=resolved, workspace_root=Path.cwd())
+    except RuntimeConfigError as exc:
+        console.error(str(exc))
+        raise typer.Exit(code=1) from exc
 
 
 def runs_command(config: Path | None, delete: str | None) -> None:
     console = Console()
-    try:
-        cfg = load_config(config)
-    except ConfigError as exc:
-        console.error(str(exc))
-        raise typer.Exit(code=1) from exc
-    store = RunStore(resolve_run_dir(cfg.agent.recovery.dir))
-    metas = store.list()
+    service = _build_service(config, console)
+    metas = service.list_runs()
     if delete:
         meta = next((item for item in metas if item.id == delete), None)
         if meta is None:
@@ -63,7 +54,7 @@ def runs_command(config: Path | None, delete: str | None) -> None:
             if answer not in {"y", "yes"}:
                 console.info("已取消。")
                 return
-        store.delete(delete)
+        service.delete_run(delete, force=True)
         console.info(f"已删除 Run {delete}。")
         return
     if not metas:
@@ -88,80 +79,51 @@ def resume_command(
     render_streamed: StreamRenderer,
 ) -> None:
     console = Console()
+    service = _build_service(config, console)
     try:
-        cfg = load_config(config)
-        preloaded = RunCoordinator.load(RunStore(resolve_run_dir(cfg.agent.recovery.dir)), run_id)
-    except (ConfigError, FileNotFoundError, ValueError) as exc:
+        resume_info = service.inspect_run(run_id)
+    except (FileNotFoundError, ValueError) as exc:
         console.error(f"无法恢复 Run：{exc}")
         raise typer.Exit(code=1) from exc
 
     selected = provider
-    if selected is None and preloaded.state.provider in cfg.providers:
-        selected = preloaded.state.provider
-    tty = sys.stdin.isatty()
+    if selected is None and resume_info.provider:
+        selected = resume_info.provider
     with build_runtime(
         config,
         console,
-        interactive=preloaded.state.interactive,
+        interactive=resume_info.interactive,
         interrupt_check=interrupt_check,
         run_control=run_control,
         provider=selected,
     ) as runtime:
-        coordinator = RunCoordinator.load(runtime.run_store, run_id, logger=runtime.logger)
-        runtime.logger.bind_session(coordinator.state.session_id)
+        tty = sys.stdin.isatty()
         runtime.loop.set_interaction_available(tty)
         if not tty:
             safe_port = SafeDefaultInteractionPort()
             runtime.interaction = safe_port
             runtime.tool_context.interaction = safe_port
-        if coordinator.state.session_id is not None:
+        if resume_info.session_id is not None:
             try:
-                session = runtime.session_store.load(coordinator.state.session_id)
+                session = runtime.session_store.load(resume_info.session_id)
             except FileNotFoundError:
                 session = Session(
-                    id=coordinator.state.session_id,
-                    created_at=coordinator.state.created_at,
-                    updated_at=coordinator.state.updated_at,
+                    id=resume_info.session_id,
+                    created_at=resume_info.created_at,
+                    updated_at=resume_info.updated_at,
                 )
             session_runtime = SessionRuntime(runtime, session)
             execution = session_runtime.resume_run(run_id)
-            if coordinator.load_info is not None and coordinator.load_info.warning:
-                console.error(f"（恢复警告：{coordinator.load_info.warning}）")
+            if execution.warning:
+                console.error(f"（恢复警告：{execution.warning}）")
             render_streamed(console, execution.events)
             return
 
-        # 无 Session 的历史 run 命令保留兼容；API 正式入口始终使用 SessionRuntime。
-        differences = coordinator.definition_differences(
-            provider=runtime.config.active,
-            model=runtime.config.active_provider.model,
-            system_prompt=runtime.loop.system_prompt,
-            tool_schemas=runtime.loop.tool_schemas,
-        )
-        if differences and coordinator.state.phase != "terminal":
-            summary = ", ".join(item.field for item in differences)
-            if not tty:
-                console.error(f"Run 定义已变化（{summary}），非交互环境拒绝恢复。")
-                raise typer.Exit(code=2)
-            prompt = f"Run 定义已变化（{summary}），确认使用当前定义继续？"
-            if console.confirm(prompt) == "deny":
-                console.info("已取消。")
-                return
-            coordinator.accept_definitions(
-                provider=runtime.config.active,
-                model=runtime.config.active_provider.model,
-                system_prompt=runtime.loop.system_prompt,
-                tool_schemas=runtime.loop.tool_schemas,
-            )
-        coordinator.note_resume()
-        if coordinator.load_info is not None and coordinator.load_info.warning:
-            console.error(f"（恢复警告：{coordinator.load_info.warning}）")
-        callback = (lambda call: recovery_choice(console, call)) if tty else None
-        render_streamed(
-            console,
-            runtime.loop.resume(coordinator, recovery_check=callback),
-        )
         try:
-            sync_terminal_session(coordinator, runtime.session_store)
-            runtime.run_store.prune(runtime.config.agent.recovery.max_completed_runs)
-        except Exception as exc:  # noqa: BLE001 - Run 保持 unsynced，可再次 resume
-            console.error(f"（Session 同步失败，可再次 resume 补做：{exc}）")
+            execution = resume_standalone_run(runtime, run_id)
+        except SessionRunConflictError as exc:
+            console.error(str(exc))
+            raise typer.Exit(code=2) from exc
+        if execution.warning:
+            console.error(f"（恢复警告：{execution.warning}）")
+        render_streamed(console, execution.events)

@@ -11,6 +11,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
+from assistant_agent.application.models import RunMeta
+
 _RUN_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$")
 
 
@@ -19,16 +21,6 @@ class LoadedRun:
     document: dict[str, Any]
     source: Literal["current", "previous"]
     warning: str = ""
-
-
-@dataclass(frozen=True)
-class RunMeta:
-    id: str
-    status: str
-    phase: str
-    session_id: str | None
-    updated_at: str
-    preview: str
 
 
 class RunStore:

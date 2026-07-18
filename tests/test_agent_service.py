@@ -6,6 +6,7 @@ from collections.abc import Iterator
 
 import pytest
 
+from assistant_agent.bootstrap import runtime as runtime_module
 from assistant_agent.interaction import (
     ContinueDecision,
     DefinitionChangeDecision,
@@ -19,7 +20,6 @@ from assistant_agent.service import (
     SessionBusyError,
     SessionRunConflictError,
 )
-from assistant_agent.service import runtime as runtime_module
 from assistant_agent.session.store import SessionStore
 from assistant_agent.tools.base import ToolBudget
 
@@ -174,7 +174,11 @@ def test_uncertain_tool_recovery_uses_interaction_port(tmp_path, monkeypatch):
     assert coordinator is not None
     messages = [{"role": "user", "content": "task"}]
     coordinator.initialize(messages, None, ToolBudget(max_calls=10))
-    call = ToolCall("call-1", "write_file", {"path": "x.txt", "content": "x"})
+    call = ToolCall(
+        "call-1",
+        "write_file",
+        {"path": "x.txt", "content": "x", "api_key": "secret-value"},
+    )
     planned = [
         *messages,
         {
@@ -197,6 +201,7 @@ def test_uncertain_tool_recovery_uses_interaction_port(tmp_path, monkeypatch):
         assert port.request is not None
         assert port.request.call_id == "call-1"
         assert "重复" in port.request.duplicate_side_effect_risk
+        assert "secret-value" not in port.request.display_summary
     finally:
         resumed_runtime.close()
 
@@ -359,6 +364,22 @@ def test_service_lists_and_deletes_sessions(tmp_path, monkeypatch):
     assert service.list_runs(session_id=session_id) == []
     assert service.delete_session(session_id) is True
     assert service.list_sessions() == []
+
+
+def test_service_inspects_and_deletes_terminal_run(tmp_path, monkeypatch):
+    service = AgentService(config_path=_config(tmp_path, monkeypatch), workspace_root=tmp_path)
+    session_runtime = service.create_session()
+    try:
+        execution = session_runtime.start_run("task")
+        assert list(execution.events)[-1].terminal_status == "completed"
+        info = service.inspect_run(execution.run_id)
+        assert info.run_id == execution.run_id
+        assert info.session_id == session_runtime.session.id
+        assert info.provider == "fake"
+    finally:
+        session_runtime.close()
+    assert service.delete_run(execution.run_id) is True
+    assert service.list_runs() == []
 
 
 class _RecordingPort(SafeDefaultInteractionPort):

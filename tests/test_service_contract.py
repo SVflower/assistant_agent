@@ -1,6 +1,15 @@
 """公共事件和导入边界契约。"""
 
-from assistant_agent.service import EVENT_CONTRACT_VERSION, StepEvent
+from assistant_agent.application.runtime import AgentRuntime as ApplicationRuntime
+from assistant_agent.bootstrap.runtime import create_runtime as bootstrap_create_runtime
+from assistant_agent.bootstrap.service import AgentService as BootstrapAgentService
+from assistant_agent.service import (
+    EVENT_CONTRACT_VERSION,
+    AgentRuntime,
+    AgentService,
+    StepEvent,
+    create_runtime,
+)
 
 
 def test_reasoning_is_always_marked_sensitive() -> None:
@@ -14,3 +23,15 @@ def test_existing_event_construction_remains_compatible() -> None:
     assert event.call_id == "call-1"
     assert event.terminal_status is None
     assert event.sensitive is False
+
+
+def test_service_facade_exports_canonical_implementations() -> None:
+    assert AgentRuntime is ApplicationRuntime
+    assert AgentService is BootstrapAgentService
+    assert create_runtime is bootstrap_create_runtime
+
+    from assistant_agent.service.runtime import AgentRuntime as LegacyRuntime
+    from assistant_agent.service.sessions import AgentService as LegacyAgentService
+
+    assert LegacyRuntime is ApplicationRuntime
+    assert LegacyAgentService is BootstrapAgentService

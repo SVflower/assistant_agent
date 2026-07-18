@@ -1,5 +1,9 @@
 """Agent 公共同步交互边界。"""
 
+from assistant_agent.application.interactions import (
+    BlockingInteractionPort,
+    SafeDefaultInteractionPort,
+)
 from assistant_agent.contracts.interactions import (
     ApprovalChoice,
     ApprovalDecision,
@@ -17,10 +21,6 @@ from assistant_agent.contracts.interactions import (
     RecoveryDecision,
     RecoveryRequest,
     ScopeInfo,
-)
-from assistant_agent.interaction.ports import (
-    BlockingInteractionPort,
-    SafeDefaultInteractionPort,
 )
 
 __all__ = [

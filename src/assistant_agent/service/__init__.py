@@ -1,8 +1,18 @@
 """assistant-agent 的稳定进程内服务边界。"""
 
+from assistant_agent.application.capabilities import RuntimePolicy
+from assistant_agent.application.runs import (
+    RunExecution,
+    SessionRuntime,
+    sync_terminal_session,
+)
+from assistant_agent.application.runtime import AgentRuntime
+from assistant_agent.bootstrap.runtime import create_runtime
+from assistant_agent.bootstrap.service import AgentService
 from assistant_agent.contracts.capabilities import (
     MCPServerCapability,
     RuntimeCapabilities,
+    RuntimeNotice,
     SkillCapability,
 )
 from assistant_agent.contracts.errors import (
@@ -21,14 +31,6 @@ from assistant_agent.contracts.events import (
     RunFailure,
     StepEvent,
     ToolDisplay,
-)
-from assistant_agent.service.policy import RuntimePolicy
-from assistant_agent.service.runtime import AgentRuntime, RuntimeNotice, create_runtime
-from assistant_agent.service.sessions import (
-    AgentService,
-    RunExecution,
-    SessionRuntime,
-    sync_terminal_session,
 )
 
 __all__ = [

@@ -32,7 +32,8 @@ bootstrap -> concrete providers / tools / integrations / execution / persistence
 ## 2. 当前迁移状态
 
 M19a 已建立契约基线和依赖护栏，M19b 已迁入稳定公共契约，M19c 已隔离 Provider 与
-Tool 端口，M19d 已收敛 Agent Context/Run/Loop。M19e-M19f 继续向外迁移。旧路径仅作兼容转发，
+Tool 端口，M19d 已收敛 Agent Context/Run/Loop，M19e 已分离 Application、Bootstrap 与 Service。
+M19f 继续迁移基础设施与集成包。旧路径仅作兼容转发，
 不允许形成双实现。
 完整迁移矩阵见 `docs/m19-architecture-reconstruction-plan.md`。
 
@@ -62,7 +63,8 @@ Tool 端口，M19d 已收敛 Agent Context/Run/Loop。M19e-M19f 继续向外迁�
 - `agent` 不得导入 Rich、Typer、CLI、Service、LiteLLM、MCP SDK 或具体 Store。
 - `application` 不得依赖具体 integrations、execution、persistence、observability。
 - `service/__init__.py` 不得定义函数或类，只能从 contracts/application/bootstrap 转发。
-- `cli` 通过 service/application 调用，不穿透 Agent 内部状态机。
+- `cli` 通过 service/application 调用，不穿透 Agent 内部状态机；历史无 Session Run 的恢复也由
+  Application 兼容用例拥有。
 - `tools` 不得反向依赖 Agent 或 UI。
 - 业务 MCP server 始终外置，Agent 仓库只包含通用 client 与接入配置。
 

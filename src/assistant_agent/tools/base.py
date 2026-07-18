@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any, cast
 
 from assistant_agent.obs import NullLogger
+from assistant_agent.obs.redaction import sanitize_for_display
 from assistant_agent.runtime import HostWorkspace, ProcessSupervisor, RunControl
 from assistant_agent.tools.artifacts import ArtifactStore
 from assistant_agent.tools.context import (
@@ -40,6 +41,7 @@ class ToolContext(PortToolContext):
             control = control or workspace.control
             supervisor = supervisor or workspace.supervisor
         logger = cast(ToolTelemetry, kwargs.pop("logger", None) or NullLogger())
+        kwargs.setdefault("sanitize_for_display", sanitize_for_display)
         artifact_store = kwargs.pop("artifact_store", None) or ArtifactStore(
             workspace.root,
             max_chars=int(kwargs.get("max_captured_output_chars", 1_000_000)),

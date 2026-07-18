@@ -14,69 +14,13 @@ import os
 import re
 import secrets
 import tempfile
-from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-_PREVIEW_LEN = 40
+from assistant_agent.application.models import Session, SessionMeta
+
 _SESSION_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$")
-
-
-@dataclass
-class Session:
-    """一次会话：元信息 + 对话历史（不含 system）。"""
-
-    id: str
-    created_at: str
-    updated_at: str
-    provider: str = ""
-    model: str = ""
-    messages: list[dict[str, Any]] = field(default_factory=list)
-    # M8b：摘要 checkpoint（{summary, covered_upto}）；None=未压缩。持久化后 resume 不重复摘要。
-    compaction_checkpoint: dict[str, Any] | None = None
-
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "id": self.id,
-            "created_at": self.created_at,
-            "updated_at": self.updated_at,
-            "provider": self.provider,
-            "model": self.model,
-            "messages": self.messages,
-            "compaction_checkpoint": self.compaction_checkpoint,
-        }
-
-    @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> Session:
-        return cls(
-            id=data["id"],
-            created_at=data.get("created_at", ""),
-            updated_at=data.get("updated_at", ""),
-            provider=data.get("provider", ""),
-            model=data.get("model", ""),
-            messages=data.get("messages", []),
-            compaction_checkpoint=data.get("compaction_checkpoint"),
-        )
-
-    @property
-    def preview(self) -> str:
-        """首条用户消息预览，供列表展示。"""
-        for m in self.messages:
-            if m.get("role") == "user":
-                text = str(m.get("content") or "").strip().replace("\n", " ")
-                return text[:_PREVIEW_LEN] + ("…" if len(text) > _PREVIEW_LEN else "")
-        return "（空会话）"
-
-
-@dataclass
-class SessionMeta:
-    """列表展示用的轻量元信息。"""
-
-    id: str
-    updated_at: str
-    message_count: int
-    preview: str
 
 
 def _now_iso() -> str:

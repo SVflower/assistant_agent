@@ -1,6 +1,6 @@
 # M19 项目架构重建方案
 
-> 状态：已确认，实施中（M19a）。用户已授权 M19d 修改 `agent/loop.py`。
+> 状态：已确认，实施中（M19a-M19e 已完成）。用户已授权 M19d 修改 `agent/loop.py`。
 > 版本：v3（2026-07-19，吸收外部评审并完成实施可行性复审，替代 v2）。核心决策：
 > ①砍掉低价值 churn——builtin 工具聚类、`ui/` 合并、测试四象限重排全部出局；
 > ②`service/` 收敛为纯 re-export，允许转发 bootstrap composition root，但自身零逻辑；
@@ -471,6 +471,14 @@ checkpoint v3、ID、权限、continuation、tool_uncertain 和 session_synced �
 - CLI 改用同一个 service/application 入口，移除 CLI 对 Agent 内部恢复模块的穿透。
 
 验收：CLI/API 共用同一用例；公共构造签名、初始化回滚、close、Session 隔离和恢复行为不变。
+
+实施记录（2026-07-19）：Runtime/Session/Run 用例已迁入 `application/`，具体装配集中到
+`bootstrap/`；`service/__init__.py` 仅转发 contracts/application/bootstrap 的稳定入口，并由
+AST 与 import-linter 双重约束。CLI 恢复命令不再穿透 Agent 状态机、Store 或日志 adapter，
+有 Session 的 Run 复用 `SessionRuntime`，历史无 Session Run 通过 Application 兼容用例恢复。
+Tool Interaction 脱敏改为由 composition root 注入，核心默认过度脱敏。公共 `AgentService`、
+`create_runtime` 和 DTO 身份保持兼容，StepEvent v1/checkpoint v3 无变化；全量 604 passed / 5 skipped
+（含本阶段新增 inspect/delete Run 用例），Ruff、mypy 和 8 条 import-linter contract 已通过。
 
 ### M19f：基础设施与集成命名迁移
 

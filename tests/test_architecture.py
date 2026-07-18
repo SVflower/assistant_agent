@@ -66,6 +66,18 @@ def test_service_is_ui_and_cli_agnostic():
         assert "cli" not in layers, f"{path.name} 不应依赖 cli"
 
 
+def test_service_root_is_definition_free_facade():
+    """Service root 只能转发稳定入口，不得重新长出编排或状态。"""
+    path = SRC / "service" / "__init__.py"
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    definitions = [
+        node.name
+        for node in tree.body
+        if isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef))
+    ]
+    assert definitions == []
+
+
 def test_tools_do_not_depend_on_agent_or_ui():
     """工具是叶子能力，不得反向依赖 agent 循环或 ui（加能力=纯 tools/ 扩展）。"""
     for path in (SRC / "tools").rglob("*.py"):

@@ -84,3 +84,50 @@ forbidden_modules =
     assistant_agent.obs.logger
     assistant_agent.runtime
     assistant_agent.tools.artifacts
+
+[importlinter:contract:application-does-not-depend-on-adapters]
+name = Application does not depend on concrete adapters
+type = forbidden
+source_modules =
+    assistant_agent.application
+forbidden_modules =
+    assistant_agent.bootstrap
+    assistant_agent.integrations
+    assistant_agent.execution
+    assistant_agent.persistence
+    assistant_agent.observability
+    assistant_agent.mcp
+    assistant_agent.skills
+    assistant_agent.web
+    assistant_agent.runtime
+    assistant_agent.session
+    assistant_agent.obs
+    assistant_agent.service
+    assistant_agent.cli
+    assistant_agent.ui
+
+[importlinter:contract:service-is-only-a-public-facade]
+name = Service only depends on public contracts application and bootstrap
+type = forbidden
+allow_indirect_imports = True
+source_modules =
+    assistant_agent.service
+forbidden_modules =
+    assistant_agent.agent
+    assistant_agent.cli
+    assistant_agent.config
+    assistant_agent.execution
+    assistant_agent.integrations
+    assistant_agent.interaction
+    assistant_agent.llm
+    assistant_agent.mcp
+    assistant_agent.obs
+    assistant_agent.observability
+    assistant_agent.persistence
+    assistant_agent.providers
+    assistant_agent.runtime
+    assistant_agent.session
+    assistant_agent.skills
+    assistant_agent.tools
+    assistant_agent.ui
+    assistant_agent.web

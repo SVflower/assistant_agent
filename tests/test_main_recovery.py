@@ -7,9 +7,8 @@ import re
 from typer.testing import CliRunner
 
 from assistant_agent.agent.recovery import RunCoordinator
-from assistant_agent.agent.run_state import ToolCallState
-from assistant_agent.cli.recovery import recovery_choice, sync_terminal_session
 from assistant_agent.main import app
+from assistant_agent.service import sync_terminal_session
 from assistant_agent.session.run_store import RunStore
 from assistant_agent.session.store import SessionStore
 from assistant_agent.tools.base import ToolBudget
@@ -89,25 +88,6 @@ def test_runs_command_lists_checkpoint(tmp_path):
     assert result.exit_code == 0
     assert "run-1" in result.output
     assert "completed/terminal" in result.output
-
-
-def test_recovery_choice_redacts_secrets():
-    class Console:
-        question = ""
-
-        def ask_question(self, question, options):
-            self.question = question
-            return options[1]
-
-    console = Console()
-    call = ToolCallState(
-        id="c1",
-        name="api",
-        arguments={"api_key": "secret-value", "value": "safe"},
-    )
-    assert recovery_choice(console, call) == "skip"
-    assert "secret-value" not in console.question
-    assert "***REDACTED***" in console.question
 
 
 def test_chat_reports_current_session_when_exiting_after_clear(tmp_path, monkeypatch):

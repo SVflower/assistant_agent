@@ -7,12 +7,13 @@ from pathlib import Path
 import pytest
 import typer
 
+from assistant_agent.bootstrap import runtime as service_runtime
 from assistant_agent.cli import setup
 from assistant_agent.config.schema import AppConfig
 from assistant_agent.interaction import SafeDefaultInteractionPort
 from assistant_agent.obs import NullLogger
-from assistant_agent.service import runtime as service_runtime
 from assistant_agent.service.runtime import AgentRuntime
+from assistant_agent.session.run_store import RunStore
 from assistant_agent.session.store import SessionStore
 from assistant_agent.skills import SkillStore
 from assistant_agent.tools.base import ToolContext
@@ -102,6 +103,9 @@ def test_runtime_close_is_idempotent(tmp_path):
         tool_context=ctx,
         interaction=interaction,
         session_store=SessionStore(tmp_path / "sessions"),
+        run_store=RunStore(tmp_path / "runs"),
+        run_control=ctx.run_control,
+        process_supervisor=ctx.process_supervisor,
         mcp=mcp,  # type: ignore[arg-type]
         workspace=ctx.workspace,
     )

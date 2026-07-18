@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from typing import Any
+
 from assistant_agent.contracts.interactions import (
     ApprovalChoice,
     ApprovalRequest,
@@ -9,7 +12,6 @@ from assistant_agent.contracts.interactions import (
     QuestionRequest,
     ScopeInfo,
 )
-from assistant_agent.obs.redaction import sanitize_for_display
 from assistant_agent.tools.permissions import PermissionRequest, PermissionScope
 
 
@@ -21,13 +23,14 @@ def ask_via_port(
     call_id: str,
     question: str,
     options: list[str],
+    sanitize: Callable[[Any], object],
 ) -> str | None:
     request = QuestionRequest(
         run_id=run_id,
         session_id=session_id,
         call_id=call_id or None,
-        question=str(sanitize_for_display(question)),
-        options=tuple(str(sanitize_for_display(option)) for option in options),
+        question=str(sanitize(question)),
+        options=tuple(str(sanitize(option)) for option in options),
     )
     try:
         answer = port.ask_question(request)
@@ -48,6 +51,7 @@ def approve_via_port(
     risks: list[str],
     broader_scope: PermissionScope | None,
     broader_scope_label: str,
+    sanitize: Callable[[Any], object],
 ) -> ApprovalChoice:
     can_grant_broader = broader_scope is not None
     legal_options: tuple[ApprovalChoice, ...] = (
@@ -59,14 +63,14 @@ def approve_via_port(
         call_id=call_id or None,
         tool=asks[0].tool,
         capabilities=tuple(item.capability.value for item in asks),
-        display_targets=tuple(str(sanitize_for_display(item.display_target)) for item in asks),
+        display_targets=tuple(str(sanitize(item.display_target)) for item in asks),
         risks=tuple(risks),
         legal_options=legal_options,
         exact_scopes=tuple(
             ScopeInfo(
                 item.scope.capability.value,
                 item.scope.tool,
-                str(sanitize_for_display(item.scope.target)),
+                str(sanitize(item.scope.target)),
             )
             for item in asks
         ),
@@ -74,7 +78,7 @@ def approve_via_port(
             ScopeInfo(
                 broader_scope.capability.value,
                 broader_scope.tool,
-                str(sanitize_for_display(broader_scope.target)),
+                str(sanitize(broader_scope.target)),
             )
             if broader_scope is not None
             else None

@@ -6,7 +6,7 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 from assistant_agent.contracts.interactions import InteractionPort
 from assistant_agent.tools.interaction_bridge import approve_via_port, ask_via_port
@@ -56,6 +56,7 @@ class ToolContext:
     ask: Callable[[str, list[str]], str] = lambda _q, _opts: NO_USER_AVAILABLE
     # 公共服务交互端口。非空时优先于上面的 CLI 兼容回调。
     interaction: InteractionPort | None = None
+    sanitize_for_display: Callable[[Any], object] = lambda _value: "[hidden]"
     # 本会话内"永远允许"的类别集合（如 "run_shell"）。由 request_confirm 维护。
     always_allowed: set[str] = field(default_factory=set)
     # M9b：精确会话授权。旧 always_allowed 暂留作兼容，不参与新策略。
@@ -127,6 +128,7 @@ class ToolContext:
             call_id=self.current_call_id,
             question=question,
             options=options,
+            sanitize=self.sanitize_for_display,
         )
         return answer if answer is not None else NO_USER_AVAILABLE
 
@@ -222,6 +224,7 @@ class ToolContext:
                     if can_grant_broader
                     else ""
                 ),
+                sanitize=self.sanitize_for_display,
             )
         elif can_grant_broader and self.confirm_scoped is not None:
             label = str(asks[0][0].metadata.get("broader_scope_label", "本会话允许上级范围"))

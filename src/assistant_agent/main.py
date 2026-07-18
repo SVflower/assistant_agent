@@ -21,7 +21,7 @@ from assistant_agent.cli.setup import build_runtime
 from assistant_agent.config.loader import ConfigError, load_config
 from assistant_agent.contracts.events import StepEvent
 from assistant_agent.runtime import RunControl
-from assistant_agent.service.sessions import SessionRuntime
+from assistant_agent.service import SessionRuntime
 from assistant_agent.session.store import SessionStore
 from assistant_agent.ui.console import Console
 

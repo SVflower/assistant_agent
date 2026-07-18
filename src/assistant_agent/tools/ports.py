@@ -69,6 +69,9 @@ class ProcessSupervisorPort(Protocol):
 
 class WorkspacePort(Protocol):
     @property
+    def backend(self) -> str: ...
+
+    @property
     def root(self) -> Path: ...
 
     def resolve_path(self, value: str | Path) -> Path: ...

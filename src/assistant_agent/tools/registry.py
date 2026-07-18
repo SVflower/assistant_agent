@@ -12,7 +12,7 @@ from typing import Any
 from jsonschema import Draft202012Validator
 
 from assistant_agent.tools.ask import AskUserTool
-from assistant_agent.tools.base import Tool, ToolBudget, ToolContext, ToolResult
+from assistant_agent.tools.context import ToolContext
 from assistant_agent.tools.display import ToolDisplay, call_display, result_display
 from assistant_agent.tools.file_ops import (
     EditFileTool,
@@ -23,9 +23,11 @@ from assistant_agent.tools.file_ops import (
 )
 from assistant_agent.tools.git import GitTool
 from assistant_agent.tools.lifecycle import ReplayPolicy, ToolExecutionLifecycle
+from assistant_agent.tools.models import ToolBudget, ToolResult
 from assistant_agent.tools.permissions import Capability, PermissionRequest
 from assistant_agent.tools.search import CodeSearchTool
 from assistant_agent.tools.shell import ShellTool
+from assistant_agent.tools.tool import Tool
 from assistant_agent.tools.validation import build_validator, validate_arguments
 
 _TRUNCATION_SUFFIX = "\n…（输出已截断，可缩小范围重试）"

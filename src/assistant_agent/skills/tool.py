@@ -9,8 +9,10 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from assistant_agent.tools.base import Tool, ToolContext, ToolResult
+from assistant_agent.tools.context import ToolContext
+from assistant_agent.tools.models import ToolResult
 from assistant_agent.tools.permissions import Capability, PermissionRequest
+from assistant_agent.tools.tool import Tool
 
 if TYPE_CHECKING:
     from assistant_agent.skills.store import SkillStore

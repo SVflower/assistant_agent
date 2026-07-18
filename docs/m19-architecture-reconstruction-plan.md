@@ -434,6 +434,13 @@ DTO 字段/default/类型身份和 StepEvent v1 均保持兼容，旧 `agent.eve
 
 验收：Provider 双后端测试、工具权限/预算/审计/Artifact 测试全绿；核心不再看到 LiteLLM 类型。
 
+实施记录（2026-07-19）：Agent 已改为依赖 `ModelProviderPort`，LiteLLM 实现迁入
+`providers/litellm.py`；summary provider 的创建移至装配层显式注入。工具结果/预算、基础设施
+端口、运行上下文和 Tool 基类已分离，核心 `tools.context.ToolContext` 不再创建或导入具体
+Logger/Workspace/RunControl/ArtifactStore。旧 `llm.client`、`tools.base/result` 保留兼容出口。
+公共 Service/StepEvent/Interaction/checkpoint 契约无变化；AgentLoop 新增的 `summary_client`
+仅为内部向后兼容可选参数，既有调用签名仍可用。
+
 ### M19d：Agent 核心收敛（**实施前需用户再次明确授权**）
 
 - 建立 `agent/run/`（state/ports/coordinator/budgets/recovery/checkpoint）与 `agent/context/`；

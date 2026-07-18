@@ -19,7 +19,7 @@ from typing import Any
 import yaml
 
 from assistant_agent.config.loader import ConfigError, load_config
-from assistant_agent.llm.client import _bypass_proxy_for_local
+from assistant_agent.providers.litellm import _bypass_proxy_for_local
 from assistant_agent.ui.console import Console
 
 _DEFAULT_ENV = {"cloud": "OPENAI_API_KEY", "anthropic": "ANTHROPIC_API_KEY"}

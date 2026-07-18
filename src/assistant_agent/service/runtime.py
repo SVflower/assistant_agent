@@ -32,9 +32,9 @@ from assistant_agent.interaction import (
     InteractionPort,
     SafeDefaultInteractionPort,
 )
-from assistant_agent.llm.client import LLMClient
 from assistant_agent.mcp import MCPManager, MCPService
 from assistant_agent.obs import NullLogger, create_logger, new_trace_id
+from assistant_agent.providers.litellm import LLMClient
 from assistant_agent.runtime import BaseWorkspace, ProcessSupervisor, RunControl
 from assistant_agent.service._runtime_builders import (
     RuntimeNotice,
@@ -49,7 +49,8 @@ from assistant_agent.service.policy import RuntimePolicy, sandbox_satisfies
 from assistant_agent.session.run_store import RunStore
 from assistant_agent.session.store import SessionStore
 from assistant_agent.skills import LoadSkillTool, SkillManager, SkillMeta, SkillStore
-from assistant_agent.tools.base import ToolContext
+from assistant_agent.tools.artifacts import ArtifactStore
+from assistant_agent.tools.context import ToolContext
 from assistant_agent.tools.extensions import ConfigureMCPServerTool, ManageSkillTool
 from assistant_agent.tools.registry import build_default_registry
 from assistant_agent.web import WebClient
@@ -246,19 +247,24 @@ def create_runtime(
         system_prompt = build_system_prompt(interactive, skills=skill_meta or None)
 
         tool_context = ToolContext(
+            workspace=workspace,
+            run_control=control,
+            logger=logger,
+            artifact_store=ArtifactStore(
+                root,
+                max_chars=config.tools.max_captured_output_chars,
+                max_files=config.tools.max_artifact_files,
+                root=paths.tool_artifacts,
+            ),
             confirm_dangerous_shell=config.tools.confirm_dangerous_shell,
             shell_timeout=config.tools.shell_timeout,
             interaction=port,
-            logger=logger,
             max_output_chars=config.tools.max_output_chars,
             max_captured_output_chars=config.tools.max_captured_output_chars,
             max_artifact_files=config.tools.max_artifact_files,
             artifact_root=paths.tool_artifacts,
             permission_policy=build_permission_policy(config),
             interactive=interactive,
-            run_control=control,
-            process_supervisor=supervisor,
-            workspace=workspace,
             current_session_id=session_id,
         )
 
@@ -323,6 +329,12 @@ def create_runtime(
                 decision.request_id == request.request_id and decision.continue_run,
             )
 
+        summary_client = None
+        if config.agent.compaction.enabled and config.agent.compaction.summary_model:
+            summary_provider = config.providers.get(config.agent.compaction.summary_model)
+            if summary_provider is not None:
+                summary_client = LLMClient(summary_provider)
+
         loop = AgentLoop(
             config,
             LLMClient(config.active_provider),
@@ -333,6 +345,7 @@ def create_runtime(
             run_control=control,
             budget_continue_check=budget_continue_check if interactive else None,
             system_prompt=system_prompt,
+            summary_client=summary_client,
         )
         skill_capabilities = tuple(
             SkillCapability(

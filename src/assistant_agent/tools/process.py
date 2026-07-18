@@ -11,6 +11,7 @@ from assistant_agent.runtime.process import (
     ProcessSupervisor,
     _decode,
 )
+from assistant_agent.tools.ports import ProcessResultPort
 
 
 def run_bounded_process(
@@ -37,7 +38,7 @@ def run_bounded_process(
 
 
 def format_process_result(
-    result: BoundedProcessResult,
+    result: ProcessResultPort,
     *,
     artifact_writer: Any,
     artifact_prefix: str,

@@ -11,8 +11,10 @@ from pathlib import Path
 from typing import Any
 
 from assistant_agent.runtime import WorkspaceError
-from assistant_agent.tools.base import Tool, ToolContext, ToolResult
+from assistant_agent.tools.context import ToolContext
+from assistant_agent.tools.models import ToolResult
 from assistant_agent.tools.permissions import Capability, PermissionRequest
+from assistant_agent.tools.tool import Tool
 
 _IGNORED_DIRS = {
     ".git",

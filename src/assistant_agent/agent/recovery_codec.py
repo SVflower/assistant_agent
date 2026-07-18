@@ -7,7 +7,7 @@ from assistant_agent.agent.run_state import (
     ToolBudgetState,
     ToolResultState,
 )
-from assistant_agent.tools.base import ToolBudget, ToolResult
+from assistant_agent.tools.models import ToolBudget, ToolResult
 from assistant_agent.tools.permissions import PermissionRequest
 
 

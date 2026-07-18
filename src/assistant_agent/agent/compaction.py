@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from assistant_agent.llm.client import LLMClient
+    from assistant_agent.providers.ports import ModelProviderPort
 
 from assistant_agent.agent.token_budget import truncate_text_to_tokens
 
@@ -48,13 +48,16 @@ class Compactor:
     """把最旧若干完整用户轮摘要化。持有 client；摘要调用禁用工具、失败则返回 None。"""
 
     def __init__(
-        self, client: LLMClient, keep_recent_turns: int = 4, summary_max_tokens: int = 512
+        self,
+        client: ModelProviderPort,
+        keep_recent_turns: int = 4,
+        summary_max_tokens: int = 512,
     ) -> None:
         self._client = client
         self._keep = keep_recent_turns
         self._summary_max_tokens = summary_max_tokens
 
-    def set_client(self, client: LLMClient) -> None:
+    def set_client(self, client: ModelProviderPort) -> None:
         """更新摘要 client；仅由跟随主模型的 Loop 调用。"""
         self._client = client
 

@@ -355,11 +355,8 @@ def test_set_client_updates_default_compactor_client():
     assert loop._compactor._client is replacement
 
 
-def test_set_client_keeps_explicit_summary_provider(monkeypatch):
+def test_set_client_keeps_explicit_summary_provider():
     fixed_summary_client = FakeStreamClient([_text_round("summary")])
-    monkeypatch.setattr(
-        "assistant_agent.agent.loop.LLMClient", lambda _provider: fixed_summary_client
-    )
     config = AppConfig.model_validate(
         {
             "active": "main",
@@ -378,6 +375,7 @@ def test_set_client_keeps_explicit_summary_provider(monkeypatch):
         ToolRegistry(),
         ToolContext(),
         system_prompt="SYS",
+        summary_client=fixed_summary_client,
     )
 
     loop.set_client(FakeStreamClient([_text_round("replacement")]))

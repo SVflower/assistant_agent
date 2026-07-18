@@ -21,10 +21,10 @@ from assistant_agent.runtime import (
     RunControl,
 )
 from assistant_agent.skills import SkillSource, SkillStore
-from assistant_agent.tools.base import Tool
 from assistant_agent.tools.permissions import Capability, PermissionRule
 from assistant_agent.tools.policy import PermissionPolicy
 from assistant_agent.tools.registry import ToolRegistry
+from assistant_agent.tools.tool import Tool
 from assistant_agent.tools.web import FetchURLTool, WebSearchTool
 from assistant_agent.web import WebClient
 

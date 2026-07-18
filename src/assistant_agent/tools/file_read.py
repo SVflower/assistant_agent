@@ -6,9 +6,11 @@ import heapq
 from typing import Any
 
 from assistant_agent.runtime import WorkspaceError
-from assistant_agent.tools.base import Tool, ToolContext, ToolResult
+from assistant_agent.tools.context import ToolContext
 from assistant_agent.tools.file_io import path_request
+from assistant_agent.tools.models import ToolResult
 from assistant_agent.tools.permissions import Capability, PermissionRequest
+from assistant_agent.tools.tool import Tool
 
 _DEFAULT_PAGE_LINES = 2_000
 _MAX_PAGE_LINES = 5_000

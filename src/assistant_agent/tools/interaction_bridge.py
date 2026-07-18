@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from assistant_agent.interaction import (
+from assistant_agent.contracts.interactions import (
     ApprovalChoice,
     ApprovalRequest,
     InteractionPort,

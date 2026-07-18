@@ -14,9 +14,9 @@ from typing import cast
 from assistant_agent.agent.loop import AgentLoop
 from assistant_agent.cli.extensions import cmd_mcp, cmd_skills
 from assistant_agent.config.schema import AppConfig
-from assistant_agent.llm.client import LLMClient
 from assistant_agent.mcp import MCPService
 from assistant_agent.obs import NullLogger
+from assistant_agent.providers.litellm import LLMClient
 from assistant_agent.session.store import Session, SessionStore
 from assistant_agent.skills import SkillManager
 from assistant_agent.ui.console import Console, DisplayMode

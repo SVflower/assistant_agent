@@ -9,9 +9,9 @@ from assistant_agent.agent.execution import LoopCursor, execute_tool_batch
 from assistant_agent.agent.recovery import RecoveryChoice, RunCoordinator
 from assistant_agent.agent.run_state import ToolCallState
 from assistant_agent.contracts.events import StepEvent
-from assistant_agent.llm.client import ToolCall
+from assistant_agent.providers.ports import ToolCall
 from assistant_agent.runtime import ControlState
-from assistant_agent.tools.base import ToolBudget
+from assistant_agent.tools.models import ToolBudget
 
 
 def sync_loop_state(

@@ -22,3 +22,23 @@ forbidden_modules =
     assistant_agent.ui
     assistant_agent.web
     assistant_agent.main
+
+[importlinter:contract:agent-does-not-depend-on-provider-adapters]
+name = Agent does not depend on provider adapters
+type = forbidden
+source_modules =
+    assistant_agent.agent
+forbidden_modules =
+    assistant_agent.providers.litellm
+    assistant_agent.llm
+
+[importlinter:contract:tool-core-does-not-depend-on-concrete-adapters]
+name = Tool ports and context do not depend on concrete adapters
+type = forbidden
+source_modules =
+    assistant_agent.tools.context
+    assistant_agent.tools.ports
+forbidden_modules =
+    assistant_agent.obs.logger
+    assistant_agent.runtime
+    assistant_agent.tools.artifacts

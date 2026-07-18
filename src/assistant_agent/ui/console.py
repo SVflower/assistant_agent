@@ -14,7 +14,7 @@ from rich.console import Console as RichConsole
 from rich.text import Text
 
 from assistant_agent.contracts.events import StepEvent
-from assistant_agent.tools.base import ConfirmChoice
+from assistant_agent.tools.context import ConfirmChoice
 from assistant_agent.ui.activity import suspend_active
 from assistant_agent.ui.formatting import (
     build_banner,

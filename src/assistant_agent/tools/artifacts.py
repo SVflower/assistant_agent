@@ -7,7 +7,7 @@ import secrets
 from pathlib import Path
 
 from assistant_agent.tools.file_io import atomic_write_text
-from assistant_agent.tools.result import ArtifactRef
+from assistant_agent.tools.models import ArtifactRef
 
 _SAFE_PREFIX = re.compile(r"[^A-Za-z0-9_-]+")
 

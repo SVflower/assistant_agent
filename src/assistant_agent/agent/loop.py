@@ -27,9 +27,10 @@ from assistant_agent.contracts.failures import (
     BudgetResource,
     RunFailure,
 )
-from assistant_agent.llm.client import LLMClient, ToolCall
+from assistant_agent.providers.ports import ModelProviderPort, ToolCall
 from assistant_agent.runtime import ControlState, RunControl
-from assistant_agent.tools.base import ToolBudget, ToolContext
+from assistant_agent.tools.context import ToolContext
+from assistant_agent.tools.models import ToolBudget
 from assistant_agent.tools.registry import ToolRegistry
 
 _REPEAT_LIMIT = 3
@@ -42,7 +43,7 @@ class AgentLoop:
     def __init__(
         self,
         config: AppConfig,
-        client: LLMClient,
+        client: ModelProviderPort,
         registry: ToolRegistry,
         tool_context: ToolContext,
         interactive: bool = True,
@@ -51,6 +52,7 @@ class AgentLoop:
         continue_check: Callable[[int], bool] | None = None,
         budget_continue_check: BudgetContinueCheck | None = None,
         system_prompt: str | None = None,
+        summary_client: ModelProviderPort | None = None,
     ) -> None:
         self._config = config
         self._client = client
@@ -79,13 +81,8 @@ class AgentLoop:
         self._compactor: Compactor | None = None
         self._summary_follows_client = not bool(self._compaction.summary_model)
         if self._compaction.enabled:
-            summary_client = client
-            if self._compaction.summary_model:
-                provider = config.providers.get(self._compaction.summary_model)
-                if provider is not None:
-                    summary_client = LLMClient(provider)
             self._compactor = Compactor(
-                summary_client,
+                summary_client or client,
                 self._compaction.keep_recent_turns,
                 self._compaction.summary_max_tokens,
             )
@@ -106,7 +103,7 @@ class AgentLoop:
             self._run_control.request_pause()
         return self._run_control.state
 
-    def set_client(self, client: LLMClient) -> None:
+    def set_client(self, client: ModelProviderPort) -> None:
         """替换模型客户端，同时保留对话与默认摘要模型跟随语义。"""
         self._client = client
         if self._compactor is not None and self._summary_follows_client:

@@ -8,7 +8,7 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-from assistant_agent.tools.base import ToolContext
+from assistant_agent.tools.context import ToolContext
 from assistant_agent.tools.permissions import Capability, PermissionRequest
 
 

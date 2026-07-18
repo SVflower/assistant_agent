@@ -11,8 +11,10 @@ from __future__ import annotations
 
 from typing import Any
 
-from assistant_agent.tools.base import NO_USER_AVAILABLE, Tool, ToolContext, ToolResult
+from assistant_agent.tools.context import NO_USER_AVAILABLE, ToolContext
+from assistant_agent.tools.models import ToolResult
 from assistant_agent.tools.permissions import Capability, PermissionRequest
+from assistant_agent.tools.tool import Tool
 
 
 class AskUserTool(Tool):

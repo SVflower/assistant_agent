@@ -11,10 +11,11 @@ from assistant_agent.config.schema import MCPServerConfig
 from assistant_agent.config.writer import ConfigScope, ConfigWriteError
 from assistant_agent.mcp.configure import MCPConfigureError, MCPService
 from assistant_agent.skills.manager import SkillInstallError, SkillManager, SkillScope
-from assistant_agent.tools.base import Tool, ToolContext
+from assistant_agent.tools.context import ToolContext
 from assistant_agent.tools.display import ToolDisplay, safe_text
+from assistant_agent.tools.models import ToolResult
 from assistant_agent.tools.permissions import Capability, PermissionRequest
-from assistant_agent.tools.result import ToolResult
+from assistant_agent.tools.tool import Tool
 
 
 class ManageSkillTool(Tool):

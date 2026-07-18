@@ -5,8 +5,8 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import Literal, Protocol
 
+from assistant_agent.tools.models import ToolResult
 from assistant_agent.tools.permissions import PermissionRequest
-from assistant_agent.tools.result import ToolResult
 
 ReplayPolicy = Literal["safe_readonly", "requires_decision"]
 

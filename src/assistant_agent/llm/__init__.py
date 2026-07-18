@@ -1,4 +1,4 @@
-"""模型抽象层。"""
+"""兼容模型入口；新代码使用 assistant_agent.providers。"""
 
 from assistant_agent.llm.client import (
     LLMClient,

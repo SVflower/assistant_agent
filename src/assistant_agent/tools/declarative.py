@@ -8,8 +8,10 @@ from typing import Any, TypeAlias, get_type_hints, overload
 
 from pydantic import BaseModel, ConfigDict, ValidationError, create_model
 
-from assistant_agent.tools.base import Tool, ToolContext, ToolResult
+from assistant_agent.tools.context import ToolContext
+from assistant_agent.tools.models import ToolResult
 from assistant_agent.tools.permissions import PermissionRequest
+from assistant_agent.tools.tool import Tool
 
 ToolFunction: TypeAlias = Callable[..., Any]
 PermissionResolver: TypeAlias = Callable[[dict[str, Any], ToolContext], list[PermissionRequest]]
@@ -132,12 +134,13 @@ def _build_arguments_model(function: ToolFunction) -> tuple[str | None, type[Bas
             raise TypeError(f"工具 {function.__name__} 不支持可变参数：{parameter.name}")
         if parameter.kind is inspect.Parameter.POSITIONAL_ONLY:
             raise TypeError(f"工具 {function.__name__} 不支持位置专用参数：{parameter.name}")
+        is_context = isinstance(annotation, type) and issubclass(annotation, ToolContext)
         if parameter.name == "ctx":
-            if annotation is not ToolContext:
+            if not is_context:
                 raise TypeError("保留参数 ctx 必须注解为 ToolContext")
             context_parameter = parameter.name
             continue
-        if annotation is ToolContext:
+        if is_context:
             raise TypeError("ToolContext 注入参数必须命名为 ctx")
         if annotation is inspect.Parameter.empty:
             raise TypeError(f"工具 {function.__name__} 的参数 {parameter.name} 缺少类型注解")

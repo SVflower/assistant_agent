@@ -18,7 +18,7 @@ from assistant_agent.contracts.failures import (
     ContinuationPrompt,
     ContinuationResult,
 )
-from assistant_agent.tools.base import ToolBudget
+from assistant_agent.tools.models import ToolBudget
 
 BudgetContinueCheck = Callable[[ContinuationPrompt], ContinuationResult]
 

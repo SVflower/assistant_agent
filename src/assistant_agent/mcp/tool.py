@@ -17,8 +17,10 @@ from typing import Any
 
 from assistant_agent.obs import sanitize_for_display
 from assistant_agent.runtime import RunInterrupted
-from assistant_agent.tools.base import Tool, ToolContext, ToolResult
+from assistant_agent.tools.context import ToolContext
+from assistant_agent.tools.models import ToolResult
 from assistant_agent.tools.permissions import Capability, PermissionRequest, PermissionScope
+from assistant_agent.tools.tool import Tool
 from assistant_agent.tools.validation import build_validator, validate_arguments
 
 #: caller(server, raw_tool, args, timeout) -> CallToolResult 形态对象（有 content/isError），

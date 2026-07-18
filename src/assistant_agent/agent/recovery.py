@@ -28,11 +28,12 @@ from assistant_agent.agent.run_state import (
     stable_call_id,
 )
 from assistant_agent.contracts.failures import RunFailure
-from assistant_agent.llm.client import ToolCall
 from assistant_agent.obs import NullLogger
+from assistant_agent.providers.ports import ToolCall
 from assistant_agent.session.run_store import LoadedRun, RunStore
-from assistant_agent.tools.base import ToolBudget, ToolContext, ToolResult
+from assistant_agent.tools.context import ToolContext
 from assistant_agent.tools.lifecycle import ReplayPolicy
+from assistant_agent.tools.models import ToolBudget, ToolResult
 from assistant_agent.tools.permissions import Capability, PermissionRequest, PermissionScope
 
 RecoveryChoice = Literal["retry", "skip", "abort"]

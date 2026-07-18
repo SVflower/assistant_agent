@@ -4,10 +4,11 @@ from __future__ import annotations
 
 from typing import Any
 
-from assistant_agent.tools.base import Tool, ToolContext
+from assistant_agent.tools.context import ToolContext
 from assistant_agent.tools.display import ToolDisplay, safe_text
+from assistant_agent.tools.models import ToolResult
 from assistant_agent.tools.permissions import Capability, PermissionRequest
-from assistant_agent.tools.result import ToolResult
+from assistant_agent.tools.tool import Tool
 from assistant_agent.web.client import WebClient, WebError, hostname_for_url
 
 

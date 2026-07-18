@@ -31,8 +31,9 @@ bootstrap -> concrete providers / tools / integrations / execution / persistence
 
 ## 2. 当前迁移状态
 
-M19a 已建立 `contracts` 支点、契约基线和依赖护栏；M19b 已迁入稳定公共契约。
-M19c-M19f 按依赖从内到外迁移。迁移期间旧路径仅作兼容转发，不允许形成双实现。
+M19a 已建立契约基线和依赖护栏，M19b 已迁入稳定公共契约，M19c 已隔离 Provider 与
+Tool 端口。M19d-M19f 继续按依赖从内到外迁移。迁移期间旧路径仅作兼容转发，
+不允许形成双实现。
 完整迁移矩阵见 `docs/m19-architecture-reconstruction-plan.md`。
 
 目标所有权：

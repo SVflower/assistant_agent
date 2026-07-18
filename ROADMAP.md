@@ -118,7 +118,7 @@ D14，M9c 已还清 D9，M10a 已还清 D16，M10b 已还清 D8，M11a 已还清
 ### 第三阶段（已完成 ✅）
 
 > 总体目标：从“功能完整的单体 Agent”进入“边界明确、失败可恢复、行为可评测”的可信执行阶段。
-> 唯一总规划见 [第三阶段规划](docs/phase3-trustworthy-agent-plan.md)。每个子里程碑开工前仍需细化方案；
+> 唯一总规划见 [第三阶段规划](docs/archive/phase3/phase3-trustworthy-agent-plan.md)。每个子里程碑开工前仍需细化方案；
 > M10b 涉及 `agent/loop.py` 的实质改动，已在用户单独确认后实施并通过全量回归。
 
 | 里程碑 | 主题 | 状态 |

@@ -3,6 +3,10 @@
 > 交付日期：2026-07-17
 >
 > Agent 侧状态：公共服务边界已实现；未修改 `agent/loop.py`；API 可以开始正式开发。
+>
+> 其他服务接入请优先阅读通用的
+> [Assistant Agent 服务调用指南](agent-service-integration-guide.md)；本文只保留
+> `assistant_agent_api` 的 M16 交接快照。
 
 ## 1. 安装与允许导入的模块
 
@@ -131,7 +135,8 @@ interaction.respond(RecoveryDecision(request_id, "skip"))
 
 安全语义：
 
-- 错误 request ID、错误 decision 类型、非法选项、过期或重复响应返回 `False`；
+- 错误 request ID、错误 decision 类型、过期或重复响应返回 `False`；响应值必须来自请求的
+  `legal_options`，越界值不得放行；
 - timeout、端口关闭、端口异常全部拒绝授权/停止续跑/拒绝定义变化/abort recovery；
 - `close()` 幂等并唤醒所有等待者；
 - approval DTO 含 tool、capabilities、脱敏展示目标、risk、精确 scopes 和可选 broader scope；

@@ -251,6 +251,7 @@ M13a 已完成声明式工具适配层；第七阶段 M14 已完成暂停/取消
 InteractionPort、Session/Run 公共服务门面和稳定 StepEvent 契约，可供安装后的 Python 包直接调用。
 当前 566 个测试通过（5 个平台能力测试跳过）、覆盖率 83%、13547 行生产 Python 源码 + 1564 行
 eval 基础设施。详见 [M16 方案](docs/archive/phase9/m16-service-runtime-boundary-plan.md)和
+[通用服务调用指南](docs/agent-service-integration-guide.md)；`assistant_agent_api` 的阶段性交接见
 [API 接入交付](docs/m16-assistant-agent-api-handoff.md)。
 
 详见 [DESIGN.md](DESIGN.md)。

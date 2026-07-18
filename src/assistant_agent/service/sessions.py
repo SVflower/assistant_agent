@@ -239,6 +239,9 @@ class SessionRuntime:
                             "事件消费者提前关闭，Run 已安全暂停。",
                             messages=self.runtime.loop.export_history(),
                         )
+                # 不变量：消费者提前关闭生成器时 exhausted 恒为 False（关闭发生在
+                # source 耗尽之前），故此处的 yield 只在 source 正常走完后触发，不会撞上
+                # GeneratorExit。改动上面的控制流时须维持这一点，否则 finally 内 yield 会抛错。
                 if exhausted:
                     status = self._finish_run(coordinator)
                     yield StepEvent(

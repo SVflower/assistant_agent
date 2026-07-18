@@ -24,6 +24,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
+    "import-linter>=2.0,<3",
     "pytest>=8.0",
     "pytest-cov>=5.0",
     "ruff>=0.6.0",
@@ -41,7 +42,11 @@ line-length = 100
 target-version = "py311"
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "UP", "B"]
+select = ["E", "F", "I", "UP", "B", "C901"]
+
+[tool.ruff.lint.mccabe]
+# M19a 先锁住现状最高复杂度；完成内核收敛后按实测下调。
+max-complexity = 35
 
 [tool.ruff.lint.per-file-ignores]
 # Typer 的命令参数默认值必须是 typer.Option()/Argument() 调用，这是其惯用法

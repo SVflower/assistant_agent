@@ -1,6 +1,6 @@
 # M19 项目架构重建方案
 
-> 状态：待确认，确认前不移动源码、不修改运行语义。
+> 状态：已确认，实施中（M19a）。用户已授权 M19d 修改 `agent/loop.py`。
 > 版本：v3（2026-07-19，吸收外部评审并完成实施可行性复审，替代 v2）。核心决策：
 > ①砍掉低价值 churn——builtin 工具聚类、`ui/` 合并、测试四象限重排全部出局；
 > ②`service/` 收敛为纯 re-export，允许转发 bootstrap composition root，但自身零逻辑；
@@ -404,6 +404,10 @@ checkpoint 快照）。源码 `git mv` 后对应测试文件同步 `git mv` 并�
 - 不移动业务实现，不为尚不存在的目标包创建全局例外。
 
 验收：594 基线测试及既有质量门全绿；新 contract 真正约束已存在的 contracts 包。
+
+实施记录（2026-07-19）：公共服务契约无变化。依据：本阶段新增的 `contracts` 为空骨架，
+只增加依赖护栏、现有 DTO/导出快照和架构文档；未修改 `assistant_agent.service` 公共出口、
+StepEvent v1、Interaction、Run/Session 状态、checkpoint v3 或生命周期语义。
 
 ### M19b：稳定公共契约
 

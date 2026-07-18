@@ -1,0 +1,24 @@
+[importlinter]
+root_package = assistant_agent
+
+[importlinter:contract:contracts-have-no-project-dependencies]
+name = Public contracts have no project dependencies
+type = forbidden
+source_modules =
+    assistant_agent.contracts
+forbidden_modules =
+    assistant_agent.agent
+    assistant_agent.cli
+    assistant_agent.config
+    assistant_agent.interaction
+    assistant_agent.llm
+    assistant_agent.mcp
+    assistant_agent.obs
+    assistant_agent.runtime
+    assistant_agent.service
+    assistant_agent.session
+    assistant_agent.skills
+    assistant_agent.tools
+    assistant_agent.ui
+    assistant_agent.web
+    assistant_agent.main

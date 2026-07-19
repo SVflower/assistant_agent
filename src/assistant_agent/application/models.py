@@ -3,13 +3,21 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Literal, TypeGuard
 
 from assistant_agent.contracts.charts import AssistantMessageSnapshot, ChartArtifact
 
 SESSION_SCHEMA_VERSION = 1
 EMPTY_SESSION_TITLE = "（空会话）"
 _PREVIEW_LEN = 40
+PublicRunStatus = Literal["running", "paused", "cancelled", "completed", "failed"]
+PUBLIC_RUN_STATUSES: frozenset[str] = frozenset(
+    {"running", "paused", "cancelled", "completed", "failed"}
+)
+
+
+def is_public_run_status(value: str) -> TypeGuard[PublicRunStatus]:
+    return value in PUBLIC_RUN_STATUSES
 
 
 def collapse_unicode_whitespace(value: str) -> str:

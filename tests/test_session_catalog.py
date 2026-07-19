@@ -104,6 +104,55 @@ def test_get_session_summary_reads_by_id_and_aggregates_last_run(tmp_path, monke
     assert summary.last_run.updated_at == "2026-07-20T09:00:00.100000Z"
 
 
+def test_repaired_direct_summary_matches_catalog_and_ignores_newer_unknown_status(tmp_path):
+    sessions = SessionStore(tmp_path / "sessions")
+    runs = RunStore(tmp_path / "runs")
+    session = sessions.new_session()
+    sessions.save(session, [{"role": "user", "content": "indexed"}], must_exist=False)
+    runs.save(
+        "run-valid",
+        _run_document("run-valid", session.id, "2026-07-20T09:00:00Z", "paused"),
+    )
+    runs.save(
+        "run-polluted",
+        _run_document("run-polluted", session.id, "2027-07-20T09:00:00Z", "future-state"),
+    )
+    manifest = json.loads(runs._manifest_path.read_text(encoding="ascii"))
+    ref = runs._session_index / manifest["generation"] / session.id / "run-valid.ref"
+    ref.unlink()
+    service = _service(tmp_path, session_store=sessions, run_store=runs)
+
+    direct = service.get_session_summary(session.id)
+    catalog = service.catalog_sessions().items[0]
+
+    assert direct == catalog
+    assert direct.last_run is not None
+    assert (direct.last_run.id, direct.last_run.status) == ("run-valid", "paused")
+
+
+def test_unrepairable_direct_index_failure_is_stable_unavailable(tmp_path, monkeypatch):
+    sessions = SessionStore(tmp_path / "sessions")
+    runs = RunStore(tmp_path / "runs")
+    session = sessions.new_session()
+    sessions.save(session, [], must_exist=False)
+    runs.save("run-1", _run_document("run-1", session.id, "2026-07-20T09:00:00Z"))
+    manifest = json.loads(runs._manifest_path.read_text(encoding="ascii"))
+    ref = runs._session_index / manifest["generation"] / session.id / "run-1.ref"
+    ref.unlink()
+    real_replace = __import__("os").replace
+
+    def fail_manifest_replace(source, target):
+        if target == runs._manifest_path:
+            raise OSError("injected index commit failure")
+        return real_replace(source, target)
+
+    monkeypatch.setattr("assistant_agent.persistence.run_store.os.replace", fail_manifest_replace)
+    service = _service(tmp_path, session_store=sessions, run_store=runs)
+
+    with pytest.raises(SessionUnavailableError, match="summary 暂不可用"):
+        service.get_session_summary(session.id)
+
+
 def test_get_session_summary_not_found_and_tombstone(tmp_path):
     service = _service(tmp_path)
     with pytest.raises(SessionNotFoundError):

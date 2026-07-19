@@ -13,7 +13,13 @@ from typing import Literal, cast
 
 from pydantic import ValidationError
 
-from assistant_agent.application.models import RunMeta, RunResumeInfo, Session, SessionMeta
+from assistant_agent.application.models import (
+    RunMeta,
+    RunResumeInfo,
+    Session,
+    SessionMeta,
+    is_public_run_status,
+)
 from assistant_agent.application.ports import (
     RunCatalogRepository,
     RuntimeFactoryPort,
@@ -211,13 +217,7 @@ class AgentService:
             raise SessionUnavailableError("Session catalog 暂不可用") from exc
         last_runs: dict[str, RunMeta] = {}
         for run in runs:
-            if run.session_id is None or run.status not in {
-                "running",
-                "paused",
-                "cancelled",
-                "completed",
-                "failed",
-            }:
+            if run.session_id is None or not is_public_run_status(run.status):
                 continue
             try:
                 current = last_runs.get(run.session_id)
@@ -274,8 +274,7 @@ class AgentService:
                 (
                     item
                     for item in runs
-                    if item.session_id == session_id
-                    and item.status in {"running", "paused", "cancelled", "completed", "failed"}
+                    if item.session_id == session_id and is_public_run_status(item.status)
                 ),
                 key=self._run_key,
                 default=None,
@@ -297,19 +296,10 @@ class AgentService:
 
     @staticmethod
     def _last_run_summary(run: RunMeta | None) -> LastRunSummary | None:
-        if run is not None and run.status in {
-            "running",
-            "paused",
-            "cancelled",
-            "completed",
-            "failed",
-        }:
+        if run is not None and is_public_run_status(run.status):
             return LastRunSummary(
                 id=run.id,
-                status=cast(
-                    Literal["running", "paused", "cancelled", "completed", "failed"],
-                    run.status,
-                ),
+                status=run.status,
                 updated_at=_as_utc_iso(run.updated_at),
             )
         return None

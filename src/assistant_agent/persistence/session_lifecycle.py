@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import os
 import re
 import tempfile
@@ -12,6 +13,7 @@ from pathlib import Path
 from typing import BinaryIO
 
 _SESSION_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$")
+_LOCK_SHARDS = 64
 _THREAD_LOCKS_GUARD = threading.Lock()
 _THREAD_LOCKS: dict[Path, threading.Lock] = {}
 
@@ -52,7 +54,14 @@ class PersistentLifecycle:
     def _path(self, session_id: str, suffix: str) -> Path:
         if not isinstance(session_id, str) or not _SESSION_ID.fullmatch(session_id):
             raise ValueError(f"非法 {self._entity} ID")
-        path = (self._dir / f"{session_id}.{suffix}").resolve()
+        name = session_id
+        if suffix == "lock":
+            shard = (
+                int.from_bytes(hashlib.sha256(session_id.encode("ascii")).digest()[:2], "big")
+                % _LOCK_SHARDS
+            )
+            name = f"lock-{shard:02d}"
+        path = (self._dir / f"{name}.{suffix}").resolve()
         if path.parent != self._dir:
             raise ValueError(f"{self._entity} lifecycle 路径超出存储目录")
         return path

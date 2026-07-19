@@ -6,16 +6,20 @@ import builtins
 import json
 import os
 import re
+import shutil
 import tempfile
+import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
-from assistant_agent.application.models import RunMeta
+from assistant_agent.application.models import RunMeta, is_public_run_status
 from assistant_agent.contracts.time import parse_utc_timestamp
 from assistant_agent.persistence.session_lifecycle import RunLifecycle, SessionLifecycle
 
 _RUN_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$")
+_INDEX_VERSION = 1
+_INDEX_LOCK_ID = "session-index-v1"
 
 
 @dataclass(frozen=True)
@@ -23,6 +27,10 @@ class LoadedRun:
     document: dict[str, Any]
     source: Literal["current", "previous"]
     warning: str = ""
+
+
+class _StaleSessionIndexError(Exception):
+    pass
 
 
 class RunStore:
@@ -56,29 +64,29 @@ class RunStore:
             raise ValueError("Run 路径超出存储目录")
         return path
 
-    def _session_index_dir(self, session_id: str) -> Path:
+    def _session_index_dir(self, generation: str, session_id: str) -> Path:
         if not isinstance(session_id, str) or not _RUN_ID.fullmatch(session_id):
             raise ValueError("非法 Session ID")
-        root = self._session_index.resolve()
+        if not isinstance(generation, str) or not _RUN_ID.fullmatch(generation):
+            raise ValueError("非法 Run Session 索引 generation")
+        root = (self._session_index / generation).resolve()
         path = (root / session_id).resolve()
         if path.parent != root:
             raise ValueError("Run Session 索引路径超出存储目录")
         return path
 
-    def _session_ref_path(self, session_id: str, run_id: str) -> Path:
+    def _session_ref_path(self, generation: str, session_id: str, run_id: str) -> Path:
         self._path(run_id)
-        return self._session_index_dir(session_id) / f"{run_id}.ref"
+        return self._session_index_dir(generation, session_id) / f"{run_id}.ref"
 
-    def _write_session_ref(self, session_id: str, run_id: str) -> None:
-        target = self._session_ref_path(session_id, run_id)
-        if target.is_file():
-            return
+    @staticmethod
+    def _atomic_write(target: Path, payload: bytes, *, prefix: str) -> None:
         target.parent.mkdir(parents=True, exist_ok=True)
-        fd, temp_name = tempfile.mkstemp(prefix=f".{run_id}-", suffix=".tmp", dir=target.parent)
+        fd, temp_name = tempfile.mkstemp(prefix=prefix, suffix=".tmp", dir=target.parent)
         temp_path = Path(temp_name)
         try:
             with os.fdopen(fd, "wb") as handle:
-                handle.write(b"run\n")
+                handle.write(payload)
                 handle.flush()
                 os.fsync(handle.fileno())
             os.replace(temp_path, target)
@@ -86,44 +94,180 @@ class RunStore:
             temp_path.unlink(missing_ok=True)
             raise
 
-    def _ensure_session_index(self) -> None:
-        ready = self._session_index / ".ready"
-        with self._index_lifecycle.lock("session-index-v1"):
-            if ready.is_file():
-                return
-            if self._dir.is_dir():
-                run_ids = {
-                    path.name.removesuffix(".prev.json").removesuffix(".json")
-                    for path in self._dir.glob("*.json")
-                }
-                for run_id in run_ids:
-                    with self._run_lifecycle.lock(run_id):
-                        if self._run_lifecycle.is_deleted_locked(run_id):
-                            continue
-                        try:
-                            document = self._load_unchecked(run_id).document
-                        except (FileNotFoundError, ValueError):
-                            continue
-                        session_id = document.get("session_id")
-                        if isinstance(session_id, str):
-                            try:
-                                self._write_session_ref(session_id, run_id)
-                            except ValueError:
-                                continue
-            self._session_index.mkdir(parents=True, exist_ok=True)
-            fd, temp_name = tempfile.mkstemp(
-                prefix=".ready-", suffix=".tmp", dir=self._session_index
-            )
-            temp_path = Path(temp_name)
+    def _write_session_ref(self, generation: str, session_id: str, run_id: str) -> None:
+        target = self._session_ref_path(generation, session_id, run_id)
+        payload = json.dumps(
+            {"run_id": run_id, "session_id": session_id, "version": _INDEX_VERSION},
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("ascii")
+        if target.is_file():
             try:
-                with os.fdopen(fd, "wb") as handle:
-                    handle.write(b"1\n")
-                    handle.flush()
-                    os.fsync(handle.fileno())
-                os.replace(temp_path, ready)
-            except BaseException:
+                if target.read_bytes() == payload:
+                    return
+            except OSError:
+                pass
+        self._atomic_write(target, payload, prefix=f".{run_id}-")
+
+    @property
+    def _manifest_path(self) -> Path:
+        return self._session_index / "manifest.json"
+
+    def _write_manifest_locked(self, generation: str, sessions: dict[str, set[str]]) -> None:
+        payload = json.dumps(
+            {
+                "generation": generation,
+                "sessions": {
+                    session_id: sorted(run_ids)
+                    for session_id, run_ids in sorted(sessions.items())
+                    if run_ids
+                },
+                "version": _INDEX_VERSION,
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("ascii")
+        self._atomic_write(self._manifest_path, payload, prefix=".manifest-")
+
+    def _read_manifest_locked(self) -> tuple[str, dict[str, set[str]]]:
+        try:
+            document = json.loads(self._manifest_path.read_text(encoding="ascii"))
+        except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+            raise ValueError("Run Session 索引 manifest 损坏") from exc
+        if not isinstance(document, dict) or set(document) != {
+            "generation",
+            "sessions",
+            "version",
+        }:
+            raise ValueError("Run Session 索引 manifest 结构无效")
+        generation = document["generation"]
+        raw_sessions = document["sessions"]
+        if (
+            document["version"] != _INDEX_VERSION
+            or not isinstance(generation, str)
+            or not _RUN_ID.fullmatch(generation)
+            or not isinstance(raw_sessions, dict)
+        ):
+            raise ValueError("Run Session 索引 manifest 字段无效")
+        sessions: dict[str, set[str]] = {}
+        seen_runs: set[str] = set()
+        for session_id, raw_run_ids in raw_sessions.items():
+            if (
+                not isinstance(session_id, str)
+                or not _RUN_ID.fullmatch(session_id)
+                or not isinstance(raw_run_ids, list)
+                or not raw_run_ids
+            ):
+                raise ValueError("Run Session 索引 manifest Session 无效")
+            run_ids: set[str] = set()
+            for run_id in raw_run_ids:
+                if (
+                    not isinstance(run_id, str)
+                    or not _RUN_ID.fullmatch(run_id)
+                    or run_id in run_ids
+                    or run_id in seen_runs
+                ):
+                    raise ValueError("Run Session 索引 manifest Run 无效")
+                run_ids.add(run_id)
+                seen_runs.add(run_id)
+            sessions[session_id] = run_ids
+        return generation, sessions
+
+    def _validate_refs_locked(
+        self,
+        generation: str,
+        sessions: dict[str, set[str]],
+        *,
+        session_id: str | None = None,
+    ) -> None:
+        root = (self._session_index / generation).resolve()
+        if not root.is_dir():
+            raise ValueError("Run Session 索引 generation 缺失")
+        expected_sessions = (
+            sessions if session_id is None else {session_id: sessions.get(session_id, set())}
+        )
+        for expected_session, expected_run_ids in expected_sessions.items():
+            index_dir = self._session_index_dir(generation, expected_session)
+            if not expected_run_ids:
+                if index_dir.exists():
+                    raise ValueError("Run Session 索引包含未登记 ref")
+                continue
+            if not index_dir.is_dir():
+                raise ValueError("Run Session 索引目录缺失")
+            actual_paths = list(index_dir.glob("*.ref"))
+            if {path.stem for path in actual_paths} != expected_run_ids:
+                raise ValueError("Run Session 索引 ref 集合不完整")
+            for path in actual_paths:
+                try:
+                    document = json.loads(path.read_text(encoding="ascii"))
+                except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+                    raise ValueError("Run Session 索引 ref 损坏") from exc
+                if document != {
+                    "run_id": path.stem,
+                    "session_id": expected_session,
+                    "version": _INDEX_VERSION,
+                }:
+                    raise ValueError("Run Session 索引 ref 内容无效")
+        if session_id is None:
+            actual_dirs = {path.name for path in root.iterdir() if path.is_dir()}
+            if actual_dirs != set(sessions):
+                raise ValueError("Run Session 索引目录集合不完整")
+
+    def _cleanup_index_locked(self, *, keep_generation: str) -> None:
+        if not self._session_index.is_dir():
+            return
+        for path in self._session_index.iterdir():
+            if path.name in {"manifest.json", keep_generation}:
+                continue
+            if path.is_dir():
+                shutil.rmtree(path)
+            elif path.name == ".ready" or path.suffix == ".tmp":
+                path.unlink(missing_ok=True)
+        generation_dir = self._session_index / keep_generation
+        if generation_dir.is_dir():
+            for temp_path in generation_dir.rglob("*.tmp"):
                 temp_path.unlink(missing_ok=True)
-                raise
+
+    def _rebuild_session_index_locked(self) -> tuple[str, dict[str, set[str]]]:
+        sessions: dict[str, set[str]] = {}
+        if self._dir.is_dir():
+            run_ids = {
+                path.name.removesuffix(".prev.json").removesuffix(".json")
+                for path in self._dir.glob("*.json")
+            }
+            for run_id in run_ids:
+                with self._run_lifecycle.lock(run_id):
+                    if self._run_lifecycle.is_deleted_locked(run_id):
+                        continue
+                    try:
+                        document = self._load_unchecked(run_id).document
+                    except (FileNotFoundError, ValueError):
+                        continue
+                    session_id = document.get("session_id")
+                    if isinstance(session_id, str) and _RUN_ID.fullmatch(session_id):
+                        sessions.setdefault(session_id, set()).add(run_id)
+        generation = f"g-{uuid.uuid4().hex}"
+        (self._session_index / generation).mkdir(parents=True, exist_ok=False)
+        for session_id, run_ids in sessions.items():
+            for run_id in run_ids:
+                self._write_session_ref(generation, session_id, run_id)
+        self._write_manifest_locked(generation, sessions)
+        self._cleanup_index_locked(keep_generation=generation)
+        return generation, sessions
+
+    def _index_locked(self, *, session_id: str | None = None) -> tuple[str, dict[str, set[str]]]:
+        try:
+            generation, sessions = self._read_manifest_locked()
+            self._validate_refs_locked(generation, sessions, session_id=session_id)
+        except (OSError, ValueError):
+            generation, sessions = self._rebuild_session_index_locked()
+            self._validate_refs_locked(generation, sessions, session_id=session_id)
+        return generation, sessions
+
+    def _ensure_session_index(self) -> None:
+        with self._index_lifecycle.lock(_INDEX_LOCK_ID):
+            generation, _ = self._index_locked()
+            self._cleanup_index_locked(keep_generation=generation)
 
     @staticmethod
     def _encode(run_id: str, document: dict[str, Any]) -> bytes:
@@ -151,17 +295,31 @@ class RunStore:
         with self._lifecycle.lock(session_id):
             if self._lifecycle.is_deleted_locked(session_id):
                 raise FileNotFoundError(f"Session 已删除：{session_id}")
-            self._save_with_run_lock(run_id, payload)
+            with self._index_lifecycle.lock(_INDEX_LOCK_ID):
+                generation, sessions = self._index_locked(session_id=session_id)
+                self._save_with_run_lock(run_id, payload)
+                sessions.setdefault(session_id, set()).add(run_id)
+                self._write_session_ref(generation, session_id, run_id)
+                self._write_manifest_locked(generation, sessions)
 
     def _save_with_run_lock(self, run_id: str, payload: bytes) -> None:
         with self._run_lifecycle.lock(run_id):
             if self._run_lifecycle.is_deleted_locked(run_id):
                 raise FileNotFoundError(f"Run 已删除：{run_id}")
-            document = json.loads(payload)
-            session_id = document.get("session_id")
-            if isinstance(session_id, str):
-                self._write_session_ref(session_id, run_id)
+            session_id = json.loads(payload).get("session_id")
+            existing_session = self._existing_session_id_locked(run_id)
+            if existing_session is not None and existing_session != session_id:
+                raise ValueError("Run checkpoint 不得更换或移除 Session")
             self._save_unchecked(run_id, payload)
+
+    def _existing_session_id_locked(self, run_id: str) -> str | None:
+        try:
+            session_id = self._load_unchecked(run_id).document.get("session_id")
+        except FileNotFoundError:
+            return None
+        if session_id is not None and not isinstance(session_id, str):
+            raise ValueError("Run checkpoint session_id 必须是字符串或 null")
+        return session_id
 
     def _save_unchecked(self, run_id: str, payload: bytes) -> None:
         self._dir.mkdir(parents=True, exist_ok=True)
@@ -262,25 +420,35 @@ class RunStore:
         """调用方已持 Session lifecycle 锁时，一次聚合该 Session 的最后 Run。"""
         if self._lifecycle.is_deleted_locked(session_id):
             raise FileNotFoundError(f"Session 已删除：{session_id}")
-        index_dir = self._session_index_dir(session_id)
-        if not index_dir.is_dir():
-            return None
+        with self._index_lifecycle.lock(_INDEX_LOCK_ID):
+            generation, sessions = self._index_locked(session_id=session_id)
+            run_ids = sessions.get(session_id, set())
+            try:
+                return self._last_indexed_run_locked(session_id, run_ids)
+            except _StaleSessionIndexError:
+                generation, sessions = self._rebuild_session_index_locked()
+                self._validate_refs_locked(generation, sessions, session_id=session_id)
+                return self._last_indexed_run_locked(session_id, sessions.get(session_id, set()))
+
+    def _last_indexed_run_locked(self, session_id: str, run_ids: set[str]) -> RunMeta | None:
         last: RunMeta | None = None
-        run_ids = {path.stem for path in index_dir.glob("*.ref")}
         for run_id in run_ids:
             with self._run_lifecycle.lock(run_id):
                 if self._run_lifecycle.is_deleted_locked(run_id):
-                    continue
+                    raise _StaleSessionIndexError
                 try:
                     document = self._load_unchecked(run_id).document
-                except (FileNotFoundError, ValueError):
-                    continue
+                except (FileNotFoundError, ValueError) as exc:
+                    raise _StaleSessionIndexError from exc
                 if document.get("session_id") != session_id:
+                    raise _StaleSessionIndexError
+                status = str(document.get("status") or "unknown")
+                if not is_public_run_status(status):
                     continue
                 task = str(document.get("task") or "").strip().replace("\n", " ")
                 candidate = RunMeta(
                     id=run_id,
-                    status=str(document.get("status") or "unknown"),
+                    status=status,
                     phase=str(document.get("phase") or "unknown"),
                     session_id=session_id,
                     updated_at=str(document.get("updated_at") or ""),
@@ -299,22 +467,22 @@ class RunStore:
         with self._lifecycle.lock(session_id):
             if not self._lifecycle.is_deleted_locked(session_id):
                 raise ValueError("删除 Run 前必须先发布 Session tombstone")
-            if not self._dir.is_dir():
-                return removed
-            run_ids = {
-                path.name.removesuffix(".prev.json").removesuffix(".json")
-                for path in self._dir.glob("*.json")
-            }
-            for run_id in run_ids:
-                with self._run_lifecycle.lock(run_id):
-                    try:
-                        loaded = self._load_unchecked(run_id)
-                    except (FileNotFoundError, ValueError):
-                        continue
-                    if loaded.document.get("session_id") == session_id:
+            with self._index_lifecycle.lock(_INDEX_LOCK_ID):
+                generation, sessions = self._rebuild_session_index_locked()
+                run_ids = sessions.get(session_id, set()).copy()
+                for run_id in sorted(run_ids):
+                    with self._run_lifecycle.lock(run_id):
                         if self._delete_locked(run_id):
                             removed.append(run_id)
+                self._remove_session_refs_locked(generation, sessions, session_id)
         return removed
+
+    def _remove_session_refs_locked(
+        self, generation: str, sessions: dict[str, set[str]], session_id: str
+    ) -> None:
+        sessions.pop(session_id, None)
+        shutil.rmtree(self._session_index_dir(generation, session_id), ignore_errors=True)
+        self._write_manifest_locked(generation, sessions)
 
     def _fsync_directory(self) -> None:
         if os.name == "nt":
@@ -333,8 +501,25 @@ class RunStore:
 
     def delete(self, run_id: str) -> bool:
         """存在双槽时先发布 tombstone 再清理；不存在或已删除返回 False。"""
-        with self._run_lifecycle.lock(run_id):
-            return self._delete_locked(run_id)
+        with self._index_lifecycle.lock(_INDEX_LOCK_ID):
+            generation, sessions = self._index_locked()
+            session_id = next(
+                (candidate for candidate, run_ids in sessions.items() if run_id in run_ids),
+                None,
+            )
+            with self._run_lifecycle.lock(run_id):
+                deleted = self._delete_locked(run_id)
+            if session_id is not None:
+                run_ids = sessions.get(session_id)
+                if run_ids is not None:
+                    run_ids.discard(run_id)
+                    ref = self._session_ref_path(generation, session_id, run_id)
+                    ref.unlink(missing_ok=True)
+                    if not run_ids:
+                        sessions.pop(session_id)
+                        shutil.rmtree(ref.parent, ignore_errors=True)
+                    self._write_manifest_locked(generation, sessions)
+            return deleted
 
     def _delete_locked(self, run_id: str) -> bool:
         paths = (self._path(run_id), self._path(run_id, previous=True))

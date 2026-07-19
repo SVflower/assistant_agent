@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import errno
 import hashlib
 import os
 import re
 import tempfile
 import threading
+import time
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
@@ -14,15 +16,34 @@ from typing import BinaryIO
 
 _SESSION_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$")
 _LOCK_SHARDS = 64
+_WINDOWS_LOCK_POLL_SECONDS = 0.05
+_WINDOWS_LOCK_ERRNOS = {
+    errno.EACCES,
+    errno.EAGAIN,
+    errno.EDEADLK,
+}
+_WINDOWS_LOCK_WINERRORS = {33, 36}
 _THREAD_LOCKS_GUARD = threading.Lock()
-_THREAD_LOCKS: dict[Path, threading.Lock] = {}
+_THREAD_LOCKS: dict[Path, threading.RLock] = {}
+_THREAD_HELD_PATHS = threading.local()
 
 
 def _lock_file(handle: BinaryIO) -> None:
     if os.name == "nt":
         import msvcrt
 
-        msvcrt.locking(handle.fileno(), msvcrt.LK_LOCK, 1)
+        while True:
+            handle.seek(0)
+            try:
+                msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+                return
+            except OSError as exc:
+                if (
+                    exc.errno not in _WINDOWS_LOCK_ERRNOS
+                    and getattr(exc, "winerror", None) not in _WINDOWS_LOCK_WINERRORS
+                ):
+                    raise
+                time.sleep(_WINDOWS_LOCK_POLL_SECONDS)
     else:
         import fcntl
 
@@ -71,18 +92,30 @@ class PersistentLifecycle:
         self._dir.mkdir(parents=True, exist_ok=True)
         path = self._path(session_id, "lock")
         with _THREAD_LOCKS_GUARD:
-            thread_lock = _THREAD_LOCKS.setdefault(path, threading.Lock())
+            thread_lock = _THREAD_LOCKS.setdefault(path, threading.RLock())
         with thread_lock:
+            held_paths = getattr(_THREAD_HELD_PATHS, "paths", None)
+            if held_paths is None:
+                held_paths = set()
+                _THREAD_HELD_PATHS.paths = held_paths
+            if path in held_paths:
+                yield
+                return
             handle = path.open("a+b")
+            acquired = False
             try:
                 if handle.seek(0, os.SEEK_END) == 0:
                     handle.write(b"0")
                     handle.flush()
                 handle.seek(0)
                 _lock_file(handle)
+                acquired = True
+                held_paths.add(path)
                 yield
             finally:
-                _unlock_file(handle)
+                held_paths.discard(path)
+                if acquired:
+                    _unlock_file(handle)
                 handle.close()
 
     def is_deleted_locked(self, session_id: str) -> bool:

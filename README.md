@@ -96,6 +96,12 @@ ui:
 workspace Artifact 返回，文件数由 `tools.max_artifact_files` 限制。预算耗尽时 Agent 会补齐
 当前工具批次的结果并安全终止。
 
+`run_shell` 是有界前台命令：配置的 timeout 覆盖执行、输出排空和进程树清理；若命令用
+`start /b`、`nohup` 或 `&` 遗留继承管道的后台进程，Agent 会终止该进程树并返回结构化错误，
+不会无限等待。需要让开发服务器跨多个步骤运行时，Agent 使用 `manage_process` 显式启动、查看状态/
+有界日志和停止。后台进程只属于当前 Runtime，使用 opaque process ID，Runtime 关闭时全部清理；
+容器 Workspace 暂不提供跨步骤后台进程。
+
 内置工具执行环境由 `sandbox.mode` 选择：`off` 保持宿主兼容；`workspace` 强制文件和 cwd 不越过
 当前项目，但它不是 OS 沙箱；`container` 使用 Docker/Podman，把 Shell/Git 放入临时容器。容器
 默认只挂载当前项目、禁网、非 root、清空 capabilities，并限制 CPU/内存/PID；退出、超时或中断
@@ -269,8 +275,11 @@ InteractionPort、Session/Run 公共服务门面和稳定 StepEvent 契约，可
 公共根入口。第十三阶段 M20 已将 optional MCP 从启动关键路径移除：有目录时注册稳定 Schema 并在
 首次调用连接，无目录时后台发现、下一 Runtime 生效；required MCP 仍同步校验，Skill 正文仍按需加载。
 模型通过只读 `inspect_runtime` 查询当前工具、Skill、MCP 动态状态，不再搜索项目文件猜测自身能力。
-当前 618 个测试通过（5 个平台能力测试跳过）、覆盖率 83%、14,360 行/123 文件
-生产 Python 源码 + 1,404 行 eval 基础设施；scripted 18/18、recovery 4/4。详见
+第十四阶段 M21 已修复父进程先退出、后代继承 PIPE 导致的无限等待，并增加 Runtime 隔离的
+`manage_process` 后台进程生命周期；前台命令和后台服务不再混用逃逸语法。
+当前 637 个测试通过（6 个平台能力测试跳过）、覆盖率 84%、14,897 行/125 文件
+生产 Python 源码 + 1,404 行 eval 基础设施；scripted 18/18、recovery 4/4；剩余 5 项技术债
+（2 中/3 低，无高优先级）。详见
 [架构事实源](docs/ARCHITECTURE.md)和[通用服务调用指南](docs/agent-service-integration-guide.md)。
 
 详见 [DESIGN.md](DESIGN.md)。

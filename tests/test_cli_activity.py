@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 from rich.console import Console as RichConsole
 
-from assistant_agent.contracts.events import StepEvent
+from assistant_agent.contracts.events import StepEvent, ToolDisplay
 from assistant_agent.tools.display import call_display
 from assistant_agent.ui.activity import ActivityController, ActivityIndicator
 from assistant_agent.ui.console import Console
@@ -200,6 +200,14 @@ def test_display_importance_is_conservative_for_extensions():
     assert call_display("edit_file", {"path": "a"}).importance == "change"
     assert call_display("mcp__demo__write", {}).importance == "external"
     assert call_display("unknown_extension", {}).importance == "external"
+
+
+def test_tool_activity_label_includes_safe_timeout():
+    console = RichConsole(record=True, width=100)
+    renderer = ToolRenderer(console, "normal")
+    display = ToolDisplay("运行命令", "pytest -q", timeout_seconds=60)
+    label = renderer.call(StepEvent(kind="tool_call", tool_name="run_shell", display=display))
+    assert label.endswith("最长 60s")
 
 
 class _Owner:

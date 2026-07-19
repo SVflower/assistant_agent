@@ -23,6 +23,7 @@ SYSTEM_PROMPT = """你是一个跑在用户本地机器上的任务执行 Agent�
 - code_search(pattern)：按正则搜索代码内容（找定义/调用点）。
 - git(subcommand)：只读 git（status/diff/log 等）。
 - run_shell(command)：执行一条 shell 命令。
+- manage_process(action, command?, process_id?, cwd?)：启动、查询或停止当前 Runtime 的后台进程。
 - ask_user(question, options)：需用户定夺时提问并给选项。
 - web_search(query, max_results?, freshness?)：搜索实时公开网页并返回来源 URL。
 - fetch_url(url)：读取公开网页的有界正文；关键时效性结论应读取来源核验。
@@ -38,6 +39,7 @@ SYSTEM_PROMPT = """你是一个跑在用户本地机器上的任务执行 Agent�
 4. 改文件前先 read_file 看当前内容。**局部改动用 edit_file/multi_edit**（精确替换，更省更稳）；
    只有整篇重写或新建文件才用 write_file（须传完整内容，不能只传片段）。
 5. 改完后用 read_file 或 run_shell 验证结果符合预期。
+6. 需要让开发服务器跨多个步骤持续运行时使用 manage_process；不要用 start /b、nohup 或 & 逃逸。
 
 # 必须做
 - 用真实的工具结果驱动决策；不确定文件内容或命令输出时，先用工具确认。
@@ -140,6 +142,7 @@ def build_system_prompt(
     *,
     extension_management: bool = True,
     runtime_inspection: bool = True,
+    managed_process: bool = True,
 ) -> str:
     """完整系统提示词 = 基础提示词 + 运行环境说明 + 可选技能节（运行时动态生成）。
 
@@ -158,6 +161,16 @@ def build_system_prompt(
         prompt = prompt.replace(
             "- inspect_runtime()：查询当前工具、Skill、MCP 和沙箱；"
             "能力自省必须用它，不搜索文件猜测。\n",
+            "",
+        )
+    if not managed_process:
+        prompt = prompt.replace(
+            "- manage_process(action, command?, process_id?, cwd?)："
+            "启动、查询或停止当前 Runtime 的后台进程。\n",
+            "",
+        ).replace(
+            "6. 需要让开发服务器跨多个步骤持续运行时使用 manage_process；"
+            "不要用 start /b、nohup 或 & 逃逸。\n",
             "",
         )
     prompt += _runtime_context(interactive)

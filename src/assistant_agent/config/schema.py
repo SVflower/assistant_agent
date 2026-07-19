@@ -134,6 +134,14 @@ class ToolsConfig(BaseModel):
         description="已废弃兼容字段；统一权限边界始终启用，不能用此字段关闭",
     )
     shell_timeout: int = Field(default=60, gt=0, description="shell 命令超时（秒）")
+    max_background_processes: int = Field(
+        default=4, ge=1, le=32, description="单个 Runtime 最多同时运行的受管后台进程数"
+    )
+    max_background_output_chars: int = Field(
+        default=100_000,
+        gt=0,
+        description="每个后台进程 stdout/stderr 分别保留的最大字符数",
+    )
     max_output_chars: int = Field(
         default=4000,
         ge=0,

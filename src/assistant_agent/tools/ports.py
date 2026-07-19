@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol
 
@@ -51,6 +52,18 @@ class ProcessResultPort(Protocol):
     @property
     def interrupted(self) -> bool: ...
 
+    @property
+    def background_process(self) -> bool: ...
+
+    @property
+    def execution_duration_ms(self) -> int: ...
+
+    @property
+    def drain_duration_ms(self) -> int: ...
+
+    @property
+    def cleanup_duration_ms(self) -> int: ...
+
 
 class RunControlPort(Protocol):
     @property
@@ -64,6 +77,41 @@ class RunControlPort(Protocol):
 
 
 class ProcessSupervisorPort(Protocol):
+    def close(self) -> None: ...
+
+
+class ManagedProcessSnapshotPort(Protocol):
+    @property
+    def process_id(self) -> str: ...
+
+    @property
+    def status(self) -> str: ...
+
+    @property
+    def returncode(self) -> int | None: ...
+
+    @property
+    def stdout(self) -> CapturedStreamPort: ...
+
+    @property
+    def stderr(self) -> CapturedStreamPort: ...
+
+    @property
+    def elapsed_seconds(self) -> float: ...
+
+    @property
+    def error_code(self) -> str | None: ...
+
+
+class ManagedProcessRegistryPort(Protocol):
+    def start(self, command: str, *, cwd: str) -> ManagedProcessSnapshotPort: ...
+
+    def get(self, process_id: str) -> ManagedProcessSnapshotPort: ...
+
+    def list(self) -> Sequence[ManagedProcessSnapshotPort]: ...
+
+    def stop(self, process_id: str) -> ManagedProcessSnapshotPort: ...
+
     def close(self) -> None: ...
 
 

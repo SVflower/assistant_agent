@@ -123,6 +123,8 @@ def test_runtime_budget_defaults(tmp_path):
     assert config.tools.max_output_chars == 4000
     assert config.tools.max_captured_output_chars == 1_000_000
     assert config.tools.max_artifact_files == 100
+    assert config.tools.max_background_processes == 4
+    assert config.tools.max_background_output_chars == 100_000
     assert config.agent.max_tool_calls == 50
     assert config.agent.max_total_tool_output_chars == 50_000
     assert config.agent.recovery.enabled is True

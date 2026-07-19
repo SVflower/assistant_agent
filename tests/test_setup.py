@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+import os
+import shlex
+import subprocess
+import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -66,8 +71,10 @@ def test_public_runtime_rolls_back_mcp_and_logger(tmp_path, monkeypatch):
     config = AppConfig.model_validate({"active": "p", "providers": {"p": {"model": "x"}}})
     logger = _Logger()
     mcp = _MCP()
+    processes = _MCP()
     monkeypatch.setattr(service_runtime, "load_config", lambda _path: config)
     monkeypatch.setattr(service_runtime, "create_logger", lambda *_args, **_kwargs: logger)
+    monkeypatch.setattr(service_runtime, "ManagedProcessRegistry", lambda **_kwargs: processes)
     monkeypatch.setattr(
         service_runtime,
         "start_mcp",
@@ -86,6 +93,7 @@ def test_public_runtime_rolls_back_mcp_and_logger(tmp_path, monkeypatch):
             interactive=False,
         )
     assert mcp.closed is True
+    assert processes.closed is True
     assert logger.end_reasons == ["runtime_init_failed"]
 
 
@@ -179,3 +187,46 @@ def test_runtime_startup_observer_marks_failed_stage(tmp_path):
         )
 
     assert events == [("loading_config", "started"), ("loading_config", "failed")]
+
+
+def test_runtime_registers_managed_process_when_context_allows(tmp_path):
+    config = tmp_path / "config.yaml"
+    config.write_text(
+        "active: p\nproviders:\n  p:\n    model: openai/fake\n"
+        "agent:\n  max_context_tokens: 65536\n",
+        encoding="utf-8",
+    )
+    runtime = service_runtime.create_runtime(
+        config_path=config,
+        workspace_root=tmp_path,
+        interactive=False,
+    )
+    try:
+        names = {item["function"]["name"] for item in runtime.loop.tool_schemas}
+        assert "manage_process" in names
+        assert runtime.process_manager is runtime.tool_context.process_manager
+    finally:
+        runtime.close()
+
+
+def test_runtime_close_terminates_owned_background_process(tmp_path):
+    marker = tmp_path / "runtime-process-survived.txt"
+    code = f"import time; time.sleep(1); open({str(marker)!r}, 'w').write('alive')"
+    parts = [sys.executable, "-c", code]
+    command = subprocess.list2cmdline(parts) if os.name == "nt" else shlex.join(parts)
+    config = tmp_path / "config.yaml"
+    config.write_text(
+        "active: p\nproviders:\n  p:\n    model: openai/fake\n"
+        "agent:\n  max_context_tokens: 65536\n",
+        encoding="utf-8",
+    )
+    runtime = service_runtime.create_runtime(
+        config_path=config,
+        workspace_root=tmp_path,
+        interactive=False,
+    )
+    assert runtime.process_manager is not None
+    runtime.process_manager.start(command, cwd=str(tmp_path))
+    runtime.close()
+    time.sleep(1.2)
+    assert not marker.exists()

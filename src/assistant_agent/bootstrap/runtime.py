@@ -42,7 +42,12 @@ from assistant_agent.contracts.errors import (
 )
 from assistant_agent.contracts.failures import ContinuationPrompt, ContinuationResult
 from assistant_agent.contracts.interactions import ContinueRequest, InteractionPort
-from assistant_agent.execution import BaseWorkspace, ProcessSupervisor, RunControl
+from assistant_agent.execution import (
+    BaseWorkspace,
+    ManagedProcessRegistry,
+    ProcessSupervisor,
+    RunControl,
+)
 from assistant_agent.integrations.mcp import MCPManager, MCPService
 from assistant_agent.integrations.skills import LoadSkillTool, SkillManager
 from assistant_agent.integrations.web_access import WebClient
@@ -53,6 +58,7 @@ from assistant_agent.persistence.store import SessionStore
 from assistant_agent.providers.litellm import LLMClient
 from assistant_agent.tools.context import ToolContext
 from assistant_agent.tools.extensions import ConfigureMCPServerTool, ManageSkillTool
+from assistant_agent.tools.processes import ManageProcessTool
 from assistant_agent.tools.registry import build_default_registry
 from assistant_agent.tools.runtime_inspection import InspectRuntimeTool
 
@@ -106,6 +112,10 @@ def create_runtime(
 
     control = run_control or RunControl()
     supervisor = ProcessSupervisor()
+    process_manager = ManagedProcessRegistry(
+        max_processes=config.tools.max_background_processes,
+        max_stream_chars=config.tools.max_background_output_chars,
+    )
     registry = build_default_registry()
     paths = state_paths(root)
     logging_config = config.logging.model_copy(
@@ -166,7 +176,9 @@ def create_runtime(
                     details={"skills": omitted_skills, "count": len(omitted_skills)},
                 )
             )
-        system_prompt = build_system_prompt(interactive, skills=skill_meta or None)
+        system_prompt = build_system_prompt(
+            interactive, skills=skill_meta or None, managed_process=False
+        )
 
         tool_context = ToolContext(
             workspace=workspace,
@@ -178,6 +190,7 @@ def create_runtime(
                 max_files=config.tools.max_artifact_files,
                 root=paths.tool_artifacts,
             ),
+            process_manager=process_manager,
             confirm_dangerous_shell=config.tools.confirm_dangerous_shell,
             shell_timeout=config.tools.shell_timeout,
             interaction=port,
@@ -210,11 +223,30 @@ def create_runtime(
                 interactive,
                 skills=skill_meta or None,
                 runtime_inspection=False,
+                managed_process=False,
             )
             notices.append(
                 RuntimeNotice(
                     "runtime_inspection_omitted_context_limit",
                     "上下文窗口不足，当前 Runtime 未注册能力自省工具。",
+                )
+            )
+        managed_process_prompt = build_system_prompt(
+            interactive,
+            skills=skill_meta or None,
+            runtime_inspection=inspection_available,
+            managed_process=True,
+        )
+        managed_process_available = register_core_tool_if_fits(
+            config, registry, managed_process_prompt, ManageProcessTool()
+        )
+        if managed_process_available:
+            system_prompt = managed_process_prompt
+        if not managed_process_available:
+            notices.append(
+                RuntimeNotice(
+                    "managed_process_omitted_context_limit",
+                    "上下文窗口不足，当前 Runtime 未注册后台进程管理工具。",
                 )
             )
         extension_management = policy.allow_extension_management
@@ -225,6 +257,7 @@ def create_runtime(
                 skills=skill_meta or None,
                 extension_management=False,
                 runtime_inspection=inspection_available,
+                managed_process=managed_process_available,
             )
         elif not register_extension_tools(config, registry, system_prompt, extension_tools):
             extension_management = False
@@ -233,6 +266,7 @@ def create_runtime(
                 skills=skill_meta or None,
                 extension_management=False,
                 runtime_inspection=inspection_available,
+                managed_process=managed_process_available,
             )
             notices.append(
                 RuntimeNotice(
@@ -353,6 +387,7 @@ def create_runtime(
             interactive=interactive,
             run_control=control,
             process_supervisor=supervisor,
+            process_manager=process_manager,
             sanitize_for_display=sanitize_for_display,
             workspace=workspace,
             capabilities=capabilities,
@@ -360,6 +395,7 @@ def create_runtime(
         _emit_startup(startup_observer, RuntimeStartupEvent("ready", "completed", "Agent 已就绪"))
         return runtime
     except BaseException as exc:
+        process_manager.close()
         if mcp is not None:
             mcp.close()
         if web is not None:

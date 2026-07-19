@@ -83,6 +83,10 @@ tools:
   confirm_dangerous_shell: true
   # shell 命令超时（秒）
   shell_timeout: 120
+  # 当前 Runtime 最多同时运行的受管后台进程；Runtime 关闭时全部清理
+  max_background_processes: 4
+  # 每个后台进程的 stdout/stderr 分别保留上限；超过后保留头尾
+  max_background_output_chars: 100000
   # 单个工具结果返回 UI/上下文的最大字符数；0=不截断
   max_output_chars: 4000
   # Shell/Git 每个 stdout/stderr 流最多保留的字符数；超限继续排空但不再增长内存

@@ -64,3 +64,12 @@ def test_run_mode_assumes_instead_of_asking():
 def test_runtime_inspection_prompt_matches_registration():
     assert "inspect_runtime()" in build_system_prompt(runtime_inspection=True)
     assert "inspect_runtime()" not in build_system_prompt(runtime_inspection=False)
+
+
+def test_managed_process_prompt_matches_registration():
+    enabled = build_system_prompt(managed_process=True)
+    disabled = build_system_prompt(managed_process=False)
+    assert "manage_process(action" in enabled
+    assert "start /b" in enabled
+    assert "manage_process(action" not in disabled
+    assert "start /b" not in disabled

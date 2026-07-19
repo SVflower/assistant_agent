@@ -30,6 +30,9 @@ def format_process_result(
         "source_complete": source_complete,
         "timed_out": result.timed_out,
         "termination_reason": result.termination_reason.value,
+        "execution_duration_ms": result.execution_duration_ms,
+        "drain_duration_ms": result.drain_duration_ms,
+        "cleanup_duration_ms": result.cleanup_duration_ms,
     }
     if not needs_artifact:
         return full, artifacts, metadata

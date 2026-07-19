@@ -20,6 +20,7 @@ from assistant_agent.tools.permissions import (
 from assistant_agent.tools.policy import PermissionPolicy
 from assistant_agent.tools.ports import (
     ArtifactStorePort,
+    ManagedProcessRegistryPort,
     ProcessResultPort,
     RunControlPort,
     ToolTelemetry,
@@ -45,6 +46,7 @@ class ToolContext:
     run_control: RunControlPort
     logger: ToolTelemetry
     artifact_store: ArtifactStorePort
+    process_manager: ManagedProcessRegistryPort | None = None
     confirm_dangerous_shell: bool = True
     shell_timeout: int = 60
     # 确认回调：给一条说明，返回用户的选择（allow/always/deny）。

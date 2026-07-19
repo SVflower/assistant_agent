@@ -9,6 +9,8 @@ import sys
 import time
 from pathlib import Path
 
+import pytest
+
 from assistant_agent.execution import ProcessSupervisor
 from assistant_agent.persistence.artifacts import ArtifactStore
 from assistant_agent.tools.shell import ShellTool
@@ -57,6 +59,79 @@ def test_timeout_kills_and_waits_for_process():
     )
     assert result.timed_out is True
     assert time.perf_counter() - started < 3
+
+
+def test_parent_exit_with_inherited_pipes_is_bounded_and_descendant_is_killed(tmp_path):
+    marker = tmp_path / "background-child-survived.txt"
+    child_code = f"import time; time.sleep(1); open({str(marker)!r}, 'w').write('alive')"
+    parent_code = f"import subprocess,sys; subprocess.Popen([sys.executable, '-c', {child_code!r}])"
+    started = time.perf_counter()
+
+    result = _run_bounded_process(
+        [sys.executable, "-c", parent_code],
+        shell=False,
+        timeout=10,
+        max_stream_chars=1_000,
+    )
+
+    assert result.background_process is True
+    assert result.execution_duration_ms >= 0
+    assert result.drain_duration_ms >= 0
+    assert result.cleanup_duration_ms >= 0
+    assert time.perf_counter() - started < 3
+    time.sleep(1.2)
+    assert not marker.exists()
+
+
+def test_shell_reports_background_process_instead_of_hanging(tmp_path):
+    child_code = "import time; time.sleep(30)"
+    parent_code = f"import subprocess,sys; subprocess.Popen([sys.executable, '-c', {child_code!r}])"
+    result = ShellTool().run(
+        {"command": _command(parent_code)},
+        ToolContextFixture(workspace_root=tmp_path, shell_timeout=10),
+    )
+
+    assert result.code == "background_process_detected"
+    assert "manage_process" in result.output
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows start /b regression")
+def test_windows_start_b_cannot_hold_shell_pipe_forever(tmp_path):
+    marker = tmp_path / "start-b-child-survived.txt"
+    code = f"import time; time.sleep(1); open({str(marker)!r}, 'w').write('alive')"
+    command = f'start "" /b {_command(code)}'
+    started = time.perf_counter()
+
+    result = _run_bounded_process(
+        command,
+        shell=True,
+        timeout=10,
+        max_stream_chars=1_000,
+    )
+
+    assert result.background_process is True
+    assert time.perf_counter() - started < 3
+    time.sleep(1.2)
+    assert not marker.exists()
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX shell background regression")
+def test_posix_shell_background_cannot_hold_pipe_forever(tmp_path):
+    marker = tmp_path / "shell-child-survived.txt"
+    code = f"import time; time.sleep(1); open({str(marker)!r}, 'w').write('alive')"
+    started = time.perf_counter()
+
+    result = _run_bounded_process(
+        f"{_command(code)} &",
+        shell=True,
+        timeout=10,
+        max_stream_chars=1_000,
+    )
+
+    assert result.background_process is True
+    assert time.perf_counter() - started < 3
+    time.sleep(1.2)
+    assert not marker.exists()
 
 
 def test_shell_large_output_returns_bounded_preview_and_artifact(tmp_path):

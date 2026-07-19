@@ -27,6 +27,7 @@ class ToolDisplay:
     detail: str = ""
     preview: ToolPreview | None = None
     importance: Literal["routine", "change", "external"] = "routine"
+    timeout_seconds: float | None = None
 
 
 EventKind = Literal[

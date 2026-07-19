@@ -23,7 +23,11 @@ from assistant_agent.contracts.capabilities import RuntimeCapabilities, RuntimeN
 from assistant_agent.contracts.errors import RuntimeClosedError
 from assistant_agent.contracts.interactions import InteractionPort
 from assistant_agent.tools.context import ToolContext
-from assistant_agent.tools.ports import ProcessSupervisorPort, WorkspacePort
+from assistant_agent.tools.ports import (
+    ManagedProcessRegistryPort,
+    ProcessSupervisorPort,
+    WorkspacePort,
+)
 
 
 @dataclass
@@ -38,6 +42,7 @@ class AgentRuntime:
     run_store: RunCatalogRepository
     run_control: RunControlPort
     process_supervisor: ProcessSupervisorPort
+    process_manager: ManagedProcessRegistryPort | None = None
     sanitize_for_display: Callable[[Any], object] = lambda _value: "[hidden]"
     visible_skills: Sequence[SkillMetaPort] = ()
     notices: list[RuntimeNotice] = field(default_factory=list)
@@ -116,6 +121,8 @@ class AgentRuntime:
             self._closed = True
         self.run_control.request_cancel()
         resources: list[Callable[[], None]] = [self.interaction.close]
+        if self.process_manager is not None:
+            resources.append(self.process_manager.close)
         if self.mcp is not None:
             resources.append(self.mcp.close)
         if self.web is not None:

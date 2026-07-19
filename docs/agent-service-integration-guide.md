@@ -5,7 +5,7 @@
 >
 > 本文是公共服务契约的长期唯一正式入口；里程碑归档和阶段性交接不能替代本文。
 > 当前公共事件契约：`EVENT_CONTRACT_VERSION == 1`；当前 Run checkpoint：schema v3。
-> 最近同步：M20 扩展启动生命周期（2026-07-19）。
+> 最近同步：M21 受管命令与后台进程生命周期（2026-07-19）。
 
 ## 1. 集成边界
 
@@ -115,6 +115,24 @@ assistant_agent.tools
 - `RuntimeCapabilities.mcp_servers[].status` 向后兼容增加状态，调用方必须把未知状态按 unavailable 处理；
 - `SessionRuntime.capabilities` 每次访问都会刷新 MCP 运行状态，不能把首次快照永久缓存；
 - optional MCP 的工具目录只表示 Schema 可用，不表示 server 已连接；工具列表在当前 Runtime 内保持稳定。
+
+### 2.3 M21 命令与后台进程契约
+
+- `EVENT_CONTRACT_VERSION` 保持 `1`，Run checkpoint 保持 v3，终态和恢复顺序不变；
+- `ToolDisplay` 向后兼容增加可选 `timeout_seconds`；前台 Shell 调用提供安全 deadline，调用方不得从
+  完整命令推断 timeout；
+- 上下文预算允许时，`RuntimeCapabilities.tools` 增加 `manage_process`。工具清单是动态能力，API 不得
+  写死或因某个 Runtime 省略该工具而启动失败；
+- `manage_process` 的 action 为 `start/status/logs/stop/list`，进程引用是 Runtime 内 opaque
+  `proc-<12 hex>`；它不是 OS PID，不跨 Runtime、重启或 SessionRuntime 淘汰保持有效；
+- 后台输出有界，`tool_result.result_metadata` 仅提供 process_id、status、returncode、elapsed_seconds
+  和 stdout/stderr bytes，不提供完整命令、环境变量、OS PID 或原始异常；
+- Runtime close 会终止它拥有的所有后台进程。API 不得另建后台进程表，也不得在 Runtime close 后
+  自动重启旧 process ID；
+- `run_shell` 检测到继承管道的后台后代时返回 `result_code=background_process_detected`，不产生
+  Run terminal failure；模型可改用 `manage_process`。若进程在 tool started/completed checkpoint 边界
+  崩溃，仍沿用既有 `tool_uncertain`，不得自动重放 start；
+- container Workspace 当前返回 `managed_process_container_unsupported`，绝不退化到宿主执行。
 
 ## 3. 推荐入口
 
@@ -572,6 +590,8 @@ AgentService（一个服务实例）
 - optional MCP 无目录时后台发现并在完成后关闭探测连接，当前 Runtime 不热插拔新工具；
 - active/paused Runtime 不热插拔工具；能力恢复后只重建无未完成 Run 的空闲 Runtime；
 - Runtime 重建使用原 session_id 调用 `load_session()`，并安全清空内存授权记忆。
+- 每个 SessionRuntime 的受管后台进程 registry 独立；Runtime 淘汰、服务 shutdown 或初始化回滚必须
+  关闭 registry，不能只停止 Run worker。
 
 状态默认写入：
 
@@ -669,8 +689,15 @@ DTO，不能重新迭代 Agent 或重新执行工具。
 17. API 能正确展示 `available_cached`、`discovering`、`restart_required`、`connecting`，且不把目录状态
     误报为在线；
 18. Runtime 淘汰/关闭后后台发现线程、MCP 子进程和已连接 transport 均被清理。
+19. `ToolDisplay.timeout_seconds` 缺失时保持兼容，存在时只作为安全展示值，不读取完整命令推断超时；
+20. API 不写死 `manage_process`，并能处理工具因上下文预算或 policy 未注册的 Runtime；
+21. opaque process ID 不作为 OS PID 展示、不跨 Runtime 持久化，Runtime 淘汰/关闭后不自动恢复；
+22. `background_process_detected`、`managed_process_container_unsupported` 和
+    `managed_process_detached_child` 按结构化工具结果处理，不解析中文文本；
+23. Session 淘汰、初始化失败回滚和服务 shutdown 后，Runtime 拥有的后台进程均被终止。
 
 `assistant_agent_api` 的最新交接见
+[archive/phase14/m21-agent-api-handoff.md](archive/phase14/m21-agent-api-handoff.md)；M20 启动交接见
 [archive/phase13/m20-agent-api-handoff.md](archive/phase13/m20-agent-api-handoff.md)；M19 架构交接见
 [archive/phase12/m19-agent-api-handoff.md](archive/phase12/m19-agent-api-handoff.md)，M18 功能交接见
 [archive/phase11/m18-agent-api-handoff.md](archive/phase11/m18-agent-api-handoff.md)，M16 初始边界记录见

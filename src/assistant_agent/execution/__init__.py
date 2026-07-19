@@ -2,6 +2,11 @@
 
 from assistant_agent.execution.container_workspace import ContainerWorkspace
 from assistant_agent.execution.control import ControlState, RunControl, RunInterrupted
+from assistant_agent.execution.jobs import (
+    ManagedProcessError,
+    ManagedProcessRegistry,
+    ManagedProcessSnapshot,
+)
 from assistant_agent.execution.process import (
     BoundedProcessResult,
     CapturedStream,
@@ -23,6 +28,9 @@ __all__ = [
     "ConfinedWorkspace",
     "ContainerWorkspace",
     "HostWorkspace",
+    "ManagedProcessError",
+    "ManagedProcessRegistry",
+    "ManagedProcessSnapshot",
     "ProcessSupervisor",
     "RunControl",
     "RunInterrupted",

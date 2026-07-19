@@ -55,7 +55,25 @@ class ShellTool(Tool):
                 f"命令超时（>{ctx.shell_timeout}s）：{command}。进程已终止。",
                 code="timeout",
                 retryable=True,
-                metadata={"timed_out": True},
+                metadata={
+                    "timed_out": True,
+                    "execution_duration_ms": completed.execution_duration_ms,
+                    "drain_duration_ms": completed.drain_duration_ms,
+                    "cleanup_duration_ms": completed.cleanup_duration_ms,
+                },
+            )
+        if completed.background_process:
+            return ToolResult.error(
+                "检测到前台命令遗留后台进程；受管进程树已终止。"
+                "需要跨步骤运行服务时，请使用当前 Runtime 提供的 manage_process。",
+                code="background_process_detected",
+                retryable=False,
+                metadata={
+                    "termination_reason": completed.termination_reason.value,
+                    "execution_duration_ms": completed.execution_duration_ms,
+                    "drain_duration_ms": completed.drain_duration_ms,
+                    "cleanup_duration_ms": completed.cleanup_duration_ms,
+                },
             )
         if completed.interrupted:
             cancelled = completed.termination_reason.value == "cancelled"

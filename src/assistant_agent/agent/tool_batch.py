@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable, Generator
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from assistant_agent.agent.context.conversation import Conversation
 from assistant_agent.agent.run.coordinator import RunCoordinator
@@ -84,6 +84,8 @@ def execute_tool_batch(
                 exhausted_reason = None
 
         display = registry.display_call(call.name, call.arguments)
+        if call.name == "run_shell":
+            display = replace(display, timeout_seconds=float(ctx.shell_timeout))
         yield StepEvent(
             kind="activity", phase="executing_tool", tool_name=call.name, display=display
         )

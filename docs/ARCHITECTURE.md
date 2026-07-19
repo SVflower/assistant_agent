@@ -145,7 +145,28 @@ M20 将核心 Runtime 与可选外部扩展解耦，且不改变 Agent Loop 的�
 工具目录属于用户状态缓存，位于 workspace 状态命名空间下，不进入源码、Session history 或模型上下文；
 仅保存配置指纹和脱敏 Tool Schema，不保存展开后的 env/header、调用参数、输出或第三方异常。
 
-## 7. 复杂度基线
+## 7. 受管命令生命周期
+
+M21 维持同步 Agent Loop，但对进程执行建立完整所有权：
+
+1. `execution/process.py` 拥有前台命令的 spawn、deadline、双流排空和进程树清理；deadline 结束后不得
+   出现无界 `wait()` 或 reader `join()`。
+2. 外层 Shell 先退出但后代仍持有 PIPE 时，终止原因为 `background_process`；受管树被清理，
+   `run_shell` 返回 `background_process_detected`，不把等待伪装成模型思考。
+3. `execution/jobs.py` 是后台进程状态和句柄的唯一 owner。每个 AgentRuntime 各有一个 registry，
+   使用 opaque process ID，不跨 Runtime 共享。
+4. `tools/processes.py` 只把 start/status/logs/stop/list 适配到 Registry、权限和 ToolResult；不拥有
+   subprocess，也不向模型暴露 OS PID。
+5. `bootstrap` 只装配一个进程管理器并同时注入 ToolContext/AgentRuntime；初始化失败和 Runtime close
+   均幂等清理。
+6. 后台输出按 stdout/stderr 分别有界保留；配置和公共事件不包含完整命令、环境变量或原始异常。
+7. container Workspace 暂不注册可执行的跨步骤后台语义，避免 `docker exec` 客户端退出后容器内进程
+   失去可证明所有权；调用返回结构化 unsupported，而不是退回宿主执行。
+
+前台进程监管与后台进程 registry 复用 `ManagedProcessHandle`、Windows Job Object 和 POSIX process
+group，不允许形成第二套平台终止实现。
+
+## 8. 复杂度基线
 
 Ruff C901 是循环检查而非机械拆分指标。M19a 的最高复杂度基线为 35；M19d 提取单轮模型流后
 已按实测收紧到 27。高复杂度函数应结合状态不变量判断，不能为降低数字拆出隐式共享状态。
@@ -156,7 +177,7 @@ Ruff C901 是循环检查而非机械拆分指标。M19a 的最高复杂度基�
 | `ui.conversation_renderer.ConversationRenderer.render` | 23 | 本期不移动 UI，观察 |
 | `bootstrap.runtime.create_runtime` | 20 | M19e 已收敛为唯一 composition root |
 
-## 8. 未来能力落位
+## 9. 未来能力落位
 
 | 能力 | 预期位置 | 进入条件 |
 |---|---|---|

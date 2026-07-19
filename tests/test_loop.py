@@ -81,12 +81,12 @@ def _config(
     )
 
 
-def _loop(client, config=None, interrupt_check=None) -> AgentLoop:
+def _loop(client, config=None, interrupt_check=None, tool_context=None) -> AgentLoop:
     return AgentLoop(
         config or _config(),
         client,  # 鸭子类型：只需有 complete_stream 方法
         build_default_registry(),
-        ToolContextFixture(confirm=lambda _m: "allow"),
+        tool_context or ToolContextFixture(confirm=lambda _m: "allow"),
         interrupt_check=interrupt_check,
     )
 
@@ -130,6 +130,20 @@ def test_loop_executes_tool_then_finishes(tmp_path):
     assert events[-1].kind == "final"
     assert target.read_text(encoding="utf-8") == "data"
     assert client.calls == 2
+
+
+def test_shell_tool_call_exposes_safe_timeout_fact():
+    client = FakeStreamClient(
+        [
+            _tool_round(ToolCall(id="c1", name="run_shell", arguments={"command": "echo ok"})),
+            _text_round("完成。"),
+        ]
+    )
+    ctx = ToolContextFixture(confirm=lambda _m: "allow", shell_timeout=7)
+    events = list(_loop(client, tool_context=ctx).run("运行命令"))
+    call = next(item for item in events if item.kind == "tool_call")
+    assert call.display is not None
+    assert call.display.timeout_seconds == 7
 
 
 def test_loop_respects_max_iterations():

@@ -33,6 +33,8 @@ class ToolRenderer:
         action = safe_text(display.action, 80)
         target = safe_text(display.target, 160)
         label = action + (f" {target}" if target else "")
+        if display.timeout_seconds is not None:
+            label += f" · 最长 {display.timeout_seconds:g}s"
         if self._mode == "normal":
             if display.preview is not None:
                 self._console.print(_call_line(action, target))

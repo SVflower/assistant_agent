@@ -22,6 +22,7 @@ _ACTIONS = {
     "list_dir": "查看目录",
     "code_search": "搜索代码",
     "run_shell": "运行命令",
+    "manage_process": "管理后台进程",
     "git": "检查 Git",
     "ask_user": "询问用户",
     "load_skill": "加载技能",
@@ -56,6 +57,10 @@ def _target(name: str, args: dict[str, Any]) -> str:
         return f"/{pattern}/" if pattern else ""
     if name == "run_shell":
         return safe_text(args.get("command", ""), 120)
+    if name == "manage_process":
+        action = safe_text(args.get("action", ""), 20)
+        target = args.get("process_id") or args.get("command") or ""
+        return f"{action} {safe_text(target, 100)}".strip()
     if name == "git":
         command = f"git {args.get('subcommand', '')} {args.get('args', '')}".strip()
         return safe_text(command, 120)
@@ -211,6 +216,10 @@ def result_display(
         stderr = int(metadata.get("stderr_bytes", 0))
         returncode = metadata.get("returncode", "?")
         summary = f"退出码 {returncode}，输出 {stdout + stderr} bytes"
+    elif name == "manage_process":
+        status = metadata.get("status", "unknown")
+        process_id = metadata.get("process_id", "")
+        summary = f"{process_id} {status}".strip()
     elif name == "ask_user":
         summary = safe_text(result.output, 120)
     elif name == "load_skill":

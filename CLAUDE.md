@@ -89,7 +89,7 @@ python -m assistant_agent
 
 ## 当前状态
 
-**第一至第十三阶段已完成**。里程碑详情见 ROADMAP.md。
+**第一至第十四阶段已完成**。里程碑详情见 ROADMAP.md。
 - 第一阶段：配置/模型抽象/工具/ReAct 循环/CLI，加流式输出、会话持久化、工具集扩展（edit/multi_edit/code_search/git 只读）、模型切换、循环工程与写入安全、slash 命令、init 向导，全部落地。
 - **第二阶段 M6/M6.5/M7a/M7b/M7c/M8a/M8b 已完成**：结构化日志与工具审计；任务级工具调用/累计输出预算与批次协议完整终止；Agent Skills 系统（SKILL.md 发现 + 渐进披露 + load_skill）；MCP client（stdio + HTTP 两种 transport）——外部 server 工具接入 + 同步桥 + 命名空间 + 每工具确认 + 过滤/上限 + HTTP 委托 SDK 管 session/重连不重放 + cli/setup.py Runtime，还清 D7；上下文进化——M8a 预算口径计入 tools schema + reserved（还 D10），M8b 摘要压缩替代硬截断（双历史 + checkpoint 持久化 + 按轮分组 + 降级兜底，默认关闭时逐字节等于现状）。
 - 双后端实测通过：云端 DeepSeek + 本地 LM Studio，切换只改 `config.yaml`，业务代码零改动。
@@ -124,12 +124,17 @@ python -m assistant_agent
 - M20 已完成：Runtime 启动阶段反馈；required MCP 同步校验，optional MCP 通过工具目录、后台发现和
   首次调用惰性连接退出启动关键路径；Skill 元数据有界注入；`inspect_runtime` 提供安全动态能力自省，
   optional MCP Schema 按剩余上下文预算注册。当前 Runtime 工具 Schema 保持稳定，未修改 Loop。
-- 618 个测试通过（5 个平台能力测试跳过），覆盖率 83%，ruff/mypy、12/12 import-linter、
-  scripted 18/18、recovery 4/4 全绿；14,360 行/123 文件生产 Python + 1,404 行 eval 基础设施。
+- M21 已完成：前台命令 deadline 覆盖执行、PIPE 排空与进程树清理，父进程先退出不再无限等待；
+  `manage_process` 提供 Runtime 隔离的后台进程启动/状态/有界日志/停止，关闭时统一清理；CLI 展示
+  安全 timeout，服务契约向后兼容扩展，未修改 Loop。
+- 637 个测试通过（6 个平台能力测试跳过），覆盖率 84%，ruff/mypy、12/12 import-linter、
+  scripted 18/18、recovery 4/4 全绿；14,897 行/125 文件生产 Python + 1,404 行 eval 基础设施；
+  剩余 5 项技术债（2 中/3 低，无高优先级）。
 
 第三阶段总规划及 M9a-M10c 方案/决策已归档到 `docs/archive/phase3/`，还清
 D8/D9/D13/D14/D15/D16/D17。剩余工作按技术债和真实触发信号立项，
 不自动进入全栈 async 重构。M11a-M18 方案已分别归档到 `docs/archive/phase4/`、
 `docs/archive/phase5/`、`docs/archive/phase6/`、`docs/archive/phase7/`、`docs/archive/phase8/`、
 `docs/archive/phase9/`、`docs/archive/phase10/`、`docs/archive/phase11/`。M19 架构重建归档于
-`docs/archive/phase12/`，M20 扩展启动生命周期归档于 `docs/archive/phase13/`。
+`docs/archive/phase12/`，M20 扩展启动生命周期归档于 `docs/archive/phase13/`，M21 受管命令生命周期
+归档于 `docs/archive/phase14/`。

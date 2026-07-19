@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import builtins
+from collections.abc import Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol
 
 from assistant_agent.agent.run.ports import RunCheckpointRepository, RunTelemetry
 from assistant_agent.application.models import RunMeta, Session, SessionMeta
+from assistant_agent.contracts.capabilities import MCPServerCapability
 from assistant_agent.contracts.interactions import InteractionPort
 from assistant_agent.tools.ports import ToolTelemetry
 
@@ -72,6 +74,8 @@ class Closable(Protocol):
 
 class MCPRuntimePort(Closable, Protocol):
     def server_summary(self) -> list[tuple[str, list[str]]]: ...
+
+    def server_capabilities(self) -> Sequence[MCPServerCapability]: ...
 
 
 class ExtensionServicePort(Protocol):

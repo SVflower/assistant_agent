@@ -7,10 +7,11 @@
 from assistant_agent.integrations.mcp.configure import MCPConfigureError, MCPProbeResult, MCPService
 from assistant_agent.integrations.mcp.manager import MCPManager
 from assistant_agent.integrations.mcp.status import MCPRequiredServerError, MCPServerStatus
-from assistant_agent.integrations.mcp.tool import MCPTool, extract_result
+from assistant_agent.integrations.mcp.tool import MCPDependencyUnavailable, MCPTool, extract_result
 
 __all__ = [
     "MCPConfigureError",
+    "MCPDependencyUnavailable",
     "MCPManager",
     "MCPProbeResult",
     "MCPRequiredServerError",

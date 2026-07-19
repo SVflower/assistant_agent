@@ -122,11 +122,30 @@ state <- recovery
 
 | 模块 | 行数 | 触发日期 | 结论 | 理由 | 复审信号 |
 |---|---:|---|---|---|---|
-| 当前无超过 600 行的生产模块 | - | 2026-07-19 | 无需评审 | M19a 实测 | 首次超过 600 行 |
+| `integrations/mcp/manager.py` | 720 | 2026-07-19 | 暂不拆分 | event loop 线程、连接表、惰性连接、后台目录发现、Runtime 工具可见性与关闭共同维护同一 server 生命周期；此时拆成多个有状态 owner 会增加竞态和清理遗漏。纯数据模型与目录持久化已分别抽到 `models.py`、`catalog.py` | 增加独立健康熔断职责；增长超过约 20%；或能以无共享可变状态的 port 分离连接 owner 与目录发现 owner |
 
 行数不是拆分判据，也没有硬失败线。复杂声明或内聚状态机允许超过预警线，但必须留下分析。
 
-## 6. 复杂度基线
+## 6. 扩展启动生命周期
+
+M20 将核心 Runtime 与可选外部扩展解耦，且不改变 Agent Loop 的工具定义冻结规则：
+
+1. `bootstrap.create_runtime` 是启动阶段事件、Skill 元数据发现和 MCP 装配的唯一入口。
+2. Skill 启动期只读取有界元数据；完整 `SKILL.md` 继续由 `load_skill` 按需载入。
+3. `required` MCP 在 Runtime 创建期同步连接和发现，失败导致创建失败并回滚。
+4. 有有效工具目录的 `optional` MCP 只注册稳定 Schema，首次调用时才连接。
+5. 无工具目录的 `optional` MCP 在后台隔离发现，目录只对下一 Runtime 生效，不修改当前 Registry。
+6. MCP 的 configured、catalogued、connected 是不同事实；工具目录不代表 server 已在线。
+7. Runtime 关闭统一取消后台发现并关闭已建立连接，调用方不得另建 MCP 生命周期。
+8. `inspect_runtime` 只读当前 Registry、可见 Skill 与 MCP capability，是模型能力自省事实源；不得搜索
+   项目结构猜测自身能力。
+9. 核心工具优先占用 Schema 预算；optional MCP 只使用剩余空间，被省略时产生结构化 notice，不能让
+   整个 Runtime 因外部扩展过多而启动失败。
+
+工具目录属于用户状态缓存，位于 workspace 状态命名空间下，不进入源码、Session history 或模型上下文；
+仅保存配置指纹和脱敏 Tool Schema，不保存展开后的 env/header、调用参数、输出或第三方异常。
+
+## 7. 复杂度基线
 
 Ruff C901 是循环检查而非机械拆分指标。M19a 的最高复杂度基线为 35；M19d 提取单轮模型流后
 已按实测收紧到 27。高复杂度函数应结合状态不变量判断，不能为降低数字拆出隐式共享状态。
@@ -137,7 +156,7 @@ Ruff C901 是循环检查而非机械拆分指标。M19a 的最高复杂度基�
 | `ui.conversation_renderer.ConversationRenderer.render` | 23 | 本期不移动 UI，观察 |
 | `bootstrap.runtime.create_runtime` | 20 | M19e 已收敛为唯一 composition root |
 
-## 7. 未来能力落位
+## 8. 未来能力落位
 
 | 能力 | 预期位置 | 进入条件 |
 |---|---|---|
@@ -152,7 +171,7 @@ Ruff C901 是循环检查而非机械拆分指标。M19a 的最高复杂度基�
 
 这些条目是落位地图，不授权预建空抽象。
 
-## 8. 暂不改造项与观察信号
+## 9. 暂不改造项与观察信号
 
 | 暂不改造 | 原因 | 重新评估信号 |
 |---|---|---|

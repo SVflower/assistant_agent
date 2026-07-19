@@ -7,6 +7,7 @@ from collections.abc import Callable
 from typing import Any
 
 from assistant_agent.config.schema import MCPConfig, MCPServerConfig
+from assistant_agent.integrations.mcp.models import MCPToolDefinition
 from assistant_agent.integrations.mcp.tool import MCPTool
 from assistant_agent.tools.validation import ToolSchemaError, build_validator
 
@@ -29,18 +30,57 @@ def build_discovered_tools(
     warnings: list[str],
     caller: Callable[..., Any],
 ) -> list[MCPTool]:
+    definitions = definitions_from_listed(listed)
+    return build_tools_from_definitions(
+        config=config,
+        name=name,
+        server_config=server_config,
+        definitions=definitions,
+        tool_names=server.tool_names,
+        used_names=used_names,
+        budget=budget,
+        warnings=warnings,
+        caller=caller,
+    )
+
+
+def definitions_from_listed(listed: Any) -> tuple[MCPToolDefinition, ...]:
+    return tuple(
+        MCPToolDefinition(
+            raw_name=str(raw.name),
+            description=str(raw.description or ""),
+            input_schema=raw.inputSchema or {"type": "object", "properties": {}},
+            output_schema=getattr(raw, "outputSchema", None),
+            annotations=_tool_annotations(getattr(raw, "annotations", None)),
+        )
+        for raw in (getattr(listed, "tools", None) or [])
+    )
+
+
+def build_tools_from_definitions(
+    *,
+    config: MCPConfig,
+    name: str,
+    server_config: MCPServerConfig,
+    definitions: tuple[MCPToolDefinition, ...],
+    tool_names: list[str],
+    used_names: set[str],
+    budget: int,
+    warnings: list[str],
+    caller: Callable[..., Any],
+) -> list[MCPTool]:
     out: list[MCPTool] = []
     server_slug = _sanitize(name)
     include = set(server_config.include_tools)
     exclude = set(server_config.exclude_tools)
-    for raw in getattr(listed, "tools", None) or []:
-        raw_name = raw.name
+    for raw in definitions:
+        raw_name = raw.raw_name
         if include and raw_name not in include:
             continue
         if raw_name in exclude:
             continue
-        input_schema = raw.inputSchema or {"type": "object", "properties": {}}
-        output_schema = getattr(raw, "outputSchema", None)
+        input_schema = raw.input_schema
+        output_schema = raw.output_schema
         try:
             build_validator(f"mcp__{name}__{raw_name}", input_schema)
             if output_schema is not None:
@@ -61,8 +101,8 @@ def build_discovered_tools(
                 suffix += 1
             registered = f"{registered}_{suffix}"
         used_names.add(registered)
-        server.tool_names.append(raw_name)
-        annotations = _tool_annotations(getattr(raw, "annotations", None))
+        tool_names.append(raw_name)
+        annotations = raw.annotations or {}
         policy = server_config.tool_policies.get(raw_name)
         replay = policy.replay if policy is not None else "default"
         destructive = annotations.get("destructiveHint") is True
@@ -85,7 +125,7 @@ def build_discovered_tools(
                 server=name,
                 registered_name=registered,
                 raw_tool=raw_name,
-                description=raw.description or "",
+                description=raw.description,
                 input_schema=input_schema,
                 caller=caller,
                 timeout=timeout,

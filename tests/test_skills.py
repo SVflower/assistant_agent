@@ -5,6 +5,8 @@ from __future__ import annotations
 from pathlib import Path
 
 from assistant_agent.agent.prompts import build_system_prompt
+from assistant_agent.bootstrap.tools import bounded_skill_metadata
+from assistant_agent.config.schema import SkillsConfig
 from assistant_agent.integrations.skills.store import SkillStore, _split_frontmatter
 from assistant_agent.integrations.skills.tool import LoadSkillTool
 from assistant_agent.tools.registry import ToolRegistry
@@ -174,3 +176,20 @@ def test_prompt_no_skills_section_when_none():
     assert "# 可用技能" not in base
     assert with_none == base  # 回归：None 与原行为一致
     assert with_empty == base
+
+
+def test_skill_metadata_catalog_is_bounded_and_stable(tmp_path):
+    for index in range(20):
+        _write_skill(
+            tmp_path,
+            f"skill-{index:02d}",
+            f"name: skill-{index:02d}\ndescription: {'x' * 100}",
+        )
+    store = SkillStore.discover([tmp_path])
+    selected, omitted = bounded_skill_metadata(
+        store.list(), SkillsConfig(catalog_max_chars=256), max_context_tokens=1000
+    )
+    assert selected
+    assert omitted
+    assert [name for name, _ in selected] == sorted(name for name, _ in selected)
+    assert sum(len(name) + len(description) + 4 for name, description in selected) <= 256

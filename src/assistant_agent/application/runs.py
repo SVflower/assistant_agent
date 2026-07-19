@@ -180,9 +180,10 @@ class SessionRuntime:
 
     @property
     def capabilities(self) -> RuntimeCapabilities:
-        if self.runtime.capabilities is None:
+        capabilities = self.runtime.capabilities_snapshot()
+        if capabilities is None:
             raise RuntimeClosedError("Runtime 能力快照不可用")
-        return self.runtime.capabilities
+        return capabilities
 
     def unfinished_runs(self) -> list[RunMeta]:
         return [

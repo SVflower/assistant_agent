@@ -16,6 +16,8 @@ def test_system_prompt_names_all_tools():
     # 显式列出真实工具名，帮小模型对齐 function-calling schema
     for tool_name in ("read_file", "write_file", "list_dir", "run_shell"):
         assert tool_name in SYSTEM_PROMPT
+    assert "inspect_runtime()" in SYSTEM_PROMPT
+    assert "能力自省必须用它" in SYSTEM_PROMPT
 
 
 def test_system_prompt_has_fewshot_example():
@@ -57,3 +59,8 @@ def test_run_mode_assumes_instead_of_asking():
     assert "单次任务模式" in prompt
     # run 模式应指示"按假设执行"而非提问
     assert "假设" in prompt
+
+
+def test_runtime_inspection_prompt_matches_registration():
+    assert "inspect_runtime()" in build_system_prompt(runtime_inspection=True)
+    assert "inspect_runtime()" not in build_system_prompt(runtime_inspection=False)

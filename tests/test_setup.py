@@ -135,3 +135,47 @@ def test_untrusted_skills_are_not_injected_and_return_notice(tmp_path, monkeypat
         assert notice.details["skills"] == ["project/project"]
     finally:
         runtime.close()
+
+
+def test_runtime_startup_observer_reports_safe_order_and_cannot_break_startup(tmp_path):
+    events = []
+
+    def observe(event):
+        events.append((event.phase, event.status))
+        if event.phase == "discovering_skills":
+            raise RuntimeError("UI observer failure")
+
+    runtime = service_runtime.create_runtime(
+        config_path=_config(tmp_path / "config.yaml"),
+        workspace_root=tmp_path,
+        interactive=False,
+        startup_observer=observe,
+    )
+    try:
+        started = [phase for phase, status in events if status == "started"]
+        assert started == [
+            "loading_config",
+            "starting_workspace",
+            "discovering_skills",
+            "starting_web",
+            "preparing_mcp",
+            "creating_loop",
+        ]
+        assert events[-1] == ("ready", "completed")
+        assert "inspect_runtime" in {item["function"]["name"] for item in runtime.loop.tool_schemas}
+    finally:
+        runtime.close()
+
+
+def test_runtime_startup_observer_marks_failed_stage(tmp_path):
+    events = []
+
+    with pytest.raises(service_runtime.RuntimeConfigError):
+        service_runtime.create_runtime(
+            config_path=tmp_path / "missing.yaml",
+            workspace_root=tmp_path,
+            interactive=False,
+            startup_observer=lambda event: events.append((event.phase, event.status)),
+        )
+
+    assert events == [("loading_config", "started"), ("loading_config", "failed")]

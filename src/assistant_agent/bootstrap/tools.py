@@ -18,6 +18,7 @@ from assistant_agent.execution import (
     RunControl,
 )
 from assistant_agent.integrations.mcp import MCPManager, MCPRequiredServerError
+from assistant_agent.integrations.mcp.catalog import MCPToolCatalog
 from assistant_agent.integrations.skills import SkillSource, SkillStore
 from assistant_agent.integrations.web_access import WebClient
 from assistant_agent.observability import NullLogger
@@ -57,6 +58,33 @@ def discover_skills(
         sources=sources,
         trusted_names=set(cfg.trusted_project_skills),
     )
+
+
+def bounded_skill_metadata(
+    skills: list,
+    cfg: SkillsConfig,
+    max_context_tokens: int,
+) -> tuple[list[tuple[str, str]], list[str]]:
+    """生成初始 Skill 目录；正文仍由 load_skill 渐进披露。"""
+    budget = min(cfg.catalog_max_chars, max(int(max_context_tokens * 0.02) * 4, 256))
+    selected: list[tuple[str, str]] = []
+    omitted: list[str] = []
+    used = 0
+    for item in sorted(skills, key=lambda value: value.name):
+        prefix = f"[{item.source}] "
+        available = budget - used - len(item.name) - len(prefix) - 4
+        if available <= 0:
+            omitted.append(item.name)
+            continue
+        description = item.description
+        if len(description) > available:
+            if available < 16:
+                omitted.append(item.name)
+                continue
+            description = description[: available - 1] + "…"
+        selected.append((item.name, prefix + description))
+        used += len(item.name) + len(prefix) + len(description) + 4
+    return selected, omitted
 
 
 def build_permission_policy(config: AppConfig) -> PermissionPolicy:
@@ -129,9 +157,11 @@ def start_mcp(
     *,
     artifact_root: Path,
     stderr_root: Path,
+    catalog_root: Path,
     run_control: RunControl,
     workspace_root: Path,
     allowed_transports: frozenset[str],
+    max_tools_schema_tokens: int,
 ) -> tuple[MCPManager | None, list[RuntimeNotice]]:
     if not cfg.servers:
         return None, []
@@ -143,11 +173,25 @@ def start_mcp(
         run_control=run_control,
         workspace_root=workspace_root,
         allowed_transports=allowed_transports,
+        catalog=MCPToolCatalog(catalog_root),
     )
     try:
-        tools = manager.start()
+        tools = manager.start_runtime()
+        registered: list = []
+        omitted: list[str] = []
         for tool in tools:
+            server = cfg.servers.get(tool.server_name)
+            schemas = [*registry.schemas(), tool.to_schema()]
+            if (
+                server is not None
+                and server.startup == "optional"
+                and estimate_tools_tokens(schemas) > max_tools_schema_tokens
+            ):
+                omitted.append(tool.name)
+                continue
             registry.register(tool)
+            registered.append(tool)
+        manager.restrict_optional_runtime_tools(registered)
     except MCPRequiredServerError as exc:
         manager.close()
         raise RuntimeDependencyError(exc.server, exc.category, str(exc)) from exc
@@ -155,6 +199,24 @@ def start_mcp(
         manager.close()
         raise
     notices = [RuntimeNotice("mcp_warning", warning) for warning in manager.warnings]
+    if omitted:
+        notices.append(
+            RuntimeNotice(
+                "mcp_tools_omitted_context_limit",
+                "上下文窗口不足，部分 optional MCP 工具未注册到当前 Runtime。",
+                details={"tools": omitted, "count": len(omitted)},
+            )
+        )
+    discovering = [item.name for item in manager.server_statuses() if item.status == "discovering"]
+    if discovering:
+        notices.append(
+            RuntimeNotice(
+                "mcp_catalog_discovery_background",
+                "部分 optional MCP 正在后台发现工具目录；不会阻塞 Agent。",
+                level="info",
+                details={"servers": discovering},
+            )
+        )
     trusted = sorted(
         name for name, server in cfg.servers.items() if server.enabled and server.auto_approve
     )
@@ -166,13 +228,13 @@ def start_mcp(
                 details={"servers": trusted},
             )
         )
-    if tools:
+    if registered:
         notices.append(
             RuntimeNotice(
                 "mcp_tools_registered",
-                f"已接入 {len(tools)} 个外部 MCP 工具。",
+                f"已接入 {len(registered)} 个外部 MCP 工具。",
                 level="info",
-                details={"count": len(tools)},
+                details={"count": len(registered)},
             )
         )
     return manager, notices
@@ -194,4 +256,22 @@ def register_extension_tools(
         return False
     for tool in tools:
         registry.register(tool)
+    return True
+
+
+def register_core_tool_if_fits(
+    config: AppConfig,
+    registry: ToolRegistry,
+    system_prompt: str,
+    tool: Tool,
+) -> bool:
+    schemas = [*registry.schemas(), tool.to_schema()]
+    fixed = (
+        estimate_message_tokens({"role": "system", "content": system_prompt})
+        + estimate_tools_tokens(schemas)
+        + config.agent.reserved_output_tokens
+    )
+    if fixed + 5 > config.agent.max_context_tokens:
+        return False
+    registry.register(tool)
     return True

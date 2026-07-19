@@ -13,7 +13,7 @@ from typing import cast
 
 from assistant_agent.agent.loop import AgentLoop
 from assistant_agent.application.models import Session
-from assistant_agent.application.ports import SessionRepository
+from assistant_agent.application.ports import MCPRuntimePort, SessionRepository
 from assistant_agent.cli.extensions import cmd_mcp, cmd_skills
 from assistant_agent.config.schema import AppConfig
 from assistant_agent.integrations.mcp import MCPService
@@ -39,6 +39,7 @@ class ChatContext:
     skills: list[tuple[str, str]] = field(default_factory=list)  # (name, description)
     # (server 名, 其工具原始名列表)；MCP 禁用/无 server 时为空。
     mcp_servers: list[tuple[str, list[str]]] = field(default_factory=list)
+    mcp_runtime: MCPRuntimePort | None = None
     skill_manager: SkillManager | None = None
     mcp_service: MCPService | None = None
     should_exit: bool = False

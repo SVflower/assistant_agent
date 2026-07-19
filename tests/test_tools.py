@@ -5,10 +5,12 @@ from __future__ import annotations
 import os
 import shlex
 
+from assistant_agent.contracts.capabilities import MCPServerCapability
 from assistant_agent.execution.process import _decode
 from assistant_agent.tools.file_edit import EditFileTool, MultiEditTool, WriteFileTool
 from assistant_agent.tools.file_read import ListDirTool, ReadFileTool
 from assistant_agent.tools.registry import ToolRegistry, build_default_registry
+from assistant_agent.tools.runtime_inspection import InspectRuntimeTool
 from assistant_agent.tools.shell import ShellTool, is_dangerous
 from tests.support import ToolContextFixture, ToolResult
 
@@ -27,6 +29,33 @@ def _execute(tool, args, ctx):
     registry = ToolRegistry()
     registry.register(tool)
     return registry.execute(tool.name, args, ctx)
+
+
+def test_runtime_inspection_uses_live_capabilities_without_permission():
+    state = {"status": "discovering"}
+    tool = InspectRuntimeTool(
+        sandbox="workspace",
+        tool_names=lambda: ["read_file", "inspect_runtime"],
+        skills=lambda: [("anysearch", "personal")],
+        mcp_servers=lambda: [
+            MCPServerCapability(
+                name="playwright",
+                transport="stdio",
+                startup="optional",
+                status=state["status"],  # type: ignore[arg-type]
+            )
+        ],
+    )
+
+    first = tool.run({}, _ctx())
+    state["status"] = "restart_required"
+    second = tool.run({}, _ctx())
+
+    assert "playwright" in first.output and "discovering" in first.output
+    assert "restart_required" in second.output
+    assert "anysearch（personal）" in second.output
+    assert "inspect_runtime" in second.output
+    assert tool.permission_requests({}, _ctx()) == []
 
 
 # ---- file_ops ----

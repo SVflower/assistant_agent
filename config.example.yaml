@@ -153,24 +153,27 @@ skills:
   # 项目/自定义 Skill 默认不进入模型上下文；可按 name 显式信任。
   # 个人目录 ~/.assistant_agent/skills 默认受信。
   trusted_project_skills: []
+  # 初始提示词只注入有界 name/description；完整正文仍由 load_skill 按需读取。
+  catalog_max_chars: 8000
 
 mcp:
-  # 是否连接 MCP server 并把其工具注册进来（工具名形如 mcp__<server>__<tool>）。
+  # 是否启用 MCP 扩展。optional server 不阻塞 Runtime：有目录时首次调用才连接，
+  # 无目录时后台发现并在下一次 Runtime 生效。工具名形如 mcp__<server>__<tool>。
   enabled: true
   # 全局 MCP 工具数上限，防大量工具 schema 撑爆上下文。
   max_total_tools: 60
-  # Runtime 启动时并行连接 server 的上限；注册顺序仍按配置顺序稳定。
+  # required 启动和 optional 后台目录发现的并发上限；注册顺序仍按配置顺序稳定。
   connect_parallelism: 4
   # server 名 → 连接设置。默认无 server（下面是示例，需自备命令，取消注释启用）。
   servers: {}
   #   playwright:                         # —— stdio（本地子进程）——
   #     type: stdio                       # 默认即 stdio，可省
   #     command: npx                      # 启动命令（需已装 Node/npx）
-  #     args: ["-y", "@playwright/mcp@latest"]
+  #     args: ["-y", "@playwright/mcp@0.0.78"] # 固定版本，避免每次启动发生供应链漂移
   #     env: {}                           # 值支持 ${VAR} 从环境插值，密钥不落配置
   #     cwd: ""                           # 空=受管运行目录；需要项目目录时显式填写
   #     enabled: true
-  #     startup: optional                 # optional=失败降级；required=当前 Runtime 创建失败
+  #     startup: optional                 # optional=目录缓存+按需连接；required=Runtime 创建期校验
   #     connect_timeout: 5                # connect/initialize/tools-list 超时；空值兼容 timeout
   #     timeout: 30                       # 单次工具调用超时（秒）
   #     auto_approve: false               # true=信任该 server 的全部当前工具（高风险）

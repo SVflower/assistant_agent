@@ -8,6 +8,10 @@ from typing import Literal
 MCPStartup = Literal["optional", "required"]
 MCPStatusCode = Literal[
     "disabled",
+    "discovering",
+    "available_cached",
+    "restart_required",
+    "connecting",
     "connected",
     "degraded_timeout",
     "degraded_connection",

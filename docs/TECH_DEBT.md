@@ -2,9 +2,10 @@
 
 > AI 迭代开发中，债务会隐形复利（LLM 在每个决策点埋入未言明的假设）。
 > 这里显式追踪，防止"上次说的债"下次忘。每次里程碑评审更新本表。
-> 最后更新：2026-07-19（M19 架构重建及旧路径清理：604 passed/5 skipped、覆盖率 84%，
-> Ruff/format/mypy、12 条 import-linter、scripted 18/18、recovery 4/4 全绿；生产源码收敛为
-> 13,467 行/120 文件，还清 D11/D22，未新增技术债。）
+> 最后更新：2026-07-19（M20 扩展启动生命周期：618 passed/5 skipped、覆盖率 83%，
+> Ruff/format/mypy、12 条 import-linter、scripted 18/18、recovery 4/4 全绿；生产源码
+> 14,360 行/123 文件。MCP optional 按需连接、动态状态、自省和 Schema 预算补齐 D21 的启动期部分，
+> 未新增技术债。）
 
 ## 状态说明
 - 🔴 高：影响正确性/安全，或脆弱的关键路径
@@ -31,7 +32,7 @@
 | D18 | ~~**Shell 超时未终止完整子进程树**~~ ✅ 已还清（M14a） | `runtime/process.py`、`runtime/process_windows.py` | ✅ | ProcessSupervisor 在 Windows 使用 Job Object、POSIX 使用独立 process group；timeout/pause/cancel 均清理完整受管进程树，Windows 父子存活探针通过，Linux 路径进入 CI | 不以全栈 async 重构解决；第三方同步 LLM/Web 仍由自身 timeout 和安全边界控制，不能宣称毫秒级抢占 |
 | D19 | ~~**CLI 展示透传执行载荷，缺少语义摘要和详细度分层**~~ ✅ 已还清（M11a） | `tools/display.py`、`ui/`、`agent/events.py` | ✅ | ToolDisplay 语义摘要；normal/verbose/quiet；quiet 仅隐藏 Agent 轨迹、不隐藏 slash 控制面；normal 临时活动区不沉淀工具间旁白；Write/Edit 权限前有界预览与整块背景；全宽输入边界与会话启停 ID；参数、metadata、模型文本统一终端脱敏；15 FPS 流式 Markdown；错误自动展开 | 423 测试覆盖模式矩阵、quiet slash、写入/diff 背景/截断/脱敏、确认顺序、会话生命周期、过程丢弃/最终单次提交、碎片 Markdown、ANSI/密钥、工具 metadata；方案见 [归档计划](archive/phase4/m11a-cli-conversation-ui-plan.md) |
 | D20 | **MCP stdio stderr 单次长运行缺少在线硬上限** | `integrations/mcp/manager.py` | 🟢 | stderr 已与统一审计和 artifact 分离并落入 workspace 诊断目录，但 SDK 直接把子进程 fd 指向文件；M14 的 ProcessSupervisor 不拥有 SDK 创建的 stdio 子进程，异常 server 长时间刷 stderr 仍可能增长 | 独立评估 MCP SDK 自定义 transport/pipe drain 与在线轮转；当前文档不宣称 stderr 已硬限流 |
-| D21 | **MCP server 缺少运行期健康状态与熔断** | `integrations/mcp/manager.py`、`cli/extensions.py` | 🟡 | M17 已补启动期 connected/degraded/blocked/required 状态和一次性探测，但 server 在 Run 中死亡后，后续调用仍逐次触发 transport error；`/mcp doctor` 尚不展示连续失败或 breaker 状态 | 出现长会话 server 崩溃/重复失败时立项：基于已拆 status 模块实现调用期连续失败熔断和 health 展示；发送后绝不自动重放 |
+| D21 | **MCP 调用期缺少连续失败熔断** | `integrations/mcp/manager.py`、`cli/extensions.py` | 🟡 | M20 已补 configured/catalogued/connecting/connected/degraded 动态状态、optional 按需连接和后台目录发现；但 server 在 Run 中死亡后，后续调用仍会逐次触发 transport error，`/mcp doctor` 尚不展示连续失败计数或 breaker 状态 | 出现长会话 server 崩溃/重复失败时立项：实现调用期连续失败熔断和 health 展示；发送后绝不自动重放，未知副作用仍走 recovery |
 | D22 | ~~**Loop/Recovery 接近单文件硬线**~~ ✅ 已还清（M19） | `agent/loop.py`(436)、`agent/run/` | ✅ | 单轮模型流、工具批次、预算、恢复、checkpoint 和 resume 已按状态所有权拆分；Loop 保留可见且只编排 Agent 算法。scripted 事件轨迹与 recovery fault injection 前后不变 | 后续按独立变化原因拆分，不恢复行数硬线，也不为降低数字拆散状态不变量 |
 
 ## 已还清（保留记录）

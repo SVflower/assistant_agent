@@ -5,8 +5,24 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Literal
 
+RuntimeStartupPhase = Literal[
+    "loading_config",
+    "starting_workspace",
+    "discovering_skills",
+    "starting_web",
+    "preparing_mcp",
+    "creating_loop",
+    "ready",
+]
+
+RuntimeStartupStatus = Literal["started", "completed", "failed"]
+
 MCPStatus = Literal[
     "disabled",
+    "discovering",
+    "available_cached",
+    "restart_required",
+    "connecting",
     "connected",
     "degraded_timeout",
     "degraded_connection",
@@ -14,6 +30,13 @@ MCPStatus = Literal[
     "blocked_by_policy",
     "required_failed",
 ]
+
+
+@dataclass(frozen=True)
+class RuntimeStartupEvent:
+    phase: RuntimeStartupPhase
+    status: RuntimeStartupStatus
+    message: str = ""
 
 
 @dataclass(frozen=True)

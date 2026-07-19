@@ -5,8 +5,7 @@
 >
 > 本文是公共服务契约的长期唯一正式入口；里程碑归档和阶段性交接不能替代本文。
 > 当前公共事件契约：`EVENT_CONTRACT_VERSION == 1`；当前 Run checkpoint：schema v3。
-> 最近同步：M19 最终架构清理，Agent implementation commit
-> `a0d1bbeba224940993d2860b4f9ee0695d93360a`。
+> 最近同步：M20 扩展启动生命周期（2026-07-19）。
 
 ## 1. 集成边界
 
@@ -106,6 +105,16 @@ assistant_agent.tools
   和运行语义没有变化；
 - API/Web 若只依赖三个公共根入口，无运行逻辑修改；若曾穿透内部目录，必须迁回公共入口并增加
   禁止内部 import 的架构测试。
+
+### 2.2 M20 启动与扩展契约
+
+- `EVENT_CONTRACT_VERSION` 保持 `1`；StepEvent、Run checkpoint、Interaction 和终态顺序无变化；
+- `RuntimeStartupEvent` 从 `assistant_agent.contracts` 导出，不从 `assistant_agent.service` 转发；
+- `create_runtime(..., startup_observer=...)` 可接收同步 observer，用于低层宿主展示 Runtime 创建进度；
+- observer 只收到安全阶段事实，不属于 Run 事件流；observer 异常会被忽略，不能阻断创建；
+- `RuntimeCapabilities.mcp_servers[].status` 向后兼容增加状态，调用方必须把未知状态按 unavailable 处理；
+- `SessionRuntime.capabilities` 每次访问都会刷新 MCP 运行状态，不能把首次快照永久缓存；
+- optional MCP 的工具目录只表示 Schema 可用，不表示 server 已连接；工具列表在当前 Runtime 内保持稳定。
 
 ## 3. 推荐入口
 
@@ -464,7 +473,31 @@ request ID 均不得继续。continue 只增加当前 Run 预算，决策和新 
 交互请求中的展示目标已脱敏，但调用方仍应使用 DTO 白名单；不要把完整配置、环境变量、system
 prompt 或原始工具参数附加到网络响应中。
 
-## 10. Runtime notice 与异常
+## 10. Runtime 启动、notice 与异常
+
+低层宿主需要展示 Runtime 创建进度时，可使用：
+
+```python
+from assistant_agent.contracts import RuntimeStartupEvent
+from assistant_agent.service import create_runtime
+
+def on_startup(event: RuntimeStartupEvent) -> None:
+    publish_startup_phase(event.phase, event.status, event.message)
+
+runtime = create_runtime(
+    config_path=config_path,
+    workspace_root=workspace_root,
+    interactive=False,
+    startup_observer=on_startup,
+)
+```
+
+合法 `phase` 为 `loading_config`、`starting_workspace`、`discovering_skills`、`starting_web`、
+`preparing_mcp`、`creating_loop`、`ready`；`status` 为 `started`、`completed` 或 `failed`。`failed`
+只表示当前创建阶段失败，不携带原始异常。事件没有
+session_id/run_id/seq/timestamp，这些网络字段由 API 自行增加。`AgentService` 的高层 Session 工厂当前
+不转发 observer；需要启动进度的宿主可在受控装配层使用低层工厂，但不得因此自行复制 Session/Run
+状态机。
 
 启动通知位于：
 
@@ -484,9 +517,23 @@ capabilities = session.capabilities
 capabilities = service.probe_capabilities()  # 一次性探测，结束后自动关闭 Runtime
 ```
 
-快照包含 sandbox、工具名、Skill 指纹和 MCP server 的
-`connected/degraded/disabled/blocked/required_failed` 状态，不包含 header、env、完整命令、原始异常、
-工具原始 Schema 或 Skill 正文。调用方应映射这些字段，不要解析 notice 文本推断能力。
+快照包含 sandbox、工具名、Skill 指纹和 MCP server 的状态，不包含 header、env、完整命令、原始异常、
+工具原始 Schema 或 Skill 正文。MCP 状态完整集合为：
+
+```text
+disabled | blocked_by_policy | discovering | available_cached | restart_required |
+connecting | connected | degraded_timeout | degraded_connection |
+degraded_discovery | required_failed
+```
+
+- `available_cached`：当前 Runtime 已从目录注册工具，server 尚未连接，首次调用时连接；
+- `discovering`：当前 Runtime 不注册该 server 工具，后台正在发现目录；
+- `restart_required`：目录已发现，需创建新 Runtime 才会注册工具；
+- `connecting`：首次调用正在连接；
+- `connected`：当前 Runtime 已建立连接；
+- `degraded_*` / `required_failed` / `blocked_by_policy` / `disabled`：当前不可用。
+
+调用方应映射枚举，不要解析 notice 文本推断能力，也不要把 `available_cached` 当作 provider readiness。
 
 公共异常：
 
@@ -521,6 +568,8 @@ AgentService（一个服务实例）
 - 进程关闭时停止接收新请求，关闭所有 SessionRuntime，再 join worker；
 - 一个 Runtime 不能在多个 Session 间共享权限记忆、Conversation 或 MCP 状态。
 - optional MCP 离线不影响服务 liveness/readiness；required MCP 只影响正在创建的 Runtime；
+- required MCP 在创建期同步校验；optional MCP 不应进入服务启动 readiness 门；
+- optional MCP 无目录时后台发现并在完成后关闭探测连接，当前 Runtime 不热插拔新工具；
 - active/paused Runtime 不热插拔工具；能力恢复后只重建无未完成 Run 的空闲 Runtime；
 - Runtime 重建使用原 session_id 调用 `load_session()`，并安全清空内存授权记忆。
 
@@ -533,6 +582,7 @@ AgentService（一个服务实例）
   logs/
   artifacts/
   mcp-stderr/
+  cache/mcp-tools/
 ```
 
 可通过 `ASSISTANT_AGENT_HOME` 改变用户级状态根目录。多个服务实例若共享同一状态目录，还需要由上层
@@ -595,6 +645,8 @@ DTO，不能重新迭代 Agent 或重新执行工具。
 - 同一 Session 并发载入两个 Runtime；
 - 超时、断线或未知 request ID 时自动授权；
 - 未固定事件契约版本就部署调用方。
+- 把 `available_cached` 当作 MCP 已在线，或等待所有 optional MCP 才标记 API ready；
+- 在 `discovering -> restart_required` 后向活跃 Runtime 热插拔工具。
 
 ## 14. 接入验收清单
 
@@ -613,9 +665,14 @@ DTO，不能重新迭代 Agent 或重新执行工具。
 13. Provider 429/503/timeout、预算、权限、依赖和未知副作用不依赖错误文本分类；
 14. reasoning、原始异常、密钥、环境变量和敏感工具参数不会进入网络 DTO；
 15. Agent 与调用方分别通过各自的 pytest、Ruff 和 mypy 质量门。
+16. optional MCP 离线或后台发现不会阻塞 API readiness，required MCP 创建失败仍返回类型化依赖错误；
+17. API 能正确展示 `available_cached`、`discovering`、`restart_required`、`connecting`，且不把目录状态
+    误报为在线；
+18. Runtime 淘汰/关闭后后台发现线程、MCP 子进程和已连接 transport 均被清理。
 
-`assistant_agent_api` 的最新架构交接见
-[archive/phase12/m19-agent-api-handoff.md](archive/phase12/m19-agent-api-handoff.md)；M18 功能交接见
+`assistant_agent_api` 的最新交接见
+[archive/phase13/m20-agent-api-handoff.md](archive/phase13/m20-agent-api-handoff.md)；M19 架构交接见
+[archive/phase12/m19-agent-api-handoff.md](archive/phase12/m19-agent-api-handoff.md)，M18 功能交接见
 [archive/phase11/m18-agent-api-handoff.md](archive/phase11/m18-agent-api-handoff.md)，M16 初始边界记录见
 [archive/phase9/m16-assistant-agent-api-handoff.md](archive/phase9/m16-assistant-agent-api-handoff.md)。这些文件是历史交接，发生冲突时
 以本文和安装版本导出的公共 Python 类型为准。

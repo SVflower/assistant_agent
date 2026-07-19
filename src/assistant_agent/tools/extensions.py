@@ -97,7 +97,8 @@ class ManageSkillTool(Tool):
 class ConfigureMCPServerTool(Tool):
     name = "configure_mcp_server"
     description = (
-        "测试、添加、启停、信任或移除 MCP server 配置。配置变更下次启动生效；"
+        "列出、测试、添加、启停、信任或移除 MCP server 配置。"
+        "用户询问当前有哪些 MCP 时使用 list；配置变更下次启动生效；"
         "env/headers 的敏感值必须写成 ${ENV_VAR}，不要传明文密钥。"
     )
 
@@ -112,6 +113,7 @@ class ConfigureMCPServerTool(Tool):
                 "action": {
                     "type": "string",
                     "enum": [
+                        "list",
                         "add",
                         "test",
                         "remove",
@@ -131,15 +133,47 @@ class ConfigureMCPServerTool(Tool):
                     ),
                 },
             },
-            "required": ["action", "name"],
+            "required": ["action"],
             "additionalProperties": False,
         }
 
     def run(self, args: dict[str, Any], ctx: ToolContext) -> ToolResult:
         action = str(args["action"])
-        name = str(args["name"])
         scope = cast(ConfigScope, args.get("scope", "user"))
         try:
+            if action == "list":
+                configured = self._service.list()
+                if args.get("scope"):
+                    configured = {
+                        name: item for name, item in configured.items() if item[0] == scope
+                    }
+                servers = [
+                    {
+                        "name": name,
+                        "scope": item_scope,
+                        "transport": server.type,
+                        "startup": server.startup,
+                        "enabled": server.enabled,
+                        "trusted": server.auto_approve,
+                    }
+                    for name, (item_scope, server) in sorted(configured.items())
+                ]
+                if not servers:
+                    return ToolResult.ok("当前未配置 MCP server。", metadata={"servers": []})
+                lines = ["当前已配置 MCP server："]
+                lines.extend(
+                    f"- {item['name']}（{item['scope']} / {item['transport']} / "
+                    f"{item['startup']} / {'enabled' if item['enabled'] else 'disabled'} / "
+                    f"{'trusted' if item['trusted'] else 'approval-required'}）"
+                    for item in servers
+                )
+                return ToolResult.ok("\n".join(lines), metadata={"servers": servers})
+            name_value = args.get("name")
+            if not name_value:
+                return ToolResult.error(
+                    f"{action} 缺少 name", code="invalid_arguments", executed=False
+                )
+            name = str(name_value)
             if action in {"add", "test"}:
                 raw = args.get("server")
                 if not isinstance(raw, dict):
@@ -176,7 +210,9 @@ class ConfigureMCPServerTool(Tool):
         self, args: dict[str, Any], ctx: ToolContext
     ) -> list[PermissionRequest]:
         action = str(args["action"])
-        name = str(args["name"])
+        if action == "list":
+            return []
+        name = str(args.get("name") or "unknown")
         scope = cast(ConfigScope, args.get("scope", "user"))
         requests: list[PermissionRequest] = []
         raw = args.get("server")
@@ -231,6 +267,7 @@ class ConfigureMCPServerTool(Tool):
 
 
 _ACTION_LABEL = {
+    "list": "列表",
     "add": "添加",
     "test": "测试",
     "remove": "移除",

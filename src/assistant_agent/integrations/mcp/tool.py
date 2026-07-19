@@ -30,6 +30,10 @@ Caller = Callable[[str, str, dict[str, Any], float, dict[str, Any]], Any]
 _MAX_DESC = 1024
 
 
+class MCPDependencyUnavailable(RuntimeError):
+    """调用尚未发送前，MCP server 或目标工具不可用。"""
+
+
 def extract_result(result: Any) -> tuple[str, bool, Any | None]:
     """提取模型文本、错误标志和 structuredContent。纯函数，便于单测。
 
@@ -89,6 +93,14 @@ class MCPTool(Tool):
     def parameters(self) -> dict[str, Any]:
         return self._input_schema
 
+    @property
+    def server_name(self) -> str:
+        return self._server
+
+    @property
+    def raw_name(self) -> str:
+        return self._raw_tool
+
     def run(self, args: dict[str, Any], ctx: ToolContext) -> ToolResult:
         # 同步桥调用；协议错误（含超时）由 caller 抛出，统一转 error。
         correlation = ctx.logger.correlation_context()
@@ -97,6 +109,13 @@ class MCPTool(Tool):
         call_hint = f"（call_id={ctx.current_call_id}）" if ctx.current_call_id else ""
         try:
             result = self._caller(self._server, self._raw_tool, args, self._timeout, correlation)
+        except MCPDependencyUnavailable:
+            return ToolResult.error(
+                f"MCP 工具 {self.name} 当前不可用；可检查 /mcp 状态后重试",
+                code="dependency_unavailable",
+                retryable=True,
+                executed=False,
+            )
         except RunInterrupted as exc:
             if self._outcome_unknown_on_transport_error:
                 return ToolResult.error(

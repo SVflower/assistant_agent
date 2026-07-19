@@ -6,17 +6,21 @@ import shlex
 from pathlib import Path
 from typing import Protocol, cast
 
+from assistant_agent.application.ports import MCPRuntimePort
 from assistant_agent.config.schema import MCPServerConfig
 from assistant_agent.config.writer import ConfigScope, ConfigWriteError
 from assistant_agent.integrations.mcp import MCPConfigureError, MCPService
 from assistant_agent.integrations.skills import SkillInstallError, SkillManager
 from assistant_agent.ui.console import Console
 
+_PLAYWRIGHT_MCP_VERSION = "0.0.78"
+
 
 class ExtensionCommandContext(Protocol):
     console: Console
     skills: list[tuple[str, str]]
     mcp_servers: list[tuple[str, list[str]]]
+    mcp_runtime: MCPRuntimePort | None
     skill_manager: SkillManager | None
     mcp_service: MCPService | None
 
@@ -138,20 +142,25 @@ def cmd_mcp(args: str, ctx: ExtensionCommandContext) -> None:
 def _list_mcp(ctx: ExtensionCommandContext) -> None:
     configured = ctx.mcp_service.list() if ctx.mcp_service is not None else {}
     running = dict(ctx.mcp_servers)
-    if not configured and not running:
+    runtime = getattr(ctx, "mcp_runtime", None)
+    statuses = (
+        {item.name: item for item in runtime.server_capabilities()} if runtime is not None else {}
+    )
+    if not configured and not running and not statuses:
         ctx.console.command_info(
             "未接入 MCP server。可用 /mcp add playwright 安装 Playwright MCP。"
         )
         return
     lines = ["MCP server："]
-    names = sorted(set(configured) | set(running))
+    names = sorted(set(configured) | set(running) | set(statuses))
     for name in names:
         item = configured.get(name)
         source = item[0] if item else "runtime"
         enabled = item[1].enabled if item else True
         trusted = item[1].auto_approve if item else False
-        tools = running.get(name, [])
-        state = "running" if name in running else ("enabled" if enabled else "disabled")
+        status = statuses.get(name)
+        tools = list(status.tool_names) if status is not None else running.get(name, [])
+        state = status.status if status is not None else ("enabled" if enabled else "disabled")
         trust = " · trusted" if trusted else ""
         detail = f"：{', '.join(tools)}" if tools else ""
         lines.append(f"  {name}（{len(tools)} 个工具） · {source} · {state}{trust}{detail}")
@@ -170,7 +179,10 @@ def _mcp_add(tokens: list[str], ctx: ExtensionCommandContext, service: MCPServic
     if rest and rest[-1] in {"user", "project"}:
         scope = cast(ConfigScope, rest.pop())
     if name == "playwright" and not rest:
-        server = MCPServerConfig(command="npx", args=["-y", "@playwright/mcp@latest", "--headless"])
+        server = MCPServerConfig(
+            command="npx",
+            args=["-y", f"@playwright/mcp@{_PLAYWRIGHT_MCP_VERSION}", "--headless"],
+        )
     elif rest and rest[0].startswith(("http://", "https://")):
         server = MCPServerConfig(type="http", url=rest[0])
     elif rest:

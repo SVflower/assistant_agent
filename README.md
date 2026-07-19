@@ -266,8 +266,11 @@ InteractionPort、Session/Run 公共服务门面和稳定 StepEvent 契约，可
 已完成结构化失败、安全 activity/预算快照，以及可 checkpoint 恢复的三类预算 continuation。
 第十二阶段 M19 已完成 contracts/agent/application/bootstrap/service 与 adapter 包重建，并删除
 全部迁移前内部包和转发文件。开发期只维护目标结构；服务调用方固定使用 `service/contracts/interaction`
-公共根入口。当前 604 个测试通过（5 个平台能力测试跳过）、覆盖率 84%、13,467 行/120 文件
+公共根入口。第十三阶段 M20 已将 optional MCP 从启动关键路径移除：有目录时注册稳定 Schema 并在
+首次调用连接，无目录时后台发现、下一 Runtime 生效；required MCP 仍同步校验，Skill 正文仍按需加载。
+模型通过只读 `inspect_runtime` 查询当前工具、Skill、MCP 动态状态，不再搜索项目文件猜测自身能力。
+当前 618 个测试通过（5 个平台能力测试跳过）、覆盖率 83%、14,360 行/123 文件
 生产 Python 源码 + 1,404 行 eval 基础设施；scripted 18/18、recovery 4/4。详见
-[M19 架构](docs/ARCHITECTURE.md)和[通用服务调用指南](docs/agent-service-integration-guide.md)。
+[架构事实源](docs/ARCHITECTURE.md)和[通用服务调用指南](docs/agent-service-integration-guide.md)。
 
 详见 [DESIGN.md](DESIGN.md)。

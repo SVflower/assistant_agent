@@ -27,6 +27,7 @@ SYSTEM_PROMPT = """你是一个跑在用户本地机器上的任务执行 Agent�
 - web_search(query, max_results?, freshness?)：搜索实时公开网页并返回来源 URL。
 - fetch_url(url)：读取公开网页的有界正文；关键时效性结论应读取来源核验。
 - manage_skill(action, source?/name?, scope?)：安装或卸载 Skill；变更在下次启动生效。
+- inspect_runtime()：查询当前工具、Skill、MCP 和沙箱；能力自省必须用它，不搜索文件猜测。
 
 # 工作循环（务必遵守）
 1. 先想再做：首次工具调用前最多用一句普通文本说明整体做法；后续工具调用之间直接执行，不逐步播报
@@ -138,6 +139,7 @@ def build_system_prompt(
     skills: list[tuple[str, str]] | None = None,
     *,
     extension_management: bool = True,
+    runtime_inspection: bool = True,
 ) -> str:
     """完整系统提示词 = 基础提示词 + 运行环境说明 + 可选技能节（运行时动态生成）。
 
@@ -150,6 +152,12 @@ def build_system_prompt(
         prompt = prompt.replace(
             "- manage_skill(action, source?/name?, scope?)：安装或卸载 Skill；"
             "变更在下次启动生效。\n",
+            "",
+        )
+    if not runtime_inspection:
+        prompt = prompt.replace(
+            "- inspect_runtime()：查询当前工具、Skill、MCP 和沙箱；"
+            "能力自省必须用它，不搜索文件猜测。\n",
             "",
         )
     prompt += _runtime_context(interactive)

@@ -13,6 +13,7 @@ from pathlib import Path
 from assistant_agent.config.paths import managed_mcp_dir, state_paths, workspace_id
 from assistant_agent.config.schema import MCPConfig, MCPServerConfig
 from assistant_agent.config.writer import ConfigScope, MCPConfigStore
+from assistant_agent.integrations.mcp.catalog import MCPToolCatalog
 from assistant_agent.integrations.mcp.manager import MCPManager
 from assistant_agent.integrations.mcp.status import MCPRequiredServerError
 from assistant_agent.observability import NullLogger
@@ -48,6 +49,7 @@ class MCPService:
         self.store = MCPConfigStore(project_config)
         self.logger = logger or NullLogger()
         self.workspace_root = (workspace_root or self.store.project_config.parent).resolve()
+        self.catalog = MCPToolCatalog(state_paths(self.workspace_root).mcp_catalog)
 
     def list(self) -> dict[str, tuple[ConfigScope, MCPServerConfig]]:
         return self.store.list_scoped()
@@ -61,6 +63,7 @@ class MCPService:
                 self.logger,
                 artifact_root=root / "artifacts",
                 stderr_root=root / "stderr",
+                catalog=self.catalog,
             )
             try:
                 try:
@@ -107,6 +110,8 @@ class MCPService:
                 manifest_path.parent.rmdir()
             except OSError:
                 pass
+        if name not in self.store.list_scoped():
+            self.catalog.remove(name)
         return True
 
     def set_enabled(self, name: str, enabled: bool, scope: ConfigScope) -> MCPServerConfig:

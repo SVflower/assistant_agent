@@ -8,11 +8,13 @@ from __future__ import annotations
 import os
 import sys
 from collections.abc import Iterator
+from contextlib import contextmanager
 from typing import Any, Literal
 
 from rich.console import Console as RichConsole
 from rich.text import Text
 
+from assistant_agent.contracts.capabilities import RuntimeStartupEvent
 from assistant_agent.contracts.events import StepEvent
 from assistant_agent.tools.context import ConfirmChoice
 from assistant_agent.ui.activity import suspend_active
@@ -99,6 +101,20 @@ class Console:
                 verbose=self._display_mode == "verbose",
             )
         )
+
+    @contextmanager
+    def runtime_startup(self):
+        """渲染 Runtime 创建阶段；返回 UI 无关 observer 回调。"""
+        if self._display_mode == "quiet":
+            yield lambda _event: None
+            return
+        with self._console.status("正在启动 Assistant Agent...", spinner="dots") as status:
+
+            def observe(event: RuntimeStartupEvent) -> None:
+                if event.status == "started" and event.message:
+                    status.update(event.message)
+
+            yield observe
 
     def user_echo(self, task: str) -> None:
         if self._display_mode == "quiet":

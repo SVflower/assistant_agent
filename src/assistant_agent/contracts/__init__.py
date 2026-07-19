@@ -5,6 +5,9 @@ from assistant_agent.contracts.capabilities import (
     MCPStatus,
     RuntimeCapabilities,
     RuntimeNotice,
+    RuntimeStartupEvent,
+    RuntimeStartupPhase,
+    RuntimeStartupStatus,
     SkillCapability,
 )
 from assistant_agent.contracts.errors import (
@@ -88,6 +91,9 @@ __all__ = [
     "RuntimeInitializationError",
     "RuntimePolicyError",
     "RuntimeNotice",
+    "RuntimeStartupEvent",
+    "RuntimeStartupPhase",
+    "RuntimeStartupStatus",
     "ScopeInfo",
     "SessionBusyError",
     "SessionRunConflictError",

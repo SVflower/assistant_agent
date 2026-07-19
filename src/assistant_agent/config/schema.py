@@ -278,6 +278,12 @@ class SkillsConfig(BaseModel):
         default_factory=list,
         description="显式信任的项目/自定义 Skill 名称；未列出的内容进入提示词前需确认",
     )
+    catalog_max_chars: int = Field(
+        default=8000,
+        ge=256,
+        le=50_000,
+        description="初始提示词中 Skill 元数据目录的字符硬上限",
+    )
 
 
 class MCPToolPolicyConfig(BaseModel):

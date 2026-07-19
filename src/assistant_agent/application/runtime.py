@@ -59,6 +59,18 @@ class AgentRuntime:
     def skills_meta(self) -> list[tuple[str, str]]:
         return [(item.name, f"[{item.source}] {item.description}") for item in self.visible_skills]
 
+    def capabilities_snapshot(self) -> RuntimeCapabilities | None:
+        current = self.capabilities
+        if current is None or self.mcp is None:
+            return current
+        return RuntimeCapabilities(
+            sandbox=current.sandbox,
+            tools=current.tools,
+            skills=current.skills,
+            mcp_servers=tuple(self.mcp.server_capabilities()),
+            extension_management=current.extension_management,
+        )
+
     def new_run(self, task: str, session_id: str | None = None) -> RunCoordinator | None:
         if self.closed:
             raise RuntimeClosedError("Runtime 已关闭")

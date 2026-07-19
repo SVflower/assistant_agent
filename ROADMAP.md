@@ -26,6 +26,10 @@
 - **架构重建（M19）**：contracts 单一所有权、Agent Context/Run 内聚、Application 用例、Bootstrap
   唯一装配和 Service 稳定转发；execution/persistence/observability/integrations 适配器归位，
   迁移前内部包和转发文件全部删除，依赖方向由 12 条 import-linter contract 强制。
+- **扩展启动生命周期（M20）**：CLI 提供 Runtime 启动阶段反馈；required MCP 保持同步校验，optional
+  MCP 使用脱敏工具目录、后台发现和首次调用惰性连接，不再阻塞输入框；Skill 元数据目录有界注入，
+  完整正文仍按需加载；`inspect_runtime` 提供不依赖文件搜索的能力自省，optional MCP Schema 按剩余
+  上下文预算注册；当前 Runtime 的工具 Schema 全程稳定。
 - **工具**：读/写/局部编辑/列目录/shell/代码检索/git 只读/用户澄清，以及带来源的
   `web_search`/`fetch_url`；搜索 backend 可替换，抓取含 SSRF、重定向和响应上限防护。
 - **命令层**：slash 命令系统本地拦截不花 token；`/skills` 与 `/mcp` 支持列出、安装、诊断、
@@ -44,7 +48,7 @@
   已完成工具不重放，started 副作用需 retry/skip/abort；预算、重复熔断、权限和摘要状态跨进程恢复；
   trace/session/run/call 标识对齐，还清 D8。
 
-**质量**：604 测试通过（5 个平台能力测试跳过）、覆盖率 84%、13,467 行/120 文件生产 Python 源码 +
+**质量**：618 测试通过（5 个平台能力测试跳过）、覆盖率 83%、14,360 行/123 文件生产 Python 源码 +
 1,404 行 eval 基础设施，Ruff/mypy 全绿。架构适应度测试（12 条声明式依赖契约 + 旧路径防回归 +
 600 行非阻断评审）、技术债册、
 DoD 和里程碑工作流全在；CI 已加入 format/lint/mypy/coverage/scripted eval/recovery eval 与
@@ -53,12 +57,13 @@ Windows/Linux、Python 3.11/3.13 矩阵。
 **边界（明确未做）**：外置 MCP/自定义 Python Tool 的容器化、远程 Workspace、子 Agent 编排、
 Web GUI、rewind/recap、非交互 init、PyPI 分发。
 
-**阶段状态**：第一至第十二阶段已完成。M10c 的
+**阶段状态**：第一至第十三阶段已完成。M10c 的
 “不做全栈 async”决策保持不变；M14 以同步 RunControl、跨平台 ProcessSupervisor 和 Workspace
 抽象补齐受控执行边界并还清 D18。
 
-**当前进展**：M19 已完成。公共调用继续只依赖 `assistant_agent.service` / `contracts` / `interaction`，
-StepEvent v1 与 checkpoint v3 不变；内部目录迁移不要求 API 穿透实现。见
+**当前进展**：M20 已完成。CLI 核心 Runtime 不再等待 optional MCP；公共调用继续只依赖
+`assistant_agent.service` / `contracts` / `interaction`。新增启动 observer 与动态 MCP capability 状态，
+StepEvent v1 与 checkpoint v3 不变。见
 [架构事实源](docs/ARCHITECTURE.md)与[正式服务契约](docs/agent-service-integration-guide.md)。
 
 **剩余技术债**：5 项（D5/D6/D12/D20/D21）。M9a 已还清 D13/D15/D17，M9b 已还清
@@ -270,6 +275,19 @@ D14，M9c 已还清 D9，M10a 已还清 D16，M10b 已还清 D8，M11a 已还清
 > import-linter、Ruff、mypy、scripted 18/18、recovery 4/4 全绿。生产 Python 为 13,467 行/120 文件，
 > eval 基础设施 1,404 行。经用户授权修改 Loop，StepEvent v1、
 > checkpoint v3、事件顺序、权限、预算和恢复语义保持不变。
+
+### 第十三阶段（已完成）
+
+| 里程碑 | 主题 | 状态 |
+|--------|------|------|
+| M20 | CLI 启动与扩展生命周期 | ✅ · [方案](docs/archive/phase13/m20-extension-startup-lifecycle-plan.md) |
+
+> **M20 已完成**：Runtime 工厂发布 UI 无关的安全启动阶段；required MCP 同步校验，optional MCP
+> 使用配置指纹工具目录、后台隔离发现和首次调用惰性连接，当前 Runtime 不动态改变工具 Schema；
+> Skill 元数据按上下文预算有界注入；`inspect_runtime` 从当前 Registry/SkillStore/MCPManager 返回
+> 安全动态能力，optional MCP Schema 不再挤占核心工具空间。StepEvent v1 与 checkpoint v3 不变。
+> 618 passed、5 skipped、覆盖率 83%；12/12 import-linter、Ruff、mypy、scripted 18/18、recovery
+> 4/4 全绿。生产 Python 为 14,360 行/123 文件，未修改 Loop。
 
 ## 未来方向（P3，信号驱动，暂不做）
 

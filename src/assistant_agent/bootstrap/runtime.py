@@ -4,16 +4,20 @@ from __future__ import annotations
 
 import hashlib
 from collections.abc import Callable
+from contextlib import contextmanager
 from pathlib import Path
 
+from assistant_agent.agent.context.window import estimate_message_tokens
 from assistant_agent.agent.loop import AgentLoop
 from assistant_agent.agent.prompts import build_system_prompt
 from assistant_agent.application.capabilities import RuntimePolicy, sandbox_satisfies
 from assistant_agent.application.interactions import SafeDefaultInteractionPort
 from assistant_agent.application.runtime import AgentRuntime
 from assistant_agent.bootstrap.tools import (
+    bounded_skill_metadata,
     build_permission_policy,
     discover_skills,
+    register_core_tool_if_fits,
     register_extension_tools,
     start_mcp,
     start_web,
@@ -26,6 +30,8 @@ from assistant_agent.contracts.capabilities import (
     MCPServerCapability,
     RuntimeCapabilities,
     RuntimeNotice,
+    RuntimeStartupEvent,
+    RuntimeStartupPhase,
     SkillCapability,
 )
 from assistant_agent.contracts.errors import (
@@ -48,6 +54,7 @@ from assistant_agent.providers.litellm import LLMClient
 from assistant_agent.tools.context import ToolContext
 from assistant_agent.tools.extensions import ConfigureMCPServerTool, ManageSkillTool
 from assistant_agent.tools.registry import build_default_registry
+from assistant_agent.tools.runtime_inspection import InspectRuntimeTool
 
 
 def create_runtime(
@@ -62,6 +69,7 @@ def create_runtime(
     provider: str | None = None,
     max_iterations: int | None = None,
     runtime_policy: RuntimePolicy | None = None,
+    startup_observer: Callable[[RuntimeStartupEvent], None] | None = None,
 ) -> AgentRuntime:
     """创建 UI 无关 Runtime；失败抛类型化异常并回滚所有已创建资源。"""
     port = interaction or SafeDefaultInteractionPort()
@@ -69,7 +77,8 @@ def create_runtime(
     config_file = Path(config_path).expanduser().resolve()
     root = Path(workspace_root).expanduser().resolve()
     try:
-        config = load_config(config_file)
+        with _startup_stage(startup_observer, "loading_config", "正在读取配置"):
+            config = load_config(config_file)
     except ConfigError as exc:
         port.close()
         raise RuntimeConfigError(str(exc)) from exc
@@ -109,7 +118,8 @@ def create_runtime(
     notices: list[RuntimeNotice] = []
     stage = "workspace"
     try:
-        workspace, workspace_notices = start_workspace(config, root, control, supervisor)
+        with _startup_stage(startup_observer, "starting_workspace", "正在准备工作区"):
+            workspace, workspace_notices = start_workspace(config, root, control, supervisor)
         notices.extend(workspace_notices)
         logger.session_start(
             provider=config.active,
@@ -126,9 +136,10 @@ def create_runtime(
             )
 
         stage = "skills"
-        skill_store = discover_skills(
-            config.skills, root, allow_personal=policy.allow_personal_skills
-        )
+        with _startup_stage(startup_observer, "discovering_skills", "正在发现 Skills"):
+            skill_store = discover_skills(
+                config.skills, root, allow_personal=policy.allow_personal_skills
+            )
         skills = skill_store.list()
         visible_skills = sorted(
             (item for item in skills if item.trusted), key=lambda item: item.name
@@ -144,7 +155,17 @@ def create_runtime(
             )
         if skills:
             registry.register(LoadSkillTool(skill_store))
-        skill_meta = [(item.name, f"[{item.source}] {item.description}") for item in visible_skills]
+        skill_meta, omitted_skills = bounded_skill_metadata(
+            visible_skills, config.skills, config.agent.max_context_tokens
+        )
+        if omitted_skills:
+            notices.append(
+                RuntimeNotice(
+                    "skills_catalog_truncated",
+                    "Skill 元数据目录超过上下文预算，部分 Skill 未注入初始提示词。",
+                    details={"skills": omitted_skills, "count": len(omitted_skills)},
+                )
+            )
         system_prompt = build_system_prompt(interactive, skills=skill_meta or None)
 
         tool_context = ToolContext(
@@ -171,19 +192,47 @@ def create_runtime(
         )
 
         stage = "web"
-        web = start_web(config.web, registry, control)
+        with _startup_stage(startup_observer, "starting_web", "正在准备网络工具"):
+            web = start_web(config.web, registry, control)
         skill_manager = SkillManager(root)
         mcp_service = MCPService(config_file, logger, workspace_root=root)
+        inspection_tool = InspectRuntimeTool(
+            sandbox=config.sandbox.mode,
+            tool_names=lambda: registry.names(),
+            skills=lambda: [(item.name, item.source) for item in visible_skills],
+            mcp_servers=lambda: mcp.server_capabilities() if mcp is not None else (),
+        )
+        inspection_available = register_core_tool_if_fits(
+            config, registry, system_prompt, inspection_tool
+        )
+        if not inspection_available:
+            system_prompt = build_system_prompt(
+                interactive,
+                skills=skill_meta or None,
+                runtime_inspection=False,
+            )
+            notices.append(
+                RuntimeNotice(
+                    "runtime_inspection_omitted_context_limit",
+                    "上下文窗口不足，当前 Runtime 未注册能力自省工具。",
+                )
+            )
         extension_management = policy.allow_extension_management
         extension_tools = [ManageSkillTool(skill_manager), ConfigureMCPServerTool(mcp_service)]
         if not extension_management:
             system_prompt = build_system_prompt(
-                interactive, skills=skill_meta or None, extension_management=False
+                interactive,
+                skills=skill_meta or None,
+                extension_management=False,
+                runtime_inspection=inspection_available,
             )
         elif not register_extension_tools(config, registry, system_prompt, extension_tools):
             extension_management = False
             system_prompt = build_system_prompt(
-                interactive, skills=skill_meta or None, extension_management=False
+                interactive,
+                skills=skill_meta or None,
+                extension_management=False,
+                runtime_inspection=inspection_available,
             )
             notices.append(
                 RuntimeNotice(
@@ -193,16 +242,25 @@ def create_runtime(
             )
 
         stage = "mcp"
-        mcp, mcp_notices = start_mcp(
-            config.mcp,
-            registry,
-            logger,
-            artifact_root=paths.mcp_artifacts,
-            stderr_root=paths.mcp_stderr,
-            run_control=control,
-            workspace_root=root,
-            allowed_transports=policy.allowed_mcp_transports,
-        )
+        with _startup_stage(startup_observer, "preparing_mcp", "正在准备 MCP 扩展"):
+            mcp, mcp_notices = start_mcp(
+                config.mcp,
+                registry,
+                logger,
+                artifact_root=paths.mcp_artifacts,
+                stderr_root=paths.mcp_stderr,
+                catalog_root=paths.mcp_catalog,
+                run_control=control,
+                workspace_root=root,
+                allowed_transports=policy.allowed_mcp_transports,
+                max_tools_schema_tokens=max(
+                    config.agent.max_context_tokens
+                    - config.agent.reserved_output_tokens
+                    - estimate_message_tokens({"role": "system", "content": system_prompt})
+                    - 5,
+                    0,
+                ),
+            )
         notices.extend(mcp_notices)
 
         stage = "loop"
@@ -237,18 +295,19 @@ def create_runtime(
             if summary_provider is not None:
                 summary_client = LLMClient(summary_provider)
 
-        loop = AgentLoop(
-            config,
-            LLMClient(config.active_provider),
-            registry,
-            tool_context,
-            interactive=interactive,
-            interrupt_check=interrupt_check,
-            run_control=control,
-            budget_continue_check=budget_continue_check if interactive else None,
-            system_prompt=system_prompt,
-            summary_client=summary_client,
-        )
+        with _startup_stage(startup_observer, "creating_loop", "正在创建 Agent Runtime"):
+            loop = AgentLoop(
+                config,
+                LLMClient(config.active_provider),
+                registry,
+                tool_context,
+                interactive=interactive,
+                interrupt_check=interrupt_check,
+                run_control=control,
+                budget_continue_check=budget_continue_check if interactive else None,
+                system_prompt=system_prompt,
+                summary_client=summary_client,
+            )
         skill_capabilities = tuple(
             SkillCapability(
                 name=item.name,
@@ -276,7 +335,7 @@ def create_runtime(
             mcp_servers=mcp_capabilities,
             extension_management=extension_management,
         )
-        return AgentRuntime(
+        runtime = AgentRuntime(
             config=config,
             loop=loop,
             logger=logger,
@@ -298,6 +357,8 @@ def create_runtime(
             workspace=workspace,
             capabilities=capabilities,
         )
+        _emit_startup(startup_observer, RuntimeStartupEvent("ready", "completed", "Agent 已就绪"))
+        return runtime
     except BaseException as exc:
         if mcp is not None:
             mcp.close()
@@ -312,3 +373,31 @@ def create_runtime(
         if isinstance(exc, AgentServiceError):
             raise
         raise RuntimeInitializationError(stage, f"Runtime 初始化失败（{stage}）：{exc}") from exc
+
+
+def _emit_startup(
+    observer: Callable[[RuntimeStartupEvent], None] | None,
+    event: RuntimeStartupEvent,
+) -> None:
+    if observer is None:
+        return
+    try:
+        observer(event)
+    except Exception:
+        pass
+
+
+@contextmanager
+def _startup_stage(
+    observer: Callable[[RuntimeStartupEvent], None] | None,
+    phase: RuntimeStartupPhase,
+    message: str,
+):
+    _emit_startup(observer, RuntimeStartupEvent(phase, "started", message))
+    try:
+        yield
+    except BaseException:
+        _emit_startup(observer, RuntimeStartupEvent(phase, "failed", message))
+        raise
+    else:
+        _emit_startup(observer, RuntimeStartupEvent(phase, "completed", message))

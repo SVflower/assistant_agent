@@ -239,3 +239,36 @@ def test_configure_mcp_tool_add_and_remove(tmp_path, monkeypatch):
     removed = tool.run({"action": "remove", "name": "demo"}, ToolContextFixture())
     assert not added.is_error and "下次启动生效" in added.output
     assert not removed.is_error and service.store.get("demo", "user") is None
+
+
+def test_configure_mcp_tool_lists_safe_server_metadata_without_permission(tmp_path, monkeypatch):
+    monkeypatch.setenv("ASSISTANT_AGENT_HOME", str(tmp_path / "home"))
+    service = MCPService(_project_config(tmp_path))
+    service.store.add(
+        "demo",
+        MCPServerConfig(
+            command="secret-command",
+            env={"TOKEN": "secret-value"},
+            startup="optional",
+        ),
+        "user",
+    )
+    tool = ConfigureMCPServerTool(service)
+
+    result = tool.run({"action": "list"}, ToolContextFixture())
+
+    assert not result.is_error
+    assert "demo" in result.output
+    assert "secret-command" not in result.output
+    assert "secret-value" not in result.output
+    assert result.metadata["servers"] == [
+        {
+            "name": "demo",
+            "scope": "user",
+            "transport": "stdio",
+            "startup": "optional",
+            "enabled": True,
+            "trusted": False,
+        }
+    ]
+    assert tool.permission_requests({"action": "list"}, ToolContextFixture()) == []

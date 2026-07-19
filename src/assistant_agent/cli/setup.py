@@ -50,23 +50,23 @@ def build_runtime(
         console.error("未找到 config.yaml。请复制 config.example.yaml 为 config.yaml 并填写。")
         raise typer.Exit(code=1)
     try:
-        runtime = create_runtime(
-            config_path=resolved,
-            workspace_root=Path.cwd(),
-            interaction=ConsoleInteractionAdapter(console),
-            interactive=interactive,
-            interrupt_check=interrupt_check,
-            run_control=run_control,
-            provider=provider,
-            max_iterations=max_iterations,
-            runtime_policy=RuntimePolicy.cli(),
-        )
+        with console.runtime_startup() as startup_observer:
+            runtime = create_runtime(
+                config_path=resolved,
+                workspace_root=Path.cwd(),
+                interaction=ConsoleInteractionAdapter(console),
+                interactive=interactive,
+                interrupt_check=interrupt_check,
+                run_control=run_control,
+                provider=provider,
+                max_iterations=max_iterations,
+                runtime_policy=RuntimePolicy.cli(),
+                startup_observer=startup_observer,
+            )
     except (RuntimeConfigError, RuntimeInitializationError) as exc:
         console.error(str(exc))
         raise typer.Exit(code=1) from exc
 
-    for notice in runtime.notices:
-        _show_notice(console, notice)
     console.set_show_reasoning(runtime.config.ui.show_reasoning)
     console.set_display_mode(runtime.config.ui.display_mode)
     console.set_context_limit(runtime.config.agent.max_context_tokens)
@@ -77,6 +77,8 @@ def build_runtime(
         runtime.config.permissions.mode,
         backend,
     )
+    for notice in runtime.notices:
+        _show_notice(console, notice)
     return runtime
 
 

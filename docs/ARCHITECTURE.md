@@ -204,6 +204,23 @@ M25-AGENT-02 收紧 Application 的终态所有权：`SessionRuntime` 负责事�
 checkpoint failed，再同步 Session，最后发布唯一 terminal；消费者主动关闭仍 paused。API 不得合成终态
 或复制 checkpoint/Session 同步状态机。该修复未修改 Loop，Event v1 和 checkpoint v4 不变。
 
+### 8.2 M22 跨进程执行与故障恢复
+
+M22 在 `persistence.execution_lease` 实现单机 OS 文件锁，`application.ports` 只定义租约端口，
+`bootstrap.runtime` 是唯一注入点。锁文件不保存业务状态；RunState/RunCoordinator 仍是状态转换的唯一
+事实源。start/resume 的事件 Iterator 持锁至退出，cancel-paused/reconcile 只在原子状态转换期间持锁。
+API 不能读取锁文件或 checkpoint 来推断状态。
+
+checkpoint v5 累计保存 `retry_safety`、retry 来源/幂等哈希和 reconcile 审计哈希。工具结果未知时先保存
+`tool_uncertain`，事件源异常不得清空未决工具。v1-v4 没有完整累计副作用事实，迁移统一设为 unknown，
+这是刻意的 fail-closed 兼容。Event contract 仍为 v1，未修改 `agent/loop.py`。
+
+`application/runs.py` 当前 741 行，超过 600 行非阻断评审线。它仍只拥有 SessionRuntime、事件 Iterator
+边界、Session terminal 同步和跨 Run 用例编排；所有 RunState 改写继续委托 RunCoordinator，依赖方向由
+import-linter 约束，租约/重试/orphan/唯一 terminal 有直接测试，因此本期不为行数机械拆分。若再新增一种
+跨 Run 工作流或超过 800 行，应把 snapshot 查询和 retry/reconcile 用例提取为独立 Application 服务，
+不得拆散 `_stream/_finish_run/_end_run` 的生命周期不变量。该观察登记为 D25。
+
 ## 9. 复杂度基线
 
 Ruff C901 是循环检查而非机械拆分指标。M19a 的最高复杂度基线为 35；M19d 提取单轮模型流后

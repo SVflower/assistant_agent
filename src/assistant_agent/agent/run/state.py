@@ -30,9 +30,10 @@ ToolCallStatus = Literal[
     "skipped",
 ]
 ReplayPolicy = Literal["safe_readonly", "safe_idempotent", "requires_decision"]
+RetrySafety = Literal["safe", "unsafe", "uncertain", "unknown"]
 
 _RESOLVED_TOOL_STATUSES = {"completed", "failed", "skipped"}
-_SCHEMA_VERSION: Literal[4] = 4
+_SCHEMA_VERSION: Literal[5] = 5
 
 
 def now_iso() -> str:
@@ -139,7 +140,7 @@ class ToolCallState(StrictStateModel):
 
 
 class RunState(StrictStateModel):
-    schema_version: Literal[4] = _SCHEMA_VERSION
+    schema_version: Literal[5] = _SCHEMA_VERSION
     run_id: str = Field(min_length=1)
     session_id: str | None = None
     task: str
@@ -178,6 +179,12 @@ class RunState(StrictStateModel):
     permission_grants: list[PermissionGrantState] = Field(default_factory=list)
     terminal_text: str = ""
     failure: RunFailure | None = None
+    retry_safety: RetrySafety = "safe"
+    retry_of_run_id: str | None = None
+    retry_idempotency_key_hash: str | None = Field(default=None, min_length=64, max_length=64)
+    retry_request_hash: str | None = Field(default=None, min_length=64, max_length=64)
+    reconciliation_request_hash: str | None = Field(default=None, min_length=64, max_length=64)
+    retry_requests: dict[str, str] = Field(default_factory=dict)
     session_synced: bool = False
     created_at: str
     updated_at: str
@@ -223,6 +230,13 @@ class RunState(StrictStateModel):
             raise ValueError("Artifact 不属于当前 Session")
         if sum(item.size_bytes for item in self.presentations) > 2 * 1024 * 1024:
             raise ValueError("Run Artifact 总量超过 2 MiB")
+        retry_hashes = (self.retry_idempotency_key_hash, self.retry_request_hash)
+        if (retry_hashes[0] is None) != (retry_hashes[1] is None):
+            raise ValueError("重试幂等键哈希与请求哈希必须同时存在")
+        if self.retry_of_run_id is None and any(item is not None for item in retry_hashes):
+            raise ValueError("只有重试创建的 Run 可以保存重试请求哈希")
+        if any(len(key) != 64 or not run_id for key, run_id in self.retry_requests.items()):
+            raise ValueError("重试幂等记录无效")
         self._validate_tool_messages()
         return self
 
@@ -251,7 +265,7 @@ def migrate_run_document(document: dict[str, Any]) -> dict[str, Any]:
     version = document.get("schema_version")
     if version == _SCHEMA_VERSION:
         return document
-    if version in {1, 2, 3}:
+    if version in {1, 2, 3, 4}:
         migrated = dict(document)
         migrated["schema_version"] = _SCHEMA_VERSION
         iteration_limit = max(int(migrated.get("iteration_budget", 1)), 1)
@@ -290,6 +304,12 @@ def migrate_run_document(document: dict[str, Any]) -> dict[str, Any]:
         )
         migrated.setdefault("continuation_decisions", [])
         migrated.setdefault("presentations", [])
+        migrated["retry_safety"] = "unknown"
+        migrated["retry_of_run_id"] = None
+        migrated["retry_idempotency_key_hash"] = None
+        migrated["retry_request_hash"] = None
+        migrated["reconciliation_request_hash"] = None
+        migrated["retry_requests"] = {}
         if migrated.get("status") == "failed" and not migrated.get("failure"):
             migrated["failure"] = {
                 "code": "internal_error",

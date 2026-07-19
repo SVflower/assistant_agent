@@ -53,6 +53,7 @@ from assistant_agent.integrations.skills import LoadSkillTool, SkillManager
 from assistant_agent.integrations.web_access import WebClient
 from assistant_agent.observability import create_logger, new_trace_id, sanitize_for_display
 from assistant_agent.persistence.artifacts import ArtifactStore
+from assistant_agent.persistence.execution_lease import FileSessionExecutionLeaseManager
 from assistant_agent.persistence.run_store import RunStore
 from assistant_agent.persistence.store import SessionStore
 from assistant_agent.providers.litellm import LLMClient
@@ -480,6 +481,7 @@ def create_runtime(
             web=web,
             mcp=mcp,
             run_store=RunStore(resolve_run_dir(config.agent.recovery.dir, root)),
+            execution_leases=FileSessionExecutionLeaseManager(paths.workspace / "execution-leases"),
             interactive=interactive,
             run_control=control,
             process_supervisor=supervisor,

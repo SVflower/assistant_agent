@@ -29,15 +29,43 @@ class RuntimeDependencyError(RuntimeInitializationError):
 
 
 class RuntimeClosedError(AgentServiceError):
-    pass
+    code = "runtime_closed"
 
 
 class SessionBusyError(AgentServiceError):
-    pass
+    code = "session_busy"
 
 
 class SessionRunConflictError(AgentServiceError):
-    pass
+    code = "session_run_conflict"
+
+
+class RunNotFoundError(AgentServiceError):
+    code = "run_not_found"
+
+
+class RunStillActiveError(AgentServiceError):
+    code = "run_still_active"
+
+
+class RunNotResumableError(AgentServiceError):
+    code = "run_not_resumable"
+
+
+class RunNotReconcilableError(AgentServiceError):
+    code = "run_not_reconcilable"
+
+
+class RunNotRetryableError(AgentServiceError):
+    code = "run_not_retryable"
+
+
+class RunRecoveryRequiredError(AgentServiceError):
+    code = "run_recovery_required"
+
+
+class IdempotencyConflictError(AgentServiceError):
+    code = "idempotency_conflict"
 
 
 class ArtifactNotFoundError(AgentServiceError):

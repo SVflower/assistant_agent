@@ -114,6 +114,26 @@ def test_completed_call_cannot_be_replayed(tmp_path):
         coordinator.retry("c1")
 
 
+def test_retry_safety_accumulates_side_effects_across_batches(tmp_path):
+    coordinator = _coordinator(tmp_path)
+    _planned(coordinator)
+    coordinator.tool_started("c1", [_request()], "requires_decision")
+    coordinator.tool_completed("c1", ToolResult.ok("done"), [_request()], "requires_decision")
+    assert coordinator.state.retry_safety == "unsafe"
+    coordinator.batch_completed(coordinator.state.messages)
+    assert RunCoordinator.load(RunStore(tmp_path), "run-1").state.retry_safety == "unsafe"
+
+
+def test_safe_started_call_can_recover_without_poisoning_retry_safety(tmp_path):
+    coordinator = _coordinator(tmp_path)
+    _planned(coordinator)
+    coordinator.tool_started("c1", [_request()], "safe_readonly")
+    coordinator.mark_uncertain_if_needed()
+    assert coordinator.state.retry_safety == "uncertain"
+    coordinator.retry("c1")
+    assert coordinator.state.retry_safety == "safe"
+
+
 def test_normalize_empty_and_duplicate_call_ids(tmp_path):
     coordinator = _coordinator(tmp_path)
     coordinator.state.messages = [{"role": "assistant", "tool_calls": [{"id": "dup"}]}]

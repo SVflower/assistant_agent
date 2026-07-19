@@ -110,6 +110,17 @@ class BlockingInteractionPort(SafeDefaultInteractionPort):
             pending.changed.set()
             return True
 
+    def pending_requests(self) -> tuple[InteractionRequest, ...]:
+        """返回仍在等待的脱敏公共请求；不转移队列所有权。"""
+        with self._lock:
+            return tuple(
+                item.request
+                for item in self._pending.values()
+                if not item.interrupted
+                and item.decision is None
+                and time.monotonic() < item.deadline
+            )
+
     def request_approval(self, request: ApprovalRequest) -> ApprovalDecision:
         decision = self._wait(request)
         if isinstance(decision, ApprovalDecision) and decision.choice in request.legal_options:

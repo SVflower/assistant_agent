@@ -18,6 +18,7 @@ from assistant_agent.config.schema import AppConfig
 from assistant_agent.integrations.skills import SkillStore
 from assistant_agent.interaction import SafeDefaultInteractionPort
 from assistant_agent.observability import NullLogger
+from assistant_agent.persistence.execution_lease import FileSessionExecutionLeaseManager
 from assistant_agent.persistence.run_store import RunStore
 from assistant_agent.persistence.store import SessionStore
 from assistant_agent.service import AgentRuntime
@@ -112,6 +113,7 @@ def test_runtime_close_is_idempotent(tmp_path):
         interaction=interaction,
         session_store=SessionStore(tmp_path / "sessions"),
         run_store=RunStore(tmp_path / "runs"),
+        execution_leases=FileSessionExecutionLeaseManager(tmp_path / "leases"),
         run_control=ctx.run_control,
         process_supervisor=ctx.process_supervisor,
         mcp=mcp,  # type: ignore[arg-type]

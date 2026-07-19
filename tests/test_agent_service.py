@@ -9,6 +9,7 @@ import pytest
 
 from assistant_agent.bootstrap import runtime as runtime_module
 from assistant_agent.contracts.events import StepEvent
+from assistant_agent.contracts.failures import RunFailure
 from assistant_agent.interaction import (
     BlockingInteractionPort,
     ContinueDecision,
@@ -22,6 +23,10 @@ from assistant_agent.service import (
     AgentService,
     ArtifactNotFoundError,
     ArtifactUnavailableError,
+    IdempotencyConflictError,
+    RunNotResumableError,
+    RunNotRetryableError,
+    RunStillActiveError,
     RuntimeConfigError,
     SessionBusyError,
     SessionRunConflictError,
@@ -73,6 +78,160 @@ def test_public_facade_runs_and_syncs_terminal_session(tmp_path, monkeypatch):
         run = session_runtime.runtime.run_store.load(execution.run_id).document
         assert run["status"] == "completed"
         assert run["session_synced"] is True
+        snapshot = session_runtime.run_snapshot(execution.run_id)
+        assert snapshot.status == "completed"
+        assert snapshot.terminal_status == "completed"
+        assert snapshot.final_candidate == "done"
+        assert snapshot.execution_status == "inactive"
+        assert snapshot.budget.iterations_limit > 0
+    finally:
+        session_runtime.close()
+
+
+def test_active_lease_blocks_resume_and_reconcile(tmp_path, monkeypatch):
+    service = AgentService(config_path=_config(tmp_path, monkeypatch), workspace_root=tmp_path)
+    first = service.create_session()
+    execution = first.start_run("task")
+    iterator = execution.events
+    next(iterator)
+    second = service.load_session(first.session.id)
+    try:
+        with pytest.raises(RunStillActiveError):
+            second.resume_run(execution.run_id)
+        with pytest.raises(RunStillActiveError):
+            second.reconcile_orphaned_run(execution.run_id, "reconcile-1")
+    finally:
+        iterator.close()
+        second.close()
+        first.close()
+
+
+def test_reconcile_is_idempotent_and_pauses_orphan(tmp_path, monkeypatch):
+    service = AgentService(config_path=_config(tmp_path, monkeypatch), workspace_root=tmp_path)
+    first = service.create_session()
+    coordinator = first.runtime.new_run("task", first.session.id)
+    assert coordinator is not None
+    coordinator.initialize([{"role": "user", "content": "task"}], None, ToolBudget(max_calls=10))
+    run_id = coordinator.run_id
+    session_id = first.session.id
+    first.close()
+
+    recovered = service.load_session(session_id)
+    try:
+        with pytest.raises(RunNotResumableError):
+            recovered.resume_run(run_id)
+        result = recovered.reconcile_orphaned_run(run_id, "reconcile-1")
+        assert list(result.events)[-1].terminal_status == "paused"
+        duplicate = recovered.reconcile_orphaned_run(run_id, "reconcile-1")
+        assert list(duplicate.events) == []
+        snapshot = recovered.run_snapshot(run_id)
+        assert snapshot.status == "paused"
+        assert snapshot.execution_status == "inactive"
+        assert snapshot.allowed_actions == ("resume_run", "stop")
+    finally:
+        recovered.close()
+
+
+def test_retry_failed_run_creates_one_linked_run_for_same_key(tmp_path, monkeypatch):
+    service = AgentService(config_path=_config(tmp_path, monkeypatch), workspace_root=tmp_path)
+    session_runtime = service.create_session()
+    try:
+        original = session_runtime.runtime.new_run("task", session_runtime.session.id)
+        assert original is not None
+        original.initialize([{"role": "user", "content": "task"}], None, ToolBudget(max_calls=10))
+        original.terminal(
+            success=False,
+            text="provider timeout",
+            messages=original.state.messages,
+            compaction_checkpoint=None,
+            failure=RunFailure(
+                code="provider_timeout",
+                safe_message="模型请求超时。",
+                retryable=True,
+                allowed_actions=("retry_run", "start_new_run"),
+                terminal_status="failed",
+                phase="calling_model",
+            ),
+        )
+        retried = session_runtime.retry_failed_run(original.run_id, "retry-1")
+        assert retried.created is True
+        assert list(retried.events)[-1].terminal_status == "completed"
+        duplicate = session_runtime.retry_failed_run(original.run_id, "retry-1")
+        assert duplicate.created is False
+        assert duplicate.new_run_id == retried.new_run_id
+        assert list(duplicate.events) == []
+        snapshot = session_runtime.run_snapshot(retried.new_run_id)
+        assert snapshot.retry_of_run_id == original.run_id
+    finally:
+        session_runtime.close()
+
+
+def test_unsafe_failed_run_cannot_be_retried(tmp_path, monkeypatch):
+    service = AgentService(config_path=_config(tmp_path, monkeypatch), workspace_root=tmp_path)
+    session_runtime = service.create_session()
+    try:
+        original = session_runtime.runtime.new_run("task", session_runtime.session.id)
+        assert original is not None
+        original.initialize([], None, ToolBudget(max_calls=10))
+        original.state.retry_safety = "unsafe"
+        original.terminal(
+            success=False,
+            text="failed",
+            messages=[],
+            compaction_checkpoint=None,
+            failure=RunFailure(
+                code="internal_error",
+                safe_message="任务执行失败。",
+                retryable=True,
+                allowed_actions=("retry_run", "start_new_run"),
+                terminal_status="failed",
+                phase="saving_checkpoint",
+            ),
+        )
+        with pytest.raises(RunNotRetryableError):
+            session_runtime.retry_failed_run(original.run_id, "retry-unsafe")
+    finally:
+        session_runtime.close()
+
+
+def test_retry_rejects_session_busy_and_key_reuse_for_other_run(tmp_path, monkeypatch):
+    service = AgentService(config_path=_config(tmp_path, monkeypatch), workspace_root=tmp_path)
+    session_runtime = service.create_session()
+
+    def failed_run():
+        coordinator = session_runtime.runtime.new_run("task", session_runtime.session.id)
+        assert coordinator is not None
+        coordinator.initialize([], None, ToolBudget(max_calls=10))
+        coordinator.terminal(
+            success=False,
+            text="timeout",
+            messages=[],
+            compaction_checkpoint=None,
+            failure=RunFailure(
+                code="provider_timeout",
+                safe_message="模型请求超时。",
+                retryable=True,
+                allowed_actions=("retry_run",),
+                terminal_status="failed",
+                phase="calling_model",
+            ),
+        )
+        return coordinator
+
+    try:
+        first = failed_run()
+        first_retry = session_runtime.retry_failed_run(first.run_id, "shared-key")
+        list(first_retry.events)
+        second = failed_run()
+        with pytest.raises(IdempotencyConflictError):
+            session_runtime.retry_failed_run(second.run_id, "shared-key")
+
+        orphan = session_runtime.runtime.new_run("unfinished", session_runtime.session.id)
+        assert orphan is not None
+        orphan.initialize([], None, ToolBudget(max_calls=10))
+        third = failed_run()
+        with pytest.raises(SessionBusyError):
+            session_runtime.retry_failed_run(third.run_id, "third-key")
     finally:
         session_runtime.close()
 
@@ -333,6 +492,8 @@ def test_uncertain_tool_recovery_uses_interaction_port(tmp_path, monkeypatch):
     port = _SkipRecoveryPort()
     resumed_runtime = service.load_session(session_id, interaction=port)
     try:
+        reconciled = resumed_runtime.reconcile_orphaned_run(run_id, "reconcile-test")
+        assert list(reconciled.events)[-1].terminal_status == "paused"
         resumed = resumed_runtime.resume_run(run_id)
         assert list(resumed.events)[-1].terminal_status == "completed"
         assert port.request is not None

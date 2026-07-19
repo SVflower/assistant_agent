@@ -29,7 +29,15 @@ def test_service_public_exports_baseline():
         "ChartSpecV1",
         "EVENT_CONTRACT_VERSION",
         "RunExecution",
+        "RetryRunExecution",
         "RunSnapshot",
+        "RunStillActiveError",
+        "RunNotFoundError",
+        "RunNotResumableError",
+        "RunNotReconcilableError",
+        "RunNotRetryableError",
+        "RunRecoveryRequiredError",
+        "IdempotencyConflictError",
         "RuntimeClosedError",
         "RuntimeConfigError",
         "RuntimeInitializationError",
@@ -38,6 +46,7 @@ def test_service_public_exports_baseline():
         "RuntimePolicy",
         "RuntimeCapabilities",
         "MCPServerCapability",
+        "PendingInteractionSnapshot",
         "SkillCapability",
         "RuntimeNotice",
         "RuntimeProfile",
@@ -172,7 +181,7 @@ def test_interaction_request_field_baseline():
         assert tuple(field.name for field in fields(model)) == names
 
 
-def test_run_state_v4_field_and_legacy_migration_baseline():
+def test_run_state_v5_field_and_legacy_migration_baseline():
     assert tuple(RunState.model_fields) == (
         "schema_version",
         "run_id",
@@ -201,6 +210,12 @@ def test_run_state_v4_field_and_legacy_migration_baseline():
         "permission_grants",
         "terminal_text",
         "failure",
+        "retry_safety",
+        "retry_of_run_id",
+        "retry_idempotency_key_hash",
+        "retry_request_hash",
+        "reconciliation_request_hash",
+        "retry_requests",
         "session_synced",
         "created_at",
         "updated_at",
@@ -235,5 +250,6 @@ def test_run_state_v4_field_and_legacy_migration_baseline():
         ):
             legacy.pop(key)
         migrated = migrate_run_document(legacy)
-        assert migrated["schema_version"] == 4
-        assert RunState.model_validate(migrated).schema_version == 4
+        assert migrated["schema_version"] == 5
+        assert migrated["retry_safety"] == "unknown"
+        assert RunState.model_validate(migrated).schema_version == 5

@@ -656,8 +656,15 @@ degraded_discovery | required_failed
 | `RuntimePolicyError` | config 试图突破部署 policy | 部署错误或 503 |
 | `RuntimeDependencyError` | required MCP 不可用 | 503 capability_unavailable |
 | `RuntimeClosedError` | Runtime 已关闭 | 409/410 |
-| `SessionBusyError` | Session 已有活跃 Run | 409 |
-| `SessionRunConflictError` | 未完成 Run 冲突或归属错误 | 409 |
+| `SessionBusyError` | Session 已有未完成 Run | 409 `session_busy` |
+| `RunStillActiveError` | 跨进程 Session execution lease 已被持有 | 409 `run_still_active` |
+| `RunNotFoundError` | Run 不存在 | 404 `run_not_found` |
+| `RunNotResumableError` | 非 paused Run 请求恢复 | 409 `run_not_resumable` |
+| `RunNotReconcilableError` | 非遗留 running Run 请求协调 | 409 `run_not_reconcilable` |
+| `RunNotRetryableError` | Run 不满足安全重试条件 | 409 `run_not_retryable` |
+| `RunRecoveryRequiredError` | 存在 uncertain side effect | 409 `run_recovery_required` |
+| `IdempotencyConflictError` | 幂等键已用于不同重试请求 | 409 `idempotency_conflict` |
+| `SessionRunConflictError` | 未完成 Run 冲突或归属错误 | 409 `session_run_conflict` |
 
 不要把异常 cause、配置内容、密钥或完整工具参数直接返回客户端。服务日志记录异常类型、阶段、
 session_id/run_id 和内部 trace 即可。
@@ -699,8 +706,9 @@ AgentService（一个服务实例）
   cache/mcp-tools/
 ```
 
-可通过 `ASSISTANT_AGENT_HOME` 改变用户级状态根目录。多个服务实例若共享同一状态目录，还需要由上层
-服务提供进程间所有权或租约；当前公共门面只保证单进程内的 SessionRuntime 约束。
+可通过 `ASSISTANT_AGENT_HOME` 改变用户级状态根目录。M22 起，同一台机器共享状态目录的多个服务进程
+由 OS 文件锁保证同一 Session 最多一个执行者；锁由执行 Iterator 持有到退出，进程崩溃后由 OS 释放。
+多节点共享存储仍需要外部原子租约/CAS，不能依赖本地文件锁。
 
 ## 12. Web API 参考映射
 
@@ -716,6 +724,8 @@ GET    /runs/{run_id}
 POST   /runs/{run_id}/pause
 POST   /runs/{run_id}/cancel
 POST   /runs/{run_id}/resume
+POST   /runs/{run_id}/reconcile
+POST   /runs/{run_id}/retry
 POST   /runs/{run_id}/interactions/{request_id}/responses
 GET/WS /runs/{run_id}/events?after=<seq>
 ```
@@ -746,6 +756,15 @@ run_terminal        -> run.terminal + 原子更新 Run snapshot
 Run snapshot 至少保留 `terminal_status/failure/current_phase/budget/pending_interaction/final_candidate/artifacts`。
 API 自行增加 seq、timestamp、session_id、run_id、heartbeat 和重连缓存；网络重连只能重放 API 已缓存
 DTO，不能重新迭代 Agent 或重新执行工具。
+
+活跃 `BlockingInteractionPort` 的 `pending_interaction` 只含 request_id/kind/expires_at/call_id，不含问题
+正文、工具参数或授权目标。进程重启后旧 worker 和旧 request 均不存在，该字段为 null；持久 running Run
+此时走 reconcile，不能复用旧 request ID。
+
+M22 控制语义：`resume_run()` 只接受 paused；API 重启遗留的 running Run 先以 Idempotency-Key 调用
+`reconcile_orphaned_run()`，成功后变为 paused。`retry_failed_run()` 只接受 Agent 明确判定为 safe 的
+failed Run，始终创建新 Run ID并返回 `RetryRunExecution`；相同原 Run和幂等键返回同一新 Run。
+v1-v4 checkpoint 迁移为 `retry_safety=unknown`，因此旧 Run 默认不允许普通重试。
 
 M24 REST/事件映射：
 

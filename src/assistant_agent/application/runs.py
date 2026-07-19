@@ -12,24 +12,35 @@ from assistant_agent.agent.run.ports import ControlState
 from assistant_agent.agent.run.recovery import DefinitionDifference
 from assistant_agent.agent.run.state import ToolCallState, canonical_hash
 from assistant_agent.application.models import RunMeta, RunResumeInfo, Session
-from assistant_agent.application.ports import RunCatalogRepository, SessionRepository
+from assistant_agent.application.ports import (
+    RunCatalogRepository,
+    SessionExecutionLease,
+    SessionRepository,
+)
 from assistant_agent.application.runtime import AgentRuntime
 from assistant_agent.contracts.capabilities import RuntimeCapabilities
 from assistant_agent.contracts.charts import (
     AssistantMessageSnapshot,
     ChartArtifact,
+    PendingInteractionSnapshot,
     RunSnapshot,
     SessionSnapshot,
     stable_message_id,
 )
 from assistant_agent.contracts.errors import (
     ArtifactNotFoundError,
+    IdempotencyConflictError,
+    RunNotFoundError,
+    RunNotReconcilableError,
+    RunNotResumableError,
+    RunNotRetryableError,
+    RunRecoveryRequiredError,
     RuntimeClosedError,
     SessionBusyError,
     SessionRunConflictError,
 )
 from assistant_agent.contracts.events import StepEvent, TerminalStatus
-from assistant_agent.contracts.failures import RunFailure
+from assistant_agent.contracts.failures import AllowedAction, BudgetSnapshot, RunFailure
 from assistant_agent.contracts.interactions import (
     DefinitionChangeRequest,
     DefinitionDifferenceInfo,
@@ -40,6 +51,15 @@ from assistant_agent.contracts.interactions import (
 @dataclass(frozen=True)
 class RunExecution:
     run_id: str
+    events: Iterator[StepEvent]
+    warning: str = ""
+
+
+@dataclass(frozen=True)
+class RetryRunExecution:
+    original_run_id: str
+    new_run_id: str
+    created: bool
     events: Iterator[StepEvent]
     warning: str = ""
 
@@ -205,6 +225,7 @@ class SessionRuntime:
         self.runtime.logger.bind_session(session.id)
         self._lock = threading.Lock()
         self._active_run_id: str | None = None
+        self._execution_lease: SessionExecutionLease | None = None
         self._closed = False
 
     @property
@@ -259,17 +280,46 @@ class SessionRuntime:
         )
 
     def run_snapshot(self, run_id: str) -> RunSnapshot:
-        coordinator = RunCoordinator.load(self.runtime.run_store, run_id)
+        coordinator = self._load_coordinator(run_id)
         if coordinator.state.session_id != self.session.id:
             raise ArtifactNotFoundError("Run 不属于当前 Session")
+        state = coordinator.state
+        terminal_status: TerminalStatus | None = (
+            state.status if state.status in {"completed", "failed", "paused", "cancelled"} else None
+        )
         return RunSnapshot(
             id=run_id,
-            status=coordinator.state.status,
-            artifacts=tuple(item.ref for item in coordinator.state.presentations),
+            session_id=state.session_id,
+            status=state.status,
+            phase=state.phase,
+            updated_at=state.updated_at,
+            preview=state.task[:40] + ("…" if len(state.task) > 40 else ""),
+            terminal_status=terminal_status,
+            failure=state.failure,
+            current_phase=state.phase,
+            budget=BudgetSnapshot(
+                iterations_used=state.iteration,
+                iterations_limit=state.iteration_budget,
+                tool_calls_used=state.tool_budget.used_calls,
+                tool_calls_limit=state.tool_budget.max_calls,
+                tool_output_chars_used=state.tool_budget.used_output_chars,
+                tool_output_chars_limit=state.tool_budget.max_total_output_chars,
+            ),
+            pending_interaction=self._pending_interaction(run_id),
+            final_candidate=state.terminal_text if state.status == "completed" else None,
+            artifacts=tuple(item.ref for item in state.presentations),
+            allowed_actions=self._allowed_actions(coordinator),
+            execution_status=(
+                "active"
+                if self.active_run_id == run_id
+                else ("unknown" if state.status == "running" else "inactive")
+            ),
+            retry_of_run_id=state.retry_of_run_id,
         )
 
     def start_run(self, task: str) -> RunExecution:
         self._begin_run(None)
+        self._acquire_execution_lease()
         self.runtime.run_control.reset()
         try:
             unfinished = self.unfinished_runs()
@@ -303,10 +353,9 @@ class SessionRuntime:
     def cancel_run(self, run_id: str) -> RunExecution:
         """取消 worker 已退出的 paused Run，并返回唯一的新终态事件。"""
         self._begin_run(run_id)
+        self._acquire_execution_lease()
         try:
-            coordinator = RunCoordinator.load(
-                self.runtime.run_store, run_id, logger=self.runtime.logger
-            )
+            coordinator = self._load_coordinator(run_id, with_logger=True)
             state = coordinator.state
             if state.session_id != self.session.id:
                 raise SessionRunConflictError("Run 不属于当前 Session")
@@ -347,13 +396,16 @@ class SessionRuntime:
 
     def resume_run(self, run_id: str) -> RunExecution:
         self._begin_run(run_id)
+        self._acquire_execution_lease()
         self.runtime.run_control.reset()
         try:
-            coordinator = RunCoordinator.load(
-                self.runtime.run_store, run_id, logger=self.runtime.logger
-            )
+            coordinator = self._load_coordinator(run_id, with_logger=True)
             if coordinator.state.session_id != self.session.id:
                 raise SessionRunConflictError("Run 不属于当前 Session")
+            if coordinator.state.status != "paused":
+                raise RunNotResumableError(
+                    f"只有 paused Run 可以恢复，当前状态为 {coordinator.state.status}"
+                )
             self._set_active_id(run_id)
             self.runtime.bind_run(coordinator)
             differences = coordinator.definition_differences(
@@ -414,6 +466,162 @@ class SessionRuntime:
             self._end_run()
             raise
 
+    def reconcile_orphaned_run(self, run_id: str, idempotency_key: str) -> RunExecution:
+        request_hash = self._idempotency_hash("reconcile", run_id, idempotency_key)
+        self._begin_run(run_id)
+        self._acquire_execution_lease()
+        try:
+            coordinator = self._load_coordinator(run_id, with_logger=True)
+            state = coordinator.state
+            if state.session_id != self.session.id:
+                raise SessionRunConflictError("Run 不属于当前 Session")
+            if state.status == "paused" and state.reconciliation_request_hash == request_hash:
+                return RunExecution(run_id, iter(()), _load_warning(coordinator))
+            if state.status != "running":
+                raise RunNotReconcilableError(
+                    f"只有遗留 running Run 可以协调，当前状态为 {state.status}"
+                )
+            coordinator.reconcile_orphan(request_hash)
+            return RunExecution(
+                run_id,
+                iter(
+                    (
+                        StepEvent(
+                            kind="run_terminal",
+                            text=coordinator.state.terminal_text,
+                            terminal_status="paused",
+                            failure=coordinator.state.failure,
+                        ),
+                    )
+                ),
+                _load_warning(coordinator),
+            )
+        finally:
+            self._end_run()
+
+    def retry_failed_run(self, run_id: str, idempotency_key: str) -> RetryRunExecution:
+        key_hash = self._idempotency_hash("key", "", idempotency_key)
+        request_hash = self._idempotency_hash("retry", run_id, idempotency_key)
+        self._begin_run(run_id)
+        self._acquire_execution_lease()
+        try:
+            original = self._load_coordinator(run_id, with_logger=True)
+            state = original.state
+            if state.session_id != self.session.id:
+                raise SessionRunConflictError("Run 不属于当前 Session")
+            existing_id = state.retry_requests.get(key_hash)
+            if existing_id is not None:
+                self._end_run()
+                return RetryRunExecution(
+                    run_id, existing_id, False, iter(()), _load_warning(original)
+                )
+            self._ensure_retryable(original)
+            unfinished = [item for item in self.unfinished_runs() if item.id != run_id]
+            if unfinished:
+                raise SessionBusyError(
+                    f"Session 存在未完成 Run：{', '.join(item.id for item in unfinished)}"
+                )
+            for meta in self.runtime.run_store.list():
+                if meta.session_id != self.session.id:
+                    continue
+                candidate = RunCoordinator.load(self.runtime.run_store, meta.id).state
+                if candidate.retry_idempotency_key_hash != key_hash:
+                    continue
+                if candidate.retry_request_hash != request_hash:
+                    raise IdempotencyConflictError("幂等键已用于其他重试请求")
+                original.record_retry(key_hash, candidate.run_id)
+                self._end_run()
+                return RetryRunExecution(run_id, candidate.run_id, False, iter(()))
+
+            coordinator = self.runtime.new_run(state.task, self.session.id)
+            if coordinator is None:
+                raise SessionRunConflictError("公共服务运行要求启用 agent.recovery")
+            coordinator.prepare_retry(
+                retry_of_run_id=run_id,
+                idempotency_key_hash=key_hash,
+                request_hash=request_hash,
+            )
+            coordinator.checkpoint()
+            original.record_retry(key_hash, coordinator.run_id)
+            self._set_active_id(coordinator.run_id)
+            self.runtime.logger.task(state.task)
+            return RetryRunExecution(
+                run_id,
+                coordinator.run_id,
+                True,
+                self._stream(
+                    coordinator,
+                    self.runtime.loop.run(state.task, coordinator=coordinator),
+                ),
+            )
+        except BaseException:
+            self._end_run()
+            raise
+
+    @staticmethod
+    def _ensure_retryable(coordinator: RunCoordinator) -> None:
+        state = coordinator.state
+        if state.status != "failed" or state.failure is None:
+            raise RunNotRetryableError("只有 failed Run 可以重新运行")
+        failure = state.failure
+        if failure.unknown_side_effect or state.retry_safety == "uncertain":
+            raise RunRecoveryRequiredError("Run 存在结果未知的副作用，必须先恢复")
+        if (
+            not failure.retryable
+            or "retry_run" not in failure.allowed_actions
+            or state.retry_safety != "safe"
+        ):
+            raise RunNotRetryableError("Run 不满足安全重试条件")
+
+    @staticmethod
+    def _idempotency_hash(operation: str, run_id: str, key: str) -> str:
+        if not isinstance(key, str) or not key.strip() or len(key) > 200:
+            raise ValueError("idempotency_key 必须是 1-200 字符的非空字符串")
+        return canonical_hash({"operation": operation, "run_id": run_id, "key": key})
+
+    def _allowed_actions(self, coordinator: RunCoordinator) -> tuple[AllowedAction, ...]:
+        state = coordinator.state
+        if state.status == "running":
+            return ("stop",) if self.active_run_id == state.run_id else ("reconcile_run",)
+        if state.status == "paused":
+            if state.phase == "tool_uncertain":
+                return ("resolve_uncertain_tool", "stop")
+            return ("resume_run", "stop")
+        if state.status == "failed" and state.failure is not None:
+            if state.retry_safety == "safe":
+                return state.failure.allowed_actions
+            actions = tuple(
+                action for action in state.failure.allowed_actions if action != "retry_run"
+            )
+            if state.retry_safety == "uncertain" and "resolve_uncertain_tool" not in actions:
+                actions = (*actions, "resolve_uncertain_tool")
+            return actions or ("start_new_run",)
+        return ("start_new_run",)
+
+    def _load_coordinator(self, run_id: str, *, with_logger: bool = False) -> RunCoordinator:
+        try:
+            return RunCoordinator.load(
+                self.runtime.run_store,
+                run_id,
+                logger=self.runtime.logger if with_logger else None,
+            )
+        except FileNotFoundError as exc:
+            raise RunNotFoundError("Run 不存在") from exc
+
+    def _pending_interaction(self, run_id: str) -> PendingInteractionSnapshot | None:
+        pending_requests = getattr(self.runtime.interaction, "pending_requests", None)
+        if not callable(pending_requests):
+            return None
+        for request in pending_requests():
+            if request.run_id == run_id:
+                return PendingInteractionSnapshot(
+                    request_id=request.request_id,
+                    kind=request.kind,
+                    expires_at=request.expires_at,
+                    call_id=request.call_id,
+                )
+        return None
+
     def close(self) -> None:
         with self._lock:
             if self._closed:
@@ -441,8 +649,19 @@ class SessionRuntime:
 
     def _end_run(self) -> None:
         self.runtime.tool_context.clear_run()
+        lease = self._execution_lease
+        self._execution_lease = None
+        if lease is not None:
+            lease.release()
         with self._lock:
             self._active_run_id = None
+
+    def _acquire_execution_lease(self) -> None:
+        try:
+            self._execution_lease = self.runtime.execution_leases.acquire(self.session.id)
+        except BaseException:
+            self._end_run()
+            raise
 
     def _paused_stream(self, coordinator: RunCoordinator) -> Iterator[StepEvent]:
         try:
@@ -464,20 +683,22 @@ class SessionRuntime:
             exhausted = True
         except Exception:
             if coordinator.state.status == "running":
-                coordinator.terminal(
-                    success=False,
-                    text="Agent 运行异常终止。",
-                    messages=self.runtime.loop.export_history(),
-                    compaction_checkpoint=self.runtime.loop.export_checkpoint(),
-                    failure=RunFailure(
-                        code="internal_error",
-                        safe_message="Agent 运行异常终止。",
-                        retryable=True,
-                        allowed_actions=("retry_run", "start_new_run", "stop"),
-                        terminal_status="failed",
-                        phase="saving_checkpoint",
-                    ),
-                )
+                coordinator.mark_uncertain_if_needed()
+                if coordinator.state.status == "running":
+                    coordinator.terminal(
+                        success=False,
+                        text="Agent 运行异常终止。",
+                        messages=self.runtime.loop.export_history(),
+                        compaction_checkpoint=self.runtime.loop.export_checkpoint(),
+                        failure=RunFailure(
+                            code="internal_error",
+                            safe_message="Agent 运行异常终止。",
+                            retryable=True,
+                            allowed_actions=("retry_run", "start_new_run", "stop"),
+                            terminal_status="failed",
+                            phase="saving_checkpoint",
+                        ),
+                    )
             exhausted = True
         finally:
             try:

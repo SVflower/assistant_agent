@@ -15,6 +15,7 @@ from assistant_agent.application.ports import (
     MCPRuntimePort,
     RunCatalogRepository,
     RuntimeTelemetry,
+    SessionExecutionLeaseManager,
     SessionRepository,
     SkillMetaPort,
 )
@@ -41,6 +42,7 @@ class AgentRuntime:
     session_store: SessionRepository
     run_store: RunCatalogRepository
     run_control: RunControlPort
+    execution_leases: SessionExecutionLeaseManager
     process_supervisor: ProcessSupervisorPort
     process_manager: ManagedProcessRegistryPort | None = None
     sanitize_for_display: Callable[[Any], object] = lambda _value: "[hidden]"

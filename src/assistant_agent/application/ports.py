@@ -37,6 +37,14 @@ class RunCatalogRepository(RunCheckpointRepository, Protocol):
     def prune(self, max_terminal_runs: int) -> builtins.list[str]: ...
 
 
+class SessionExecutionLease(Protocol):
+    def release(self) -> None: ...
+
+
+class SessionExecutionLeaseManager(Protocol):
+    def acquire(self, session_id: str) -> SessionExecutionLease: ...
+
+
 class RuntimeFactoryPort(Protocol):
     def __call__(
         self,

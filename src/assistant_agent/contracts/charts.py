@@ -10,6 +10,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from assistant_agent.contracts.failures import AllowedAction, BudgetSnapshot, RunFailure
+
 MAX_ARTIFACT_BYTES = 512 * 1024
 MAX_RUN_ARTIFACTS = 16
 MAX_RUN_ARTIFACT_BYTES = 2 * 1024 * 1024
@@ -181,10 +183,30 @@ class SessionSnapshot(_StrictModel):
         return tuple(value) if isinstance(value, list) else value
 
 
+class PendingInteractionSnapshot(_StrictModel):
+    request_id: str = Field(min_length=1)
+    kind: str = Field(min_length=1)
+    expires_at: str = Field(min_length=1)
+    call_id: str | None = None
+
+
 class RunSnapshot(_StrictModel):
     id: str
-    status: str
+    session_id: str | None = None
+    status: Literal["running", "paused", "cancelled", "completed", "failed"]
+    phase: str
+    updated_at: str
+    preview: str
+    terminal_status: Literal["completed", "failed", "paused", "cancelled"] | None = None
+    failure: RunFailure | None = None
+    current_phase: str | None = None
+    budget: BudgetSnapshot
+    pending_interaction: PendingInteractionSnapshot | None = None
+    final_candidate: str | None = None
     artifacts: tuple[PresentationArtifactRef, ...] = ()
+    allowed_actions: tuple[AllowedAction, ...] = ()
+    execution_status: Literal["active", "inactive", "unknown"]
+    retry_of_run_id: str | None = None
 
     @field_validator("artifacts", mode="before")
     @classmethod

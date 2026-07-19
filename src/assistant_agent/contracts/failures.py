@@ -29,6 +29,7 @@ AllowedAction: TypeAlias = Literal[
     "adjust_configuration",
     "inspect_dependency",
     "resolve_uncertain_tool",
+    "reconcile_run",
 ]
 BudgetResource: TypeAlias = Literal["iterations", "tool_calls", "tool_output", "context"]
 ActivityPhase: TypeAlias = Literal[

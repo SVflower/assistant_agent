@@ -89,7 +89,7 @@ python -m assistant_agent
 
 ## 当前状态
 
-**第一至第十五阶段已完成**。里程碑详情见 ROADMAP.md。
+**第一至第十七阶段已完成**。里程碑详情见 ROADMAP.md。
 - 第一阶段：配置/模型抽象/工具/ReAct 循环/CLI，加流式输出、会话持久化、工具集扩展（edit/multi_edit/code_search/git 只读）、模型切换、循环工程与写入安全、slash 命令、init 向导，全部落地。
 - **第二阶段 M6/M6.5/M7a/M7b/M7c/M8a/M8b 已完成**：结构化日志与工具审计；任务级工具调用/累计输出预算与批次协议完整终止；Agent Skills 系统（SKILL.md 发现 + 渐进披露 + load_skill）；MCP client（stdio + HTTP 两种 transport）——外部 server 工具接入 + 同步桥 + 命名空间 + 每工具确认 + 过滤/上限 + HTTP 委托 SDK 管 session/重连不重放 + cli/setup.py Runtime，还清 D7；上下文进化——M8a 预算口径计入 tools schema + reserved（还 D10），M8b 摘要压缩替代硬截断（双历史 + checkpoint 持久化 + 按轮分组 + 降级兜底，默认关闭时逐字节等于现状）。
 - 双后端实测通过：云端 DeepSeek + 本地 LM Studio，切换只改 `config.yaml`，业务代码零改动。
@@ -134,9 +134,11 @@ python -m assistant_agent
   扩展/MCP 与未证明 DNS 绑定安全的 `fetch_url` 不注册；Interaction 提供截止时间并可被 pause/cancel
   唤醒。M25-AGENT-02 增加 paused Run 跨 Runtime 指定取消和事件源异常权威 failed 持久化，Agent
   统一拥有 terminal/Session 同步，未修改 Loop。
-- 668 个测试通过（6 个平台能力测试跳过），覆盖率 84%，ruff/mypy、12/12 import-linter、
-  scripted 19/19、recovery 4/4 全绿；15,740 行/127 文件生产 Python + 1,411 行 eval 基础设施；
-  剩余 6 项技术债（3 中/3 低，无高优先级）。
+- M22 已完成：单机跨进程 Session execution lease、checkpoint v5、完整 Run snapshot、严格 resume、
+  orphan 协调和 failed Run 安全幂等重试；Event v1 不变，v1-v4 checkpoint fail-closed 迁移。
+- 679 个测试通过（6 个平台能力测试跳过），覆盖率 84%，ruff/mypy、12/12 import-linter、
+  scripted 19/19、recovery 4/4 全绿；16,197 行/128 文件生产 Python + 1,411 行 eval 基础设施；
+  剩余 7 项技术债（4 中/3 低，无高优先级）。
 
 第三阶段总规划及 M9a-M10c 方案/决策已归档到 `docs/archive/phase3/`，还清
 D8/D9/D13/D14/D15/D16/D17。剩余工作按技术债和真实触发信号立项，
@@ -145,4 +147,4 @@ D8/D9/D13/D14/D15/D16/D17。剩余工作按技术债和真实触发信号立项�
 `docs/archive/phase9/`、`docs/archive/phase10/`、`docs/archive/phase11/`。M19 架构重建归档于
 `docs/archive/phase12/`，M20 扩展启动生命周期归档于 `docs/archive/phase13/`，M21 受管命令生命周期
 归档于 `docs/archive/phase14/`，M24 受控图表展示归档于 `docs/archive/phase15/`，M25 Web Runtime
-部署边界归档于 `docs/archive/phase16/`。
+部署边界归档于 `docs/archive/phase16/`，M22 稳定性收口归档于 `docs/archive/phase17/`。

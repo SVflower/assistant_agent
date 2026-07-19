@@ -40,6 +40,8 @@
   Shell、进程、扩展和任意 MCP，安全搜索免审批；Interaction 提供权威截止时间并支持 pause/cancel
   解除等待；M25-AGENT-02 支持 paused Run 跨 Runtime 指定取消，并统一事件异常的 Agent 权威 failed
   终态。CLI 原权限语义不变。
+- **M22 故障恢复收口**：单机 OS 文件锁保证跨进程 Session 单执行者；checkpoint v5 累计副作用安全，
+  遗留 running Run 可幂等协调为 paused；安全 failed Run 以新 Run ID 幂等重试；公共快照和错误码完整。
 - **工具**：读/写/局部编辑/列目录/shell/代码检索/git 只读/用户澄清，以及带来源的
   `web_search`/`fetch_url`；搜索 backend 可替换，抓取含 SSRF、重定向和响应上限防护。
 - **命令层**：slash 命令系统本地拦截不花 token；`/skills` 与 `/mcp` 支持列出、安装、诊断、
@@ -58,28 +60,26 @@
   已完成工具不重放，started 副作用需 retry/skip/abort；预算、重复熔断、权限和摘要状态跨进程恢复；
   trace/session/run/call 标识对齐，还清 D8。
 
-**质量**：668 测试通过（6 个平台能力测试跳过）、覆盖率 84%、15,740 行/127 文件生产 Python 源码 +
+**质量**：679 测试通过（6 个平台能力测试跳过）、覆盖率 84%、16,197 行/128 文件生产 Python 源码 +
 1,411 行 eval 基础设施，Ruff/mypy 全绿。架构适应度测试（12 条声明式依赖契约 + 旧路径防回归 +
 600 行非阻断评审）、技术债册、
 DoD 和里程碑工作流全在；CI 已加入 format/lint/mypy/coverage/scripted eval/recovery eval 与
-Windows/Linux、Python 3.11/3.13 矩阵。剩余 6 项技术债（3 中/3 低，无高优先级）。
+Windows/Linux、Python 3.11/3.13 矩阵。剩余 7 项技术债（4 中/3 低，无高优先级）。
 
 **边界（明确未做）**：外置 MCP/自定义 Python Tool 的容器化、远程 Workspace、子 Agent 编排、
 Web GUI、rewind/recap、非交互 init、PyPI 分发。
 
-**阶段状态**：第一至第十六阶段已完成。M10c 的
+**阶段状态**：第一至第十七阶段已完成。M10c 的
 “不做全栈 async”决策保持不变；M14 以同步 RunControl、跨平台 ProcessSupervisor 和 Workspace
 抽象补齐受控执行边界并还清 D18。
 
-**当前进展**：M25 已完成。Web Runtime 由可信调用方选择固定工具 allowlist，普通搜索不再等待审批，
-服务器管理能力不可见且不可按名称调用；Interaction 截止时间与 pause/cancel 中断进入公共契约。
-M25-AGENT-02 由 Agent 统一拥有离线 paused 取消、事件异常终态持久化和 Session 同步，API 不再合成
-terminal。
-Event v1 与 checkpoint v4 不变。公共调用继续只依赖
+**当前进展**：M22 已完成。Session execution lease 覆盖跨进程 start/resume/cancel-paused/reconcile/retry；
+遗留 running Run 不再直接恢复，先由 Agent 权威协调为 paused；failed Run 只有累计 retry_safety=safe
+时才能显式创建新 Run。Event v1 不变，checkpoint 升至 v5并兼容迁移 v1-v4。公共调用继续只依赖
 `assistant_agent.service` / `contracts` / `interaction`。见
 [架构事实源](docs/ARCHITECTURE.md)与[正式服务契约](docs/agent-service-integration-guide.md)。
 
-**剩余技术债**：6 项（D5/D6/D12/D20/D21/D24）。M9a 已还清 D13/D15/D17，M9b 已还清
+**剩余技术债**：7 项（D5/D6/D12/D20/D21/D24/D25）。M9a 已还清 D13/D15/D17，M9b 已还清
 D14，M9c 已还清 D9，M10a 已还清 D16，M10b 已还清 D8，M11a 已还清 D19，M14a 已还清 D18。详见
 [技术债登记册](docs/TECH_DEBT.md)。
 
@@ -340,6 +340,18 @@ D14，M9c 已还清 D9，M10a 已还清 D16，M10b 已还清 D8，M11a 已还清
 > Interaction 增加 expires_at，pause/cancel 可中断等待并保持 fail closed。M25-AGENT-02 增加
 > `cancel_run(run_id)` 和异常终态所有权。Event v1/checkpoint v4 不变。
 > 668 passed、6 skipped、覆盖率 84%；生产 Python 15,740 行/127 文件，未修改 Loop。
+
+### 第十七阶段（已完成）
+
+| 里程碑 | 主题 | 状态 |
+|--------|------|------|
+| M22 | 跨进程 Run 稳定性与安全重试 | ✅ · [方案](docs/archive/phase17/m22-stability-plan.md) |
+
+> **M22 已完成**：Session execution lease 使用单机 OS 文件锁；checkpoint v5 保存累计
+> retry_safety、重试关联和幂等哈希，v1-v4 fail-closed 迁移为 unknown。公共服务新增完整 RunSnapshot、
+> strict resume、reconcile_orphaned_run 和 retry_failed_run；事件源异常保留 uncertain side effect。
+> 679 passed、6 skipped、覆盖率 84%；Ruff、mypy、12/12 import-linter、scripted 19/19、recovery 4/4
+> 全绿；生产 Python 16,197 行/128 文件，未修改 Loop。
 
 ## 未来方向（P3，信号驱动，暂不做）
 

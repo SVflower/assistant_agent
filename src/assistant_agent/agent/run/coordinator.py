@@ -305,6 +305,8 @@ class RunCoordinator(ContinuationStateMixin, DefinitionStateMixin):
         call.permission_requests = [encode_request(item) for item in requests]
         call.replay_policy = replay_policy
         if result.code == "mcp_outcome_unknown":
+            if self.state.retry_safety == "safe":
+                self.state.retry_safety = "uncertain"
             call.status = "started"
             call.result = None
             self.state.status = "paused"
@@ -315,6 +317,8 @@ class RunCoordinator(ContinuationStateMixin, DefinitionStateMixin):
             return
         if result.chart is not None:
             self._record_presentation(result)
+        if result.executed and replay_policy == "requires_decision":
+            self.state.retry_safety = "unsafe"
         call.status = (
             "skipped" if not result.executed else ("failed" if result.is_error else "completed")
         )
@@ -404,6 +408,19 @@ class RunCoordinator(ContinuationStateMixin, DefinitionStateMixin):
                 )
             )
         )
+        if self.state.failure is not None and self.state.retry_safety != "safe":
+            actions = tuple(
+                action for action in self.state.failure.allowed_actions if action != "retry_run"
+            )
+            if self.state.retry_safety == "uncertain" and "resolve_uncertain_tool" not in actions:
+                actions = (*actions, "resolve_uncertain_tool")
+            self.state.failure = self.state.failure.model_copy(
+                update={
+                    "retryable": False,
+                    "allowed_actions": actions or ("start_new_run",),
+                    "unknown_side_effect": self.state.retry_safety == "uncertain",
+                }
+            )
         self.state.session_synced = self.state.session_id is None
         self._capture_bound_context()
         self.checkpoint()
@@ -452,17 +469,58 @@ class RunCoordinator(ContinuationStateMixin, DefinitionStateMixin):
     def mark_uncertain_if_needed(self) -> list[ToolCallState]:
         uncertain = [call for call in self.state.tool_calls if call.status == "started"]
         if uncertain:
+            if self.state.retry_safety == "safe":
+                self.state.retry_safety = "uncertain"
             self.state.status = "paused"
             self.state.phase = "tool_uncertain"
             self.state.failure = tool_failure("mcp_outcome_unknown", retryable=False)
             self.checkpoint()
         return uncertain
 
+    def reconcile_orphan(self, request_hash: str) -> None:
+        if self.state.status != "running":
+            raise ValueError("只有 running Run 可以协调")
+        self.state.reconciliation_request_hash = request_hash
+        uncertain = self.mark_uncertain_if_needed()
+        if not uncertain:
+            self.pause("执行器已退出，Run 已安全暂停，等待恢复。")
+
+    def prepare_retry(
+        self,
+        *,
+        retry_of_run_id: str,
+        idempotency_key_hash: str,
+        request_hash: str,
+    ) -> None:
+        self.state.retry_of_run_id = retry_of_run_id
+        self.state.retry_idempotency_key_hash = idempotency_key_hash
+        self.state.retry_request_hash = request_hash
+
+    def record_retry(self, idempotency_key_hash: str, new_run_id: str) -> None:
+        existing = self.state.retry_requests.get(idempotency_key_hash)
+        if existing is not None and existing != new_run_id:
+            raise ValueError("幂等键已关联其他 Run")
+        self.state.retry_requests[idempotency_key_hash] = new_run_id
+        self.checkpoint()
+
     def retry(self, call_id: str) -> None:
         call = self._call(call_id)
         if call.status != "started":
             raise ValueError("只有 started 调用可重试")
         call.status = "planned"
+        if self.state.retry_safety == "uncertain" and call.replay_policy in {
+            "safe_readonly",
+            "safe_idempotent",
+        }:
+            other_started = [
+                item
+                for item in self.state.tool_calls
+                if item.id != call_id and item.status == "started"
+            ]
+            if all(
+                item.replay_policy in {"safe_readonly", "safe_idempotent"} for item in other_started
+            ):
+                self.state.retry_safety = "safe"
         self.state.status = "running"
         self.state.phase = "tools_pending"
         self.state.failure = None

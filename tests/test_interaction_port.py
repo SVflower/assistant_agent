@@ -50,9 +50,11 @@ def test_blocking_port_accepts_response_from_another_thread() -> None:
     assert published.request_id == request.request_id
     assert published.kind == "approval"
     assert datetime.fromisoformat(published.expires_at.replace("Z", "+00:00")) > datetime.now(UTC)
+    assert port.pending_requests() == (published,)
     assert port.respond(ApprovalDecision(request.request_id, "allow")) is True
     worker.join(timeout=1)
     assert result == ["allow"]
+    assert port.pending_requests() == ()
     assert port.respond(ApprovalDecision(request.request_id, "allow")) is False
 
 
@@ -138,6 +140,7 @@ def test_interrupted_request_is_not_published_from_stale_queue() -> None:
     worker.join(timeout=1)
     assert result == ["deny"]
     assert port.next_request(timeout=0.01) is None
+    assert port.pending_requests() == ()
     assert port.respond(ApprovalDecision(request.request_id, "allow")) is False
 
 

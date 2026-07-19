@@ -27,6 +27,10 @@ from assistant_agent.contracts.errors import (
     ArtifactNotFoundError,
     ArtifactUnavailableError,
     IdempotencyConflictError,
+    InvalidSessionCursorError,
+    InvalidSessionLimitError,
+    InvalidSessionMetadataError,
+    InvalidSessionQueryError,
     RunNotFoundError,
     RunNotReconcilableError,
     RunNotResumableError,
@@ -39,7 +43,10 @@ from assistant_agent.contracts.errors import (
     RuntimeInitializationError,
     RuntimePolicyError,
     SessionBusyError,
+    SessionMetadataConflictError,
+    SessionNotFoundError,
     SessionRunConflictError,
+    SessionUnavailableError,
 )
 from assistant_agent.contracts.events import (
     EVENT_CONTRACT_VERSION,
@@ -76,6 +83,12 @@ from assistant_agent.contracts.interactions import (
     RecoveryRequest,
     ScopeInfo,
 )
+from assistant_agent.contracts.sessions import (
+    LastRunSummary,
+    SessionCatalogPage,
+    SessionSummary,
+    UpdateSessionMetadataRequest,
+)
 
 __all__ = [
     "ActivityPhase",
@@ -105,6 +118,11 @@ __all__ = [
     "InteractionPort",
     "InteractionRequest",
     "IdempotencyConflictError",
+    "InvalidSessionCursorError",
+    "InvalidSessionLimitError",
+    "InvalidSessionMetadataError",
+    "InvalidSessionQueryError",
+    "LastRunSummary",
     "MCPServerCapability",
     "MCPStatus",
     "PendingInteractionSnapshot",
@@ -135,11 +153,17 @@ __all__ = [
     "RuntimeStartupStatus",
     "ScopeInfo",
     "SessionBusyError",
+    "SessionCatalogPage",
+    "SessionMetadataConflictError",
+    "SessionNotFoundError",
     "SessionRunConflictError",
     "SessionSnapshot",
+    "SessionSummary",
+    "SessionUnavailableError",
     "SkillCapability",
     "StepEvent",
     "TerminalStatus",
     "ToolDisplay",
     "ToolPreview",
+    "UpdateSessionMetadataRequest",
 ]

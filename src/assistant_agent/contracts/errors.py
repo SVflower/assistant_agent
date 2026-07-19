@@ -40,6 +40,38 @@ class SessionRunConflictError(AgentServiceError):
     code = "session_run_conflict"
 
 
+class InvalidSessionQueryError(AgentServiceError):
+    code = "invalid_session_query"
+
+
+class InvalidSessionLimitError(AgentServiceError):
+    code = "invalid_session_limit"
+
+
+class InvalidSessionCursorError(AgentServiceError):
+    code = "invalid_session_cursor"
+
+
+class InvalidSessionMetadataError(AgentServiceError):
+    code = "invalid_session_metadata"
+
+
+class SessionNotFoundError(AgentServiceError):
+    code = "session_not_found"
+
+
+class SessionMetadataConflictError(AgentServiceError):
+    code = "session_metadata_conflict"
+
+    def __init__(self, message: str, *, current_metadata_version: int) -> None:
+        self.current_metadata_version = current_metadata_version
+        super().__init__(message)
+
+
+class SessionUnavailableError(AgentServiceError):
+    code = "session_unavailable"
+
+
 class RunNotFoundError(AgentServiceError):
     code = "run_not_found"
 

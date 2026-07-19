@@ -61,6 +61,17 @@ def test_service_public_exports_baseline():
         "RunFailure",
         "create_runtime",
         "sync_terminal_session",
+        "InvalidSessionCursorError",
+        "InvalidSessionLimitError",
+        "InvalidSessionMetadataError",
+        "InvalidSessionQueryError",
+        "LastRunSummary",
+        "SessionCatalogPage",
+        "SessionMetadataConflictError",
+        "SessionNotFoundError",
+        "SessionSummary",
+        "SessionUnavailableError",
+        "UpdateSessionMetadataRequest",
     }
     assert [field.name for field in fields(RunExecution)] == ["run_id", "events", "warning"]
     execution = RunExecution("run-contract", iter(()))

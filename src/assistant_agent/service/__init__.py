@@ -33,6 +33,10 @@ from assistant_agent.contracts.errors import (
     ArtifactNotFoundError,
     ArtifactUnavailableError,
     IdempotencyConflictError,
+    InvalidSessionCursorError,
+    InvalidSessionLimitError,
+    InvalidSessionMetadataError,
+    InvalidSessionQueryError,
     RunNotFoundError,
     RunNotReconcilableError,
     RunNotResumableError,
@@ -45,7 +49,10 @@ from assistant_agent.contracts.errors import (
     RuntimeInitializationError,
     RuntimePolicyError,
     SessionBusyError,
+    SessionMetadataConflictError,
+    SessionNotFoundError,
     SessionRunConflictError,
+    SessionUnavailableError,
 )
 from assistant_agent.contracts.events import (
     EVENT_CONTRACT_VERSION,
@@ -53,6 +60,12 @@ from assistant_agent.contracts.events import (
     RunFailure,
     StepEvent,
     ToolDisplay,
+)
+from assistant_agent.contracts.sessions import (
+    LastRunSummary,
+    SessionCatalogPage,
+    SessionSummary,
+    UpdateSessionMetadataRequest,
 )
 
 __all__ = [
@@ -100,4 +113,15 @@ __all__ = [
     "RunFailure",
     "create_runtime",
     "sync_terminal_session",
+    "InvalidSessionCursorError",
+    "InvalidSessionLimitError",
+    "InvalidSessionMetadataError",
+    "InvalidSessionQueryError",
+    "LastRunSummary",
+    "SessionCatalogPage",
+    "SessionMetadataConflictError",
+    "SessionNotFoundError",
+    "SessionSummary",
+    "SessionUnavailableError",
+    "UpdateSessionMetadataRequest",
 ]

@@ -100,6 +100,26 @@ def test_public_facade_runs_and_syncs_terminal_session(tmp_path, monkeypatch):
         session_runtime.close()
 
 
+def test_terminal_session_sync_preserves_concurrent_user_rename(tmp_path, monkeypatch):
+    service = AgentService(config_path=_config(tmp_path, monkeypatch), workspace_root=tmp_path)
+    session_runtime = service.create_session(interaction=SafeDefaultInteractionPort())
+    try:
+        execution = session_runtime.start_run("task after stale snapshot")
+        renamed = service.update_session_metadata(
+            session_runtime.session.id,
+            "user title",
+            1,
+        )
+        assert list(execution.events)[-1].terminal_status == "completed"
+        saved = session_runtime.runtime.session_store.load(session_runtime.session.id)
+        assert saved.title == renamed.title == "user title"
+        assert saved.title_source == "user"
+        assert saved.metadata_version == 2
+        assert saved.messages[-1] == {"role": "assistant", "content": "done"}
+    finally:
+        session_runtime.close()
+
+
 def test_active_lease_blocks_resume_and_reconcile(tmp_path, monkeypatch):
     service = AgentService(config_path=_config(tmp_path, monkeypatch), workspace_root=tmp_path)
     first = service.create_session()

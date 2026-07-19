@@ -4,8 +4,9 @@
 > 或其他上层服务。
 >
 > 本文是公共服务契约的长期唯一正式入口；里程碑归档和阶段性交接不能替代本文。
-> 当前公共事件契约：`EVENT_CONTRACT_VERSION == 1`；当前 Run checkpoint：schema v4。
-> 最近同步：M25-AGENT-02 Run 终态一致性修复（2026-07-19）。
+> 当前公共事件契约：`EVENT_CONTRACT_VERSION == 1`；当前 Run checkpoint：schema v6；当前
+> Session 文档：schema v1。
+> 最近同步：M23-R1 Session catalog 与元数据 CAS（2026-07-20）。
 
 ## 1. 集成边界
 
@@ -247,6 +248,12 @@ session = service.create_session(interaction=port, interactive=True)
 session = service.load_session(session_id, interaction=port, interactive=True)
 
 session_list = service.list_sessions()
+session_page = service.catalog_sessions(query=None, limit=30, cursor=None)
+renamed = service.update_session_metadata(
+    session_id,
+    title="新的会话标题",
+    expected_metadata_version=session_page.items[0].metadata_version,
+)
 run_list = service.list_runs(session_id=session_id)
 unfinished = session.unfinished_runs()
 presentations = session.list_presentations()
@@ -267,7 +274,52 @@ artifact = service.get_artifact(session_id, artifact_id)
 同一 Session 不得创建多个 `SessionRuntime` 并并行运行。调用方应建立以 `session_id` 为键的 Runtime
 Registry，并对加载和淘汰操作加锁。
 
-### 5.2 删除
+### 5.2 Session catalog 与元数据（M23-R1）
+
+`catalog_sessions(query=None, limit=30, cursor=None) -> SessionCatalogPage` 是会话目录的唯一权威
+入口。结果按 `(updated_at DESC, id DESC)` 做 keyset 分页；`next_cursor` 是绑定规范化 query 的 opaque
+token，可在下一页使用不同 limit，但不能解析、修改或与其他 query 混用。query 最长 200 Unicode code
+points，匹配时对 query、title、公开 preview 做 NFKC + casefold。缺省和空 query 都表示不过滤。
+
+公共 DTO 均为 strict、`extra=forbid`、frozen 模型，并由 `assistant_agent.service` 与
+`assistant_agent.contracts` 同一对象导出：
+
+```text
+LastRunSummary = {id,status,updated_at}
+SessionSummary = {
+  id,title,title_source,metadata_version,created_at,updated_at,
+  message_count,preview,last_run
+}
+SessionCatalogPage = {items: tuple[SessionSummary,...],next_cursor}
+UpdateSessionMetadataRequest = {title,expected_metadata_version}
+```
+
+`message_count` 只统计公开 user/assistant，preview 只来自公开消息；last_run 从权威 RunStore 一次聚合，
+取 `(updated_at DESC, id DESC)` 第一项。以上 DTO 不含路径、prompt、reasoning、工具参数/结果、checkpoint、
+Token 或 Artifact 内容。
+
+`update_session_metadata(session_id, title, expected_metadata_version)` 使用锁内 fresh load 的
+`metadata_version` 做 CAS。成功后 title 原值持久化、`title_source=user`、版本加一；冲突绝不能自动重试
+覆盖。标题必须为 1..100 code points 且至少含一个非空白字符。稳定错误如下：
+
+| 类型 | `code` | 语义 |
+|---|---|---|
+| `InvalidSessionQueryError` | `invalid_session_query` | query 类型或长度非法 |
+| `InvalidSessionLimitError` | `invalid_session_limit` | limit 不在 1..100 |
+| `InvalidSessionCursorError` | `invalid_session_cursor` | cursor 损坏、过期、版本或 query 不匹配 |
+| `InvalidSessionMetadataError` | `invalid_session_metadata` | 标题/version 约束非法 |
+| `SessionNotFoundError` | `session_not_found` | Session 不存在 |
+| `SessionMetadataConflictError` | `session_metadata_conflict` | CAS 冲突；可读 `current_metadata_version` |
+| `SessionUnavailableError` | `session_unavailable` | Session schema/存储暂不可用 |
+
+Session schema v1 在首次读取时于文档锁内幂等迁移并原子替换。未知未来 schema fail closed。自动标题
+来自第一条 Unicode 空白折叠后非空的公开 user 文本，截断到 80 code points；无该消息时为
+`（空会话）`。首条非空 user 首次持久化时自动标题与 metadata_version 同步更新；用户 rename 永不被
+后续 Run 保存覆盖。所有 Session 写路径共用短时跨进程文档锁、锁内 fresh load/合并和原子替换。
+新写时间为 UTC `Z`；基线遗留的无时区 Session/Run 时间只在公共 summary 边界按本机历史时区转换为
+UTC，不改写 Session/Run 持久事实。公共 DTO 拒绝无时区或非 UTC 时间。
+
+### 5.3 删除
 
 ```python
 deleted = service.delete_session(session_id)
@@ -277,7 +329,7 @@ Session 存在 running/paused Run 时，默认抛出 `SessionRunConflictError`�
 取消或丢弃可恢复 Run。`force=True` 只适合已由产品策略明确确认的数据清理流程。删除成功后会级联
 删除该 Session 所属 Run，内联 Artifact 随之不可读取。
 
-### 5.3 关闭
+### 5.4 关闭
 
 ```python
 session.close()

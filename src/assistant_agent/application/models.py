@@ -7,7 +7,37 @@ from typing import Any
 
 from assistant_agent.contracts.charts import AssistantMessageSnapshot, ChartArtifact
 
+SESSION_SCHEMA_VERSION = 1
+EMPTY_SESSION_TITLE = "（空会话）"
 _PREVIEW_LEN = 40
+
+
+def collapse_unicode_whitespace(value: str) -> str:
+    return " ".join(value.split())
+
+
+def automatic_session_title(messages: list[dict[str, Any]]) -> str:
+    for message in messages:
+        if message.get("role") != "user":
+            continue
+        text = collapse_unicode_whitespace(str(message.get("content") or ""))
+        if text:
+            return text[:80]
+    return EMPTY_SESSION_TITLE
+
+
+def public_message_count(messages: list[dict[str, Any]]) -> int:
+    return sum(message.get("role") in {"user", "assistant"} for message in messages)
+
+
+def public_preview(messages: list[dict[str, Any]]) -> str:
+    for message in messages:
+        if message.get("role") not in {"user", "assistant"}:
+            continue
+        text = collapse_unicode_whitespace(str(message.get("content") or ""))
+        if text:
+            return text[:_PREVIEW_LEN] + ("…" if len(text) > _PREVIEW_LEN else "")
+    return EMPTY_SESSION_TITLE
 
 
 @dataclass
@@ -15,6 +45,10 @@ class Session:
     id: str
     created_at: str
     updated_at: str
+    schema_version: int = SESSION_SCHEMA_VERSION
+    title: str = EMPTY_SESSION_TITLE
+    title_source: str = "auto"
+    metadata_version: int = 1
     provider: str = ""
     model: str = ""
     messages: list[dict[str, Any]] = field(default_factory=list)
@@ -24,7 +58,11 @@ class Session:
 
     def to_dict(self) -> dict[str, Any]:
         return {
+            "schema_version": self.schema_version,
             "id": self.id,
+            "title": self.title,
+            "title_source": self.title_source,
+            "metadata_version": self.metadata_version,
             "created_at": self.created_at,
             "updated_at": self.updated_at,
             "provider": self.provider,
@@ -43,6 +81,10 @@ class Session:
             id=data["id"],
             created_at=data.get("created_at", ""),
             updated_at=data.get("updated_at", ""),
+            schema_version=data.get("schema_version", SESSION_SCHEMA_VERSION),
+            title=data.get("title", EMPTY_SESSION_TITLE),
+            title_source=data.get("title_source", "auto"),
+            metadata_version=data.get("metadata_version", 1),
             provider=data.get("provider", ""),
             model=data.get("model", ""),
             messages=data.get("messages", []),
@@ -58,16 +100,16 @@ class Session:
 
     @property
     def preview(self) -> str:
-        for message in self.messages:
-            if message.get("role") == "user":
-                text = str(message.get("content") or "").strip().replace("\n", " ")
-                return text[:_PREVIEW_LEN] + ("…" if len(text) > _PREVIEW_LEN else "")
-        return "（空会话）"
+        return public_preview(self.messages)
 
 
 @dataclass
 class SessionMeta:
     id: str
+    title: str
+    title_source: str
+    metadata_version: int
+    created_at: str
     updated_at: str
     message_count: int
     preview: str

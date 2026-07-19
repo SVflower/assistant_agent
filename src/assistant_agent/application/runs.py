@@ -8,6 +8,7 @@ from dataclasses import dataclass
 
 from assistant_agent.agent.run.coordinator import RecoveryChoice as LoopRecoveryChoice
 from assistant_agent.agent.run.coordinator import RunCoordinator
+from assistant_agent.agent.run.ports import ControlState
 from assistant_agent.agent.run.recovery import DefinitionDifference
 from assistant_agent.agent.run.state import ToolCallState, canonical_hash
 from assistant_agent.application.models import RunMeta, RunResumeInfo, Session
@@ -291,10 +292,17 @@ class SessionRuntime:
     def pause(self) -> None:
         if self.active_run_id is not None:
             self.runtime.run_control.request_pause()
+            self._interrupt_interaction()
 
     def cancel(self) -> None:
         if self.active_run_id is not None:
             self.runtime.run_control.request_cancel()
+            self._interrupt_interaction()
+
+    def _interrupt_interaction(self) -> None:
+        interrupt = getattr(self.runtime.interaction, "interrupt_pending", None)
+        if callable(interrupt):
+            interrupt()
 
     def resume_run(self, run_id: str) -> RunExecution:
         self._begin_run(run_id)
@@ -324,6 +332,17 @@ class SessionRuntime:
                     or decision.request_id != request.request_id
                     or not decision.accepted
                 ):
+                    if self.runtime.run_control.state is ControlState.CANCEL_REQUESTED:
+                        coordinator.cancel(
+                            "任务已强制取消",
+                            messages=self.runtime.loop.export_history(),
+                            compaction_checkpoint=self.runtime.loop.export_checkpoint(),
+                        )
+                        return RunExecution(
+                            run_id,
+                            self._stream(coordinator, iter(())),
+                            _load_warning(coordinator),
+                        )
                     coordinator.pause("Run 定义变化未获确认，保持暂停。")
                     return RunExecution(
                         run_id,

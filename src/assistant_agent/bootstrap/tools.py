@@ -87,7 +87,9 @@ def bounded_skill_metadata(
     return selected, omitted
 
 
-def build_permission_policy(config: AppConfig) -> PermissionPolicy:
+def build_permission_policy(
+    config: AppConfig, *, trusted_tools: frozenset[str] = frozenset()
+) -> PermissionPolicy:
     return PermissionPolicy(
         mode=config.permissions.mode,
         rules=[
@@ -100,6 +102,7 @@ def build_permission_policy(config: AppConfig) -> PermissionPolicy:
             for rule in config.permissions.rules
         ],
         sensitive_paths=config.permissions.sensitive_paths or None,
+        trusted_tools=trusted_tools,
     )
 
 
@@ -137,13 +140,21 @@ def start_workspace(
     ]
 
 
-def start_web(cfg: WebConfig, registry: ToolRegistry, control: RunControl) -> WebClient | None:
-    if not cfg.enabled:
+def start_web(
+    cfg: WebConfig,
+    registry: ToolRegistry,
+    control: RunControl,
+    *,
+    allowed_tools: frozenset[str] | None = None,
+) -> WebClient | None:
+    selected = {"web_search", "fetch_url"}
+    if not cfg.enabled or (allowed_tools is not None and not selected & allowed_tools):
         return None
     client = WebClient(cfg, run_control=control)
     try:
-        registry.register(WebSearchTool(client))
-        registry.register(FetchURLTool(client))
+        for tool in (WebSearchTool(client), FetchURLTool(client)):
+            if allowed_tools is None or tool.name in allowed_tools:
+                registry.register(tool)
     except BaseException:
         client.close()
         raise
@@ -162,6 +173,7 @@ def start_mcp(
     workspace_root: Path,
     allowed_transports: frozenset[str],
     max_tools_schema_tokens: int,
+    allowed_tools: frozenset[str] | None = None,
 ) -> tuple[MCPManager | None, list[RuntimeNotice]]:
     if not cfg.servers:
         return None, []
@@ -180,6 +192,8 @@ def start_mcp(
         registered: list = []
         omitted: list[str] = []
         for tool in tools:
+            if allowed_tools is not None and tool.name not in allowed_tools:
+                continue
             server = cfg.servers.get(tool.server_name)
             schemas = [*registry.schemas(), tool.to_schema()]
             if (

@@ -375,16 +375,21 @@ class ToolRegistry:
         return result
 
 
-def build_default_registry() -> ToolRegistry:
+def build_default_registry(allowed_tools: frozenset[str] | None = None) -> ToolRegistry:
     """构建带内置工具的注册表：文件四件套 + 代码检索 + git 只读 + 用户澄清。"""
     registry = ToolRegistry()
-    registry.register(ReadFileTool())
-    registry.register(WriteFileTool())
-    registry.register(EditFileTool())
-    registry.register(MultiEditTool())
-    registry.register(ListDirTool())
-    registry.register(ShellTool())
-    registry.register(CodeSearchTool())
-    registry.register(GitTool())
-    registry.register(AskUserTool())
+    tools = (
+        ReadFileTool(),
+        WriteFileTool(),
+        EditFileTool(),
+        MultiEditTool(),
+        ListDirTool(),
+        ShellTool(),
+        CodeSearchTool(),
+        GitTool(),
+        AskUserTool(),
+    )
+    for tool in tools:
+        if allowed_tools is None or tool.name in allowed_tools:
+            registry.register(tool)
     return registry

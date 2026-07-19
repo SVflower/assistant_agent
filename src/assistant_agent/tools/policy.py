@@ -24,9 +24,11 @@ class PermissionPolicy:
         mode: PermissionMode = "workspace",
         rules: list[PermissionRule] | None = None,
         sensitive_paths: Sequence[str | Path] | None = None,
+        trusted_tools: frozenset[str] = frozenset(),
     ) -> None:
         self.mode = mode
         self.rules = list(rules or [])
+        self.trusted_tools = trusted_tools
         defaults = [Path.home() / ".ssh", Path.home() / ".aws", Path.home() / ".gnupg"]
         roots = [*defaults, *(sensitive_paths or [])]
         self.sensitive_paths = list(
@@ -44,10 +46,16 @@ class PermissionPolicy:
             return PermissionDecision("deny", "目标位于默认敏感目录")
 
         matches = [rule for rule in self.rules if self._matches(rule, request)]
-        for effect in ("deny", "ask"):
-            matched = next((rule for rule in matches if rule.effect == effect), None)
-            if matched is not None:
-                return PermissionDecision(effect, f"命中显式 {effect} 规则", matched)
+        matched_deny = next((rule for rule in matches if rule.effect == "deny"), None)
+        if matched_deny is not None:
+            return PermissionDecision("deny", "命中显式 deny 规则", matched_deny)
+
+        if request.tool in self.trusted_tools:
+            return PermissionDecision("allow", "部署策略允许可信工具", remembered=True)
+
+        matched_ask = next((rule for rule in matches if rule.effect == "ask"), None)
+        if matched_ask is not None:
+            return PermissionDecision("ask", "命中显式 ask 规则", matched_ask)
 
         if request.scope in grants or (
             request.broader_scope is not None and request.broader_scope in grants

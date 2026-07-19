@@ -60,8 +60,77 @@ from assistant_agent.tools.charts import PresentChartTool
 from assistant_agent.tools.context import ToolContext
 from assistant_agent.tools.extensions import ConfigureMCPServerTool, ManageSkillTool
 from assistant_agent.tools.processes import ManageProcessTool
-from assistant_agent.tools.registry import build_default_registry
+from assistant_agent.tools.registry import ToolRegistry, build_default_registry
 from assistant_agent.tools.runtime_inspection import InspectRuntimeTool
+from assistant_agent.tools.tool import Tool
+
+
+def _register_policy_tool(
+    policy: RuntimePolicy,
+    config: AppConfig,
+    registry: ToolRegistry,
+    system_prompt: str,
+    tool: Tool,
+    *,
+    enabled: bool = True,
+) -> bool:
+    if not enabled or not policy.allows_tool(tool.name):
+        return False
+    return register_core_tool_if_fits(config, registry, system_prompt, tool)
+
+
+def _configure_chart_tool(
+    policy: RuntimePolicy,
+    config: AppConfig,
+    registry: ToolRegistry,
+    system_prompt: str,
+    *,
+    interactive: bool,
+    skills: list[tuple[str, str]],
+) -> tuple[str, bool, list[RuntimeNotice]]:
+    available = _register_policy_tool(
+        policy,
+        config,
+        registry,
+        system_prompt,
+        PresentChartTool(),
+        enabled=config.agent.recovery.enabled,
+    )
+    if available:
+        return system_prompt, True, []
+    prompt = build_system_prompt(
+        interactive,
+        skills=skills or None,
+        managed_process=False,
+        chart_presentation=False,
+        runtime_profile=policy.profile,
+    )
+    if not policy.allows_tool("present_chart"):
+        return prompt, False, []
+    notice = RuntimeNotice(
+        (
+            "chart_presentation_omitted_context_limit"
+            if config.agent.recovery.enabled
+            else "chart_presentation_requires_recovery"
+        ),
+        (
+            "上下文窗口不足，当前 Runtime 未注册图表展示工具。"
+            if config.agent.recovery.enabled
+            else "图表展示要求启用 Run checkpoint，当前 Runtime 未注册该工具。"
+        ),
+    )
+    return prompt, False, [notice]
+
+
+def _managed_process_notices(policy: RuntimePolicy, available: bool) -> list[RuntimeNotice]:
+    if available or not policy.allows_tool("manage_process"):
+        return []
+    return [
+        RuntimeNotice(
+            "managed_process_omitted_context_limit",
+            "上下文窗口不足，当前 Runtime 未注册后台进程管理工具。",
+        )
+    ]
 
 
 def create_runtime(
@@ -117,7 +186,7 @@ def create_runtime(
         max_processes=config.tools.max_background_processes,
         max_stream_chars=config.tools.max_background_output_chars,
     )
-    registry = build_default_registry()
+    registry = build_default_registry(policy.allowed_tools)
     paths = state_paths(root)
     logging_config = config.logging.model_copy(
         update={"dir": str(resolve_log_dir(config.logging.dir, root))}
@@ -164,8 +233,10 @@ def create_runtime(
                     details={"skills": skipped},
                 )
             )
-        if skills:
+        if skills and policy.allows_tool("load_skill"):
             registry.register(LoadSkillTool(skill_store))
+        elif skills:
+            visible_skills = []
         skill_meta, omitted_skills = bounded_skill_metadata(
             visible_skills, config.skills, config.agent.max_context_tokens
         )
@@ -178,33 +249,21 @@ def create_runtime(
                 )
             )
         system_prompt = build_system_prompt(
-            interactive, skills=skill_meta or None, managed_process=False
+            interactive,
+            skills=skill_meta or None,
+            managed_process=False,
+            runtime_profile=policy.profile,
         )
 
-        chart_available = config.agent.recovery.enabled and register_core_tool_if_fits(
-            config, registry, system_prompt, PresentChartTool()
+        system_prompt, chart_available, chart_notices = _configure_chart_tool(
+            policy,
+            config,
+            registry,
+            system_prompt,
+            interactive=interactive,
+            skills=skill_meta,
         )
-        if not chart_available:
-            system_prompt = build_system_prompt(
-                interactive,
-                skills=skill_meta or None,
-                managed_process=False,
-                chart_presentation=False,
-            )
-            notices.append(
-                RuntimeNotice(
-                    (
-                        "chart_presentation_omitted_context_limit"
-                        if config.agent.recovery.enabled
-                        else "chart_presentation_requires_recovery"
-                    ),
-                    (
-                        "上下文窗口不足，当前 Runtime 未注册图表展示工具。"
-                        if config.agent.recovery.enabled
-                        else "图表展示要求启用 Run checkpoint，当前 Runtime 未注册该工具。"
-                    ),
-                )
-            )
+        notices.extend(chart_notices)
 
         tool_context = ToolContext(
             workspace=workspace,
@@ -225,14 +284,16 @@ def create_runtime(
             max_captured_output_chars=config.tools.max_captured_output_chars,
             max_artifact_files=config.tools.max_artifact_files,
             artifact_root=paths.tool_artifacts,
-            permission_policy=build_permission_policy(config),
+            permission_policy=build_permission_policy(
+                config, trusted_tools=policy.auto_allow_tools
+            ),
             interactive=interactive,
             current_session_id=session_id,
         )
 
         stage = "web"
         with _startup_stage(startup_observer, "starting_web", "正在准备网络工具"):
-            web = start_web(config.web, registry, control)
+            web = start_web(config.web, registry, control, allowed_tools=policy.allowed_tools)
         skill_manager = SkillManager(root)
         mcp_service = MCPService(config_file, logger, workspace_root=root)
         inspection_tool = InspectRuntimeTool(
@@ -241,8 +302,8 @@ def create_runtime(
             skills=lambda: [(item.name, item.source) for item in visible_skills],
             mcp_servers=lambda: mcp.server_capabilities() if mcp is not None else (),
         )
-        inspection_available = register_core_tool_if_fits(
-            config, registry, system_prompt, inspection_tool
+        inspection_available = _register_policy_tool(
+            policy, config, registry, system_prompt, inspection_tool
         )
         if not inspection_available:
             system_prompt = build_system_prompt(
@@ -251,34 +312,35 @@ def create_runtime(
                 runtime_inspection=False,
                 managed_process=False,
                 chart_presentation=chart_available,
+                runtime_profile=policy.profile,
             )
-            notices.append(
-                RuntimeNotice(
-                    "runtime_inspection_omitted_context_limit",
-                    "上下文窗口不足，当前 Runtime 未注册能力自省工具。",
+            if policy.allows_tool("inspect_runtime"):
+                notices.append(
+                    RuntimeNotice(
+                        "runtime_inspection_omitted_context_limit",
+                        "上下文窗口不足，当前 Runtime 未注册能力自省工具。",
+                    )
                 )
-            )
         managed_process_prompt = build_system_prompt(
             interactive,
             skills=skill_meta or None,
             runtime_inspection=inspection_available,
             managed_process=True,
             chart_presentation=chart_available,
+            runtime_profile=policy.profile,
         )
-        managed_process_available = register_core_tool_if_fits(
-            config, registry, managed_process_prompt, ManageProcessTool()
+        managed_process_available = _register_policy_tool(
+            policy, config, registry, managed_process_prompt, ManageProcessTool()
         )
         if managed_process_available:
             system_prompt = managed_process_prompt
-        if not managed_process_available:
-            notices.append(
-                RuntimeNotice(
-                    "managed_process_omitted_context_limit",
-                    "上下文窗口不足，当前 Runtime 未注册后台进程管理工具。",
-                )
-            )
-        extension_management = policy.allow_extension_management
-        extension_tools = [ManageSkillTool(skill_manager), ConfigureMCPServerTool(mcp_service)]
+        notices.extend(_managed_process_notices(policy, managed_process_available))
+        extension_tools: list[Tool] = [
+            tool
+            for tool in (ManageSkillTool(skill_manager), ConfigureMCPServerTool(mcp_service))
+            if policy.allows_tool(tool.name)
+        ]
+        extension_management = policy.allow_extension_management and bool(extension_tools)
         if not extension_management:
             system_prompt = build_system_prompt(
                 interactive,
@@ -287,6 +349,7 @@ def create_runtime(
                 runtime_inspection=inspection_available,
                 managed_process=managed_process_available,
                 chart_presentation=chart_available,
+                runtime_profile=policy.profile,
             )
         elif not register_extension_tools(config, registry, system_prompt, extension_tools):
             extension_management = False
@@ -297,6 +360,7 @@ def create_runtime(
                 runtime_inspection=inspection_available,
                 managed_process=managed_process_available,
                 chart_presentation=chart_available,
+                runtime_profile=policy.profile,
             )
             notices.append(
                 RuntimeNotice(
@@ -324,6 +388,7 @@ def create_runtime(
                     - 5,
                     0,
                 ),
+                allowed_tools=policy.allowed_tools,
             )
         notices.extend(mcp_notices)
 
@@ -386,7 +451,7 @@ def create_runtime(
                 transport=item.transport,
                 startup=item.startup,
                 status=item.status,
-                tool_names=item.tool_names,
+                tool_names=tuple(name for name in item.tool_names if policy.allows_tool(name)),
                 checked_at=item.checked_at,
                 error_category=item.error_category,
             )
@@ -398,6 +463,7 @@ def create_runtime(
             skills=skill_capabilities,
             mcp_servers=mcp_capabilities,
             extension_management=extension_management,
+            profile=policy.profile,
         )
         runtime = AgentRuntime(
             config=config,

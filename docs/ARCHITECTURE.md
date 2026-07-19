@@ -181,6 +181,24 @@ Run checkpoint v4 负责从 v1-v3 迁移空 presentations。M24 未修改 Loop�
 既有 `integrations/mcp/manager.py` 720 行评审结论不变，其状态/连接/目录发现共享同一生命周期，暂不
 为行数机械拆分。
 
+### 8.1 Web Runtime 部署边界
+
+M25 继续以 `bootstrap.runtime` 作为唯一 composition root。`RuntimePolicy` 是可信调用方注入且 frozen 的
+部署上限：`cli` 保持本机完整工具与交互审批；`web` 使用最终工具 allowlist，并把同一 profile 写入
+`RuntimeCapabilities`。模型提示、工具参数、config.yaml 和浏览器请求都不能切换或放宽 profile。
+
+Web allowlist 在注册阶段执行，覆盖内置、Skill、Web、展示、扩展和 MCP 所有注册入口。未注册工具既不
+进入 schema，也不能按名称调用。Web 只自动允许 allowlist 中的受控工具；显式 deny 仍可收紧。当前
+网络白名单仅含 `web_search`，`fetch_url` 因 DNS 校验结果尚未绑定实际连接而 fail closed。
+
+服务器 Workspace 与内部 ArtifactStore 仍是 Runtime 实现资源，不等于模型能力。Web 没有文件、Shell、
+Git、进程或扩展管理工具；当前唯一可下载语义是 M24 Chart Artifact。未来 Export Store 必须是独立
+受管 adapter，以 opaque ref 暴露，不能重新注册通用文件写入。
+
+Interaction 的有界等待仍由公共 Blocking port 单一拥有。入队时生成 `expires_at`；timeout、close、
+pause/cancel interrupt 和异常均默认拒绝。Application 只负责在 Session 控制动作中唤醒 port，不复制
+Interaction 状态机。M25 未修改 Loop，Event v1 和 checkpoint v4 不变。
+
 ## 9. 复杂度基线
 
 Ruff C901 是循环检查而非机械拆分指标。M19a 的最高复杂度基线为 35；M19d 提取单轮模型流后

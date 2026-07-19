@@ -130,9 +130,12 @@ python -m assistant_agent
 - M24 已完成：受控 ChartSpecV1、不可变 Chart Artifact 与纯幂等 `present_chart`；RunState v4 原子
   checkpoint、Session message refs、公共 list/get/snapshot 和删除级联；StepEvent v1 additive 兼容，
   低上下文/关闭 recovery 安全省略能力，未修改 Loop。
-- 654 个测试通过（6 个平台能力测试跳过），覆盖率 84%，ruff/mypy、12/12 import-linter、
-  scripted 19/19、recovery 4/4 全绿；15,496 行/127 文件生产 Python + 1,411 行 eval 基础设施；
-  剩余 5 项技术债（2 中/3 低，无高优先级）。
+- M25 已完成：`RuntimePolicy.web()` 以注册白名单隔离服务器能力；安全搜索免审批，文件/Shell/进程/
+  扩展/MCP 与未证明 DNS 绑定安全的 `fetch_url` 不注册；Interaction 提供截止时间并可被 pause/cancel
+  唤醒，未修改 Loop。
+- 664 个测试通过（6 个平台能力测试跳过），覆盖率 84%，ruff/mypy、12/12 import-linter、
+  scripted 19/19、recovery 4/4 全绿；15,684 行/127 文件生产 Python + 1,411 行 eval 基础设施；
+  剩余 6 项技术债（3 中/3 低，无高优先级）。
 
 第三阶段总规划及 M9a-M10c 方案/决策已归档到 `docs/archive/phase3/`，还清
 D8/D9/D13/D14/D15/D16/D17。剩余工作按技术债和真实触发信号立项，
@@ -140,4 +143,5 @@ D8/D9/D13/D14/D15/D16/D17。剩余工作按技术债和真实触发信号立项�
 `docs/archive/phase5/`、`docs/archive/phase6/`、`docs/archive/phase7/`、`docs/archive/phase8/`、
 `docs/archive/phase9/`、`docs/archive/phase10/`、`docs/archive/phase11/`。M19 架构重建归档于
 `docs/archive/phase12/`，M20 扩展启动生命周期归档于 `docs/archive/phase13/`，M21 受管命令生命周期
-归档于 `docs/archive/phase14/`，M24 受控图表展示归档于 `docs/archive/phase15/`。
+归档于 `docs/archive/phase14/`，M24 受控图表展示归档于 `docs/archive/phase15/`，M25 Web Runtime
+部署边界归档于 `docs/archive/phase16/`。

@@ -41,6 +41,9 @@ def _client(handler, config: WebConfig | None = None) -> tuple[httpx.Client, Web
         "http://user:pass@example.com/x",
         "http://10.0.0.1/x",
         "http://169.254.1.1/x",
+        "http://169.254.169.254/latest/meta-data/",
+        "http://[fe80::1]/x",
+        "http://[fc00::1]/x",
     ],
 )
 def test_url_policy_rejects_unsafe_targets(url):
@@ -60,6 +63,8 @@ def test_url_policy_rejects_dns_failure_and_private_dns_result():
         validate_public_url("https://example.com", lambda *_args: [])
     with pytest.raises(URLPolicyError, match="非公网"):
         validate_public_url("https://example.com", lambda *_args: ["192.168.1.2"])
+    with pytest.raises(URLPolicyError, match="非公网"):
+        validate_public_url("https://example.com", lambda *_args: [PUBLIC_IP, "169.254.169.254"])
 
 
 def test_extract_html_removes_scripts_and_preserves_blocks():

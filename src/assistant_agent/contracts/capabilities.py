@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Literal
 
+RuntimeProfile = Literal["cli", "service", "web", "custom"]
+
 RuntimeStartupPhase = Literal[
     "loading_config",
     "starting_workspace",
@@ -72,3 +74,4 @@ class RuntimeCapabilities:
     skills: tuple[SkillCapability, ...]
     mcp_servers: tuple[MCPServerCapability, ...]
     extension_management: bool
+    profile: RuntimeProfile = "custom"

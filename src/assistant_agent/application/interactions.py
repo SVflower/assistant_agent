@@ -5,7 +5,8 @@ from __future__ import annotations
 import queue
 import threading
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from datetime import UTC, datetime, timedelta
 
 from assistant_agent.contracts.interactions import (
     ApprovalDecision,
@@ -52,13 +53,15 @@ class SafeDefaultInteractionPort:
 class _Pending:
     request: InteractionRequest
     changed: threading.Event
+    deadline: float
     decision: InteractionDecision | None = None
+    interrupted: bool = False
 
 
 class BlockingInteractionPort(SafeDefaultInteractionPort):
     """供服务线程有界等待、由另一线程提交结果的同步端口。"""
 
-    def __init__(self, *, timeout: float = 60.0) -> None:
+    def __init__(self, *, timeout: float = 90.0) -> None:
         if timeout <= 0:
             raise ValueError("interaction timeout 必须大于 0")
         self.timeout = timeout
@@ -78,8 +81,11 @@ class BlockingInteractionPort(SafeDefaultInteractionPort):
             except queue.Empty:
                 return None
             with self._lock:
+                pending = self._pending.get(request.request_id)
                 if (
-                    request.request_id in self._pending
+                    pending is not None
+                    and not pending.interrupted
+                    and time.monotonic() < pending.deadline
                     and request.request_id not in self._completed
                 ):
                     return request
@@ -92,7 +98,12 @@ class BlockingInteractionPort(SafeDefaultInteractionPort):
             if self._closed or decision.request_id in self._completed:
                 return False
             pending = self._pending.get(decision.request_id)
-            if pending is None or not _decision_matches(pending.request, decision):
+            if (
+                pending is None
+                or pending.interrupted
+                or time.monotonic() >= pending.deadline
+                or not _decision_matches(pending.request, decision)
+            ):
                 return False
             pending.decision = decision
             self._completed.add(decision.request_id)
@@ -142,21 +153,37 @@ class BlockingInteractionPort(SafeDefaultInteractionPort):
         for item in pending:
             item.changed.set()
 
+    def interrupt_pending(self) -> None:
+        """解除当前等待并安全拒绝；Runtime 保持可用于后续恢复。"""
+        with self._lock:
+            pending = list(self._pending.values())
+            for item in pending:
+                item.interrupted = True
+        for item in pending:
+            item.changed.set()
+
     def _wait(self, request: InteractionRequest) -> InteractionDecision | None:
-        pending = _Pending(request, threading.Event())
+        expires_at = (
+            (datetime.now(UTC) + timedelta(seconds=self.timeout)).isoformat().replace("+00:00", "Z")
+        )
+        queued_request = replace(request, expires_at=expires_at)
+        pending = _Pending(
+            queued_request,
+            threading.Event(),
+            time.monotonic() + self.timeout,
+        )
         with self._lock:
             if self._closed or request.request_id in self._pending:
                 return None
             self._pending[request.request_id] = pending
-            self._requests.put(request)
-        deadline = time.monotonic() + self.timeout
+            self._requests.put(queued_request)
         try:
             while True:
-                remaining = deadline - time.monotonic()
+                remaining = pending.deadline - time.monotonic()
                 if remaining <= 0 or not pending.changed.wait(remaining):
                     return None
                 with self._lock:
-                    if self._closed:
+                    if self._closed or pending.interrupted:
                         return None
                     if pending.decision is not None:
                         return pending.decision

@@ -74,6 +74,7 @@ class AgentRuntime:
             skills=current.skills,
             mcp_servers=tuple(self.mcp.server_capabilities()),
             extension_management=current.extension_management,
+            profile=current.profile,
         )
 
     def new_run(self, task: str, session_id: str | None = None) -> RunCoordinator | None:

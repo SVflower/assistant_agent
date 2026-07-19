@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import threading
 from collections.abc import Iterator
 
 import pytest
 
 from assistant_agent.bootstrap import runtime as runtime_module
 from assistant_agent.interaction import (
+    BlockingInteractionPort,
     ContinueDecision,
     DefinitionChangeDecision,
     RecoveryDecision,
@@ -251,6 +253,43 @@ def test_definition_change_requires_interaction_and_keeps_run_id(tmp_path, monke
         assert list(resumed.events)[-1].terminal_status == "completed"
         assert port.request is not None
         assert "model" in {item.field for item in port.request.differences}
+    finally:
+        resumed_runtime.close()
+
+
+def test_cancel_wakes_definition_change_interaction_and_cancels_run(tmp_path, monkeypatch):
+    config = _config(tmp_path, monkeypatch)
+    service = AgentService(config_path=config, workspace_root=tmp_path)
+    first = service.create_session()
+    execution = first.start_run("task")
+    iterator = execution.events
+    next(iterator)
+    first.pause()
+    assert list(iterator)[-1].terminal_status == "paused"
+    session_id = first.session.id
+    first.close()
+    config.write_text(
+        "active: fake\nproviders:\n  fake:\n    model: openai/fake-v2\n",
+        encoding="utf-8",
+    )
+    port = BlockingInteractionPort(timeout=5)
+    resumed_runtime = service.load_session(session_id, interaction=port)
+    resumed = []
+    worker = threading.Thread(
+        target=lambda: resumed.append(resumed_runtime.resume_run(execution.run_id)), daemon=True
+    )
+    try:
+        worker.start()
+        request = port.next_request(timeout=0.5)
+        assert request is not None and request.kind == "definition_change"
+        resumed_runtime.cancel()
+        worker.join(timeout=1)
+        assert len(resumed) == 1
+        events = list(resumed[0].events)
+        terminals = [event for event in events if event.kind == "run_terminal"]
+        assert len(terminals) == 1
+        assert terminals[0].terminal_status == "cancelled"
+        assert resumed[0].run_id == execution.run_id
     finally:
         resumed_runtime.close()
 

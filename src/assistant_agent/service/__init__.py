@@ -13,6 +13,7 @@ from assistant_agent.contracts.capabilities import (
     MCPServerCapability,
     RuntimeCapabilities,
     RuntimeNotice,
+    RuntimeProfile,
     SkillCapability,
 )
 from assistant_agent.contracts.charts import (
@@ -69,6 +70,7 @@ __all__ = [
     "MCPServerCapability",
     "SkillCapability",
     "RuntimeNotice",
+    "RuntimeProfile",
     "SessionBusyError",
     "SessionRunConflictError",
     "SessionRuntime",

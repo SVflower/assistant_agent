@@ -28,6 +28,7 @@ class InteractionRequestBase:
     request_id: str = field(default_factory=new_request_id)
     session_id: str | None = None
     call_id: str | None = None
+    expires_at: str = ""
     kind: str = "interaction"
 
 
@@ -49,6 +50,10 @@ class QuestionRequest(InteractionRequestBase):
     kind: Literal["question"] = "question"
     question: str = ""
     options: tuple[str, ...] = ()
+    legal_options: tuple[Literal["answer", "unavailable"], ...] = (
+        "answer",
+        "unavailable",
+    )
 
 
 @dataclass(frozen=True)

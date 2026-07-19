@@ -2,9 +2,9 @@
 
 > AI 迭代开发中，债务会隐形复利（LLM 在每个决策点埋入未言明的假设）。
 > 这里显式追踪，防止"上次说的债"下次忘。每次里程碑评审更新本表。
-> 最后更新：2026-07-19（M24 受控图表展示：654 passed/6 skipped、覆盖率 84%，
+> 最后更新：2026-07-19（M25 Web Runtime：664 passed/6 skipped、覆盖率 84%，
 > Ruff/format/mypy、12 条 import-linter、scripted 19/19、recovery 4/4 全绿；生产源码
-> 15,496 行/127 文件。未新增高/中/低技术债，既有 5 项不变。）
+> 15,684 行/127 文件。新增 D24，现有 6 项。）
 
 ## 状态说明
 - 🔴 高：影响正确性/安全，或脆弱的关键路径
@@ -34,6 +34,7 @@
 | D21 | **MCP 调用期缺少连续失败熔断** | `integrations/mcp/manager.py`、`cli/extensions.py` | 🟡 | M20 已补 configured/catalogued/connecting/connected/degraded 动态状态、optional 按需连接和后台目录发现；但 server 在 Run 中死亡后，后续调用仍会逐次触发 transport error，`/mcp doctor` 尚不展示连续失败计数或 breaker 状态 | 出现长会话 server 崩溃/重复失败时立项：实现调用期连续失败熔断和 health 展示；发送后绝不自动重放，未知副作用仍走 recovery |
 | D22 | ~~**Loop/Recovery 接近单文件硬线**~~ ✅ 已还清（M19） | `agent/loop.py`(436)、`agent/run/` | ✅ | 单轮模型流、工具批次、预算、恢复、checkpoint 和 resume 已按状态所有权拆分；Loop 保留可见且只编排 Agent 算法。scripted 事件轨迹与 recovery fault injection 前后不变 | 后续按独立变化原因拆分，不恢复行数硬线，也不为降低数字拆散状态不变量 |
 | D23 | ~~**父进程先退出时进程输出收尾可无限等待**~~ ✅ 已还清（M21） | `execution/process.py`、`execution/jobs.py` | ✅ | 完整 deadline 覆盖 execution/drain/cleanup；遗留 PIPE 后代结构化失败并清理；`manage_process` 提供 Runtime 隔离的启动/状态/日志/停止，opaque ID、输出和历史均有界 | Windows `start /b` 与通用继承 PIPE 实测；POSIX shell 后台路径进入 CI。方案见 [归档](archive/phase14/m21-managed-command-lifecycle-plan.md) |
+| D24 | **公开 URL 校验未绑定实际连接地址** | `integrations/web_access/security.py`、`client.py` | 🟡 | URL 层拒绝非公网 DNS 结果并复检重定向，但 httpx 建连会再次解析，无法证明抵御 DNS rebinding。M25 已把 `fetch_url` 排除在 Web profile；CLI 仍需用户授权 | 引入可验证的 DNS pinning/自定义 transport，并测试连接目标与每跳解析一致后，才允许 Web profile 自动开放通用抓取 |
 
 ## 已还清（保留记录）
 - **任务级工具资源无边界** → M6.5 增加单次输出、累计输出、工具调用总数预算；多 tool-call 批次补齐结果后终止。✅ 2026-07-14

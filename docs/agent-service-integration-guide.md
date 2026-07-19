@@ -5,7 +5,7 @@
 >
 > 本文是公共服务契约的长期唯一正式入口；里程碑归档和阶段性交接不能替代本文。
 > 当前公共事件契约：`EVENT_CONTRACT_VERSION == 1`；当前 Run checkpoint：schema v4。
-> 最近同步：M24 受控图表展示与 Artifact（2026-07-19）。
+> 最近同步：M25 Web Runtime 部署边界（2026-07-19）。
 
 ## 1. 集成边界
 
@@ -146,6 +146,25 @@ assistant_agent.tools
   `chart_presentation_omitted_context_limit` notice 报告；调用方以 `RuntimeCapabilities.tools` 为准。
 - 成功事件顺序固定为 `tool_call -> tool_result(chart) -> final -> run_terminal`。Artifact 已原子
   checkpoint 后才发 `tool_result`；失败产生 `artifact_rejected` notice，不改变正文和终态。
+
+### 2.5 M25 Web Runtime 与 Interaction 截止时间
+
+- 浏览器访问服务器 Agent 必须显式使用 `RuntimePolicy.web()`，不得使用 CLI 默认策略；profile 由可信
+  服务配置选择，不进入模型参数。
+- `RuntimeCapabilities.profile` additive 返回 `cli/service/web/custom`。Web capabilities 是最终实际注册
+  工具事实；API 仍应按部署 allowlist 二次过滤。
+- Web profile 注册 `web_search`、受信 `load_skill`、`inspect_runtime`、`ask_user` 和 `present_chart`
+  （后两项仍受实际配置/上下文预算影响）；不注册服务器文件、Git、Shell、进程、扩展管理、任意 MCP
+  或 `fetch_url`。
+- `fetch_url` 暂缓是因为现有 URL 校验尚未把 DNS 结果绑定实际连接，不能证明抵御 DNS rebinding。
+- Web allowlist 工具的权限请求由部署策略自动允许，不产生 approval；config 显式 deny 仍可收紧。
+- `InteractionRequestBase.expires_at` 是 UTC RFC 3339 字符串，由 `BlockingInteractionPort` 入队时按实际
+  timeout 生成。调用方必须转发，不重新计算。
+- question 新增 `legal_options=(answer, unavailable)`；回答候选仍在 `options`。其他四类继续使用既有
+  `legal_options`。
+- `SessionRuntime.pause()/cancel()` 会中断待处理 Blocking Interaction；中断、timeout、close、异常和
+  晚到响应均 fail closed。port 保持可用于 pause 后的恢复。
+- Event contract 仍为 v1，checkpoint 仍为 v4；Interaction 是调用方网络事件，不是 StepEvent。
 
 ## 3. 推荐入口
 

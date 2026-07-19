@@ -36,6 +36,9 @@
 - **受控图表展示（M24）**：版本化 ChartSpecV1 与不可变 Chart Artifact；`present_chart` 复用工具安全链，
   RunState v4 原子保存并同步 Session；公共服务提供稳定 message/artifact refs、list/get/snapshot，API
   无需解析内部文件。事件 v1 保持 additive 兼容。
+- **Web Runtime 部署边界（M25）**：可信调用方显式选择 `web` profile；注册 allowlist 移除服务器文件、
+  Shell、进程、扩展和任意 MCP，安全搜索免审批；Interaction 提供权威截止时间并支持 pause/cancel
+  解除等待。CLI 原权限语义不变。
 - **工具**：读/写/局部编辑/列目录/shell/代码检索/git 只读/用户澄清，以及带来源的
   `web_search`/`fetch_url`；搜索 backend 可替换，抓取含 SSRF、重定向和响应上限防护。
 - **命令层**：slash 命令系统本地拦截不花 token；`/skills` 与 `/mcp` 支持列出、安装、诊断、
@@ -54,25 +57,26 @@
   已完成工具不重放，started 副作用需 retry/skip/abort；预算、重复熔断、权限和摘要状态跨进程恢复；
   trace/session/run/call 标识对齐，还清 D8。
 
-**质量**：654 测试通过（6 个平台能力测试跳过）、覆盖率 84%、15,496 行/127 文件生产 Python 源码 +
+**质量**：664 测试通过（6 个平台能力测试跳过）、覆盖率 84%、15,684 行/127 文件生产 Python 源码 +
 1,411 行 eval 基础设施，Ruff/mypy 全绿。架构适应度测试（12 条声明式依赖契约 + 旧路径防回归 +
 600 行非阻断评审）、技术债册、
 DoD 和里程碑工作流全在；CI 已加入 format/lint/mypy/coverage/scripted eval/recovery eval 与
-Windows/Linux、Python 3.11/3.13 矩阵。剩余 5 项技术债（2 中/3 低，无高优先级）。
+Windows/Linux、Python 3.11/3.13 矩阵。剩余 6 项技术债（3 中/3 低，无高优先级）。
 
 **边界（明确未做）**：外置 MCP/自定义 Python Tool 的容器化、远程 Workspace、子 Agent 编排、
 Web GUI、rewind/recap、非交互 init、PyPI 分发。
 
-**阶段状态**：第一至第十五阶段已完成。M10c 的
+**阶段状态**：第一至第十六阶段已完成。M10c 的
 “不做全栈 async”决策保持不变；M14 以同步 RunControl、跨平台 ProcessSupervisor 和 Workspace
 抽象补齐受控执行边界并还清 D18。
 
-**当前进展**：M24 已完成。Agent 权威保存受控 Chart Artifact，StepEvent v1 additive 增加 `chart`，
-Run checkpoint 升 v4 并兼容迁移 v1-v3；API 通过公共 get/list/snapshot 接入。公共调用继续只依赖
+**当前进展**：M25 已完成。Web Runtime 由可信调用方选择固定工具 allowlist，普通搜索不再等待审批，
+服务器管理能力不可见且不可按名称调用；Interaction 截止时间与 pause/cancel 中断进入公共契约。
+Event v1 与 checkpoint v4 不变。公共调用继续只依赖
 `assistant_agent.service` / `contracts` / `interaction`。见
 [架构事实源](docs/ARCHITECTURE.md)与[正式服务契约](docs/agent-service-integration-guide.md)。
 
-**剩余技术债**：5 项（D5/D6/D12/D20/D21）。M9a 已还清 D13/D15/D17，M9b 已还清
+**剩余技术债**：6 项（D5/D6/D12/D20/D21/D24）。M9a 已还清 D13/D15/D17，M9b 已还清
 D14，M9c 已还清 D9，M10a 已还清 D16，M10b 已还清 D8，M11a 已还清 D19，M14a 已还清 D18。详见
 [技术债登记册](docs/TECH_DEBT.md)。
 
@@ -320,6 +324,18 @@ D14，M9c 已还清 D9，M10a 已还清 D16，M10b 已还清 D8，M11a 已还清
 > StepEvent/EventKind v1 不变，新增 chart 为可选字段。654 passed、6 skipped、覆盖率 84%；Ruff、mypy、
 > 12/12 import-linter、scripted 19/19、recovery 4/4 全绿；生产 Python 15,496 行/127 文件，
 > eval 基础设施 1,411 行，未修改 Loop。
+
+### 第十六阶段（已完成）
+
+| 里程碑 | 主题 | 状态 |
+|--------|------|------|
+| M25 | Web Runtime 部署边界 | ✅ · [方案](docs/archive/phase16/m25-web-runtime-plan.md) |
+
+> **M25 已完成**：`RuntimePolicy.web()` 在唯一 composition root 对所有工具来源执行 allowlist，
+> `web_search` 在 strict 配置下也不产生 approval；服务器文件、Git、Shell、进程、扩展、任意 MCP 和
+> `fetch_url` 不注册且按名称调用返回 unknown_tool。RuntimeCapabilities additive 暴露 profile；
+> Interaction 增加 expires_at，pause/cancel 可中断等待并保持 fail closed。StepEvent v1/checkpoint v4
+> 不变。664 passed、6 skipped、覆盖率 84%；生产 Python 15,684 行/127 文件，未修改 Loop。
 
 ## 未来方向（P3，信号驱动，暂不做）
 

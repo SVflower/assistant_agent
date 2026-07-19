@@ -297,10 +297,16 @@ class RunStore:
                 raise FileNotFoundError(f"Session 已删除：{session_id}")
             with self._index_lifecycle.lock(_INDEX_LOCK_ID):
                 generation, sessions = self._index_locked(session_id=session_id)
-                self._save_with_run_lock(run_id, payload)
+                indexed_session = next(
+                    (candidate for candidate, run_ids in sessions.items() if run_id in run_ids),
+                    None,
+                )
+                if indexed_session not in {None, session_id}:
+                    raise ValueError("Run checkpoint 不得更换 Session")
                 sessions.setdefault(session_id, set()).add(run_id)
                 self._write_session_ref(generation, session_id, run_id)
                 self._write_manifest_locked(generation, sessions)
+                self._save_with_run_lock(run_id, payload)
 
     def _save_with_run_lock(self, run_id: str, payload: bytes) -> None:
         with self._run_lifecycle.lock(run_id):

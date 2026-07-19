@@ -252,6 +252,42 @@ def test_index_restart_repairs_damage_and_cleans_crash_temporaries(tmp_path):
     assert not list(repaired_generation.rglob("*.tmp"))
 
 
+def test_index_commit_failure_cannot_leave_unindexed_checkpoint(tmp_path, monkeypatch):
+    store = RunStore(tmp_path)
+    store.save("existing", _session_document("existing"))
+
+    def fail_ref(*_args):
+        raise OSError("injected ref failure")
+
+    monkeypatch.setattr(store, "_write_session_ref", fail_ref)
+    with pytest.raises(OSError, match="ref failure"):
+        store.save("new-run", _session_document("new-run"))
+
+    assert not store._path("new-run").exists()
+    assert [item.id for item in store.list()] == ["existing"]
+
+
+def test_checkpoint_failure_leaves_detectable_ref_and_rebuilds(tmp_path, monkeypatch):
+    store = RunStore(tmp_path)
+    store.save("existing", _session_document("existing"))
+    original_save = store._save_with_run_lock
+
+    def fail_checkpoint(run_id, payload):
+        if run_id == "new-run":
+            raise OSError("injected checkpoint failure")
+        return original_save(run_id, payload)
+
+    monkeypatch.setattr(store, "_save_with_run_lock", fail_checkpoint)
+    with pytest.raises(OSError, match="checkpoint failure"):
+        store.save("new-run", _session_document("new-run"))
+
+    with store._lifecycle.lock("session-1"):
+        last = store.last_for_session_locked("session-1")
+    assert last is not None and last.id == "existing"
+    manifest, _ = _active_index(store)
+    assert manifest["sessions"] == {"session-1": ["existing"]}
+
+
 def test_last_for_session_uses_public_status_filter_before_latest_selection(tmp_path):
     store = RunStore(tmp_path)
     cases = [

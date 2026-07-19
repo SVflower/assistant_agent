@@ -123,6 +123,7 @@ state <- recovery
 | 模块 | 行数 | 触发日期 | 结论 | 理由 | 复审信号 |
 |---|---:|---|---|---|---|
 | `integrations/mcp/manager.py` | 720 | 2026-07-19 | 暂不拆分 | event loop 线程、连接表、惰性连接、后台目录发现、Runtime 工具可见性与关闭共同维护同一 server 生命周期；此时拆成多个有状态 owner 会增加竞态和清理遗漏。纯数据模型与目录持久化已分别抽到 `models.py`、`catalog.py` | 增加独立健康熔断职责；增长超过约 20%；或能以无共享可变状态的 port 分离连接 owner 与目录发现 owner |
+| `persistence/run_store.py` | 626 | 2026-07-20 | 暂不拆分 | 双槽 checkpoint、Session ref 索引、Run tombstone 与原子替换共同维护 `Session -> index -> Run` 锁序和崩溃恢复不变量；当前公共符号只有 `RunStore`/`LoadedRun`，拆出有状态 index owner 会增加锁重入和提交窗口。故障注入集中在 `test_run_store.py`，依赖只指向 application model、time contract 和 lifecycle | 索引出现第二个消费者或独立存储后端；可用单一无状态 codec 抽离 manifest/ref 编解码；或增长超过约 20% |
 
 行数不是拆分判据，也没有硬失败线。复杂声明或内聚状态机允许超过预警线，但必须留下分析。
 
@@ -215,11 +216,12 @@ checkpoint v6 累计保存 `retry_safety`、可靠会话基线、retry 来源/�
 `tool_uncertain`，事件源异常不得清空未决工具。v1-v5 没有可靠重试基线，迁移统一设为 unknown，
 这是刻意的 fail-closed 兼容。Event contract 仍为 v1，未修改 `agent/loop.py`。
 
-M23-R1 的按 Session ID summary 使用 `RunStore` manifest + generation ref 索引。manifest 是原子提交点，
-ref 只定位候选，checkpoint 双槽仍是权威事实；索引缺失或损坏在单一 index lifecycle 锁内重建，无法
-重建则 fail closed。锁顺序统一为 Session lifecycle（如适用）-> index lifecycle -> Run lifecycle ->
-checkpoint，delete/prune/cascade 同锁序清 ref 并保留 tombstone。lifecycle 锁采用固定 64 分片限制锁文件
-数量；哈希碰撞只增加短时串行，不改变按实体 tombstone 或线性化语义。
+M23-R1 的按 Session ID summary 使用 `RunStore` manifest + generation ref 索引。manifest 单文件替换是
+索引可见性提交点，ref 只定位候选，checkpoint 双槽仍是权威事实。每进程/索引 epoch 首次观察时核对
+完整权威集合，之后 direct 只做 epoch 判断和目标 Session 查询；索引缺失、损坏或集合不一致在单一 index
+lifecycle 锁内重建，无法重建则 fail closed。锁顺序统一为 Session lifecycle（如适用）-> index lifecycle
+-> Run lifecycle -> checkpoint，delete/prune/cascade 同锁序清 ref 并保留 tombstone。lifecycle 锁采用
+固定 64 分片限制锁文件数量；哈希碰撞只增加短时串行，不改变按实体 tombstone 或线性化语义。
 
 `application/runs.py` 当前 934 行，超过 600 行非阻断评审线。它仍只拥有 SessionRuntime、事件 Iterator
 边界、Session terminal 同步和跨 Run 用例编排；所有 RunState 改写继续委托 RunCoordinator，依赖方向由

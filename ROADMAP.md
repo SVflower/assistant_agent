@@ -66,7 +66,7 @@
   已完成工具不重放，started 副作用需 retry/skip/abort；预算、重复熔断、权限和摘要状态跨进程恢复；
   trace/session/run/call 标识对齐，还清 D8。
 
-**质量**：753 测试通过（6 个平台能力测试跳过）、覆盖率 84%、20,073 行/131 文件生产 Python 源码 +
+**质量**：761 测试通过（6 个平台能力测试跳过）、覆盖率 84%、20,143 行/131 文件生产 Python 源码 +
 1,617 行 eval 基础设施，Ruff/mypy 全绿。架构适应度测试（12 条声明式依赖契约 + 旧路径防回归 +
 600 行非阻断评审）、技术债册、
 DoD 和里程碑工作流全在；CI 已加入 format/lint/mypy/coverage/scripted eval/recovery eval 与
@@ -373,8 +373,8 @@ D14，M9c 已还清 D9，M10a 已还清 D16，M10b 已还清 D8，M11a 已还清
 > `UpdateSessionMetadataRequest`，catalog 使用 `(updated_at DESC,id DESC)` keyset、NFKC+casefold
 > 搜索和 HMAC opaque cursor；Session 文档写入统一使用短时跨进程锁、fresh load/merge、原子替换。
 > Session/Run lifecycle tombstone 阻止删除后复活；CLI 删除统一走服务用例；混合及小数历史时间按规范
-> UTC instant 排序。753 passed、6 skipped、覆盖率 84%；Ruff、mypy、12/12 import-linter、
-> scripted 19/19、recovery 4/4 全绿；生产 Python 20,073 行/131 文件，未修改 Loop。跨仓 R1 完成状态
+> UTC instant 排序。761 passed、6 skipped、覆盖率 84%；Ruff、mypy、12/12 import-linter、
+> scripted 19/19、recovery 4/4 全绿；生产 Python 20,143 行/131 文件，未修改 Loop。跨仓 R1 完成状态
 > 以 API/Web 联调结果为准。
 
 ## 未来方向（P3，信号驱动，暂不做）

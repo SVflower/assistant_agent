@@ -12,10 +12,11 @@
 - 按 ID summary 精确实现：`f6bf10bd21d62a32e8f4a641f44c67bef8c42de7`
 - 索引完整性复审实现：`ad3550ef6513475970c5b70291c72f2e00443010`
 - 索引提交窗口最终实现：`b658371a4322edeec897db31b2937bb7579e4cf4`
+- 权威双槽核对最终实现：`9691b177e2ba408e7c2bf875d793518b71c502c1`
 - 分支：`codex/m23-r1-summary-by-id`
 - `SESSION_CONTRACT_VERSION=1`、`EVENT_CONTRACT_VERSION=1`、RunState schema v6，未修改 Agent Loop
 
-本文件之后的纯文档提交不改变 API 应集成的 Agent 行为；等待中的 API 应基于上述索引提交窗口最终
+本文件之后的纯文档提交不改变 API 应集成的 Agent 行为；等待中的 API 应基于上述权威双槽核对最终
 实现 commit 集成和验证。
 
 ## API 必改项
@@ -54,17 +55,23 @@
   `SessionUnavailableError`；成功提交后不再执行可能失败的 RunStore 读取。
 - `get_session_summary` 在 Session lifecycle/document 锁内完成迁移、字段读取、目标 Session last_run 聚合
   和 DTO 构造。DTO 构造完成是线性化点，并发 rename/delete 只能发生在线性化点前或后。
-- RunStore 的 `.session-index-v1/manifest.json` 原子指向一个 generation，并记录每个 Session 的完整
-  Run ID 集合；ref 包含可校验的 Session/Run 身份。启动时完整校验，按 ID summary 只校验目标 Session；
-  缺 ref/目录、坏 manifest/ref 或 stale ref 会在索引锁内从权威双槽原子重建。无法安全重建时稳定返回
-  `SessionUnavailableError`，不能伪装成 `last_run=None`。
+- RunStore 的 `.session-index-v1/manifest.json` 以单文件原子替换选择 generation，并记录每个 Session
+  的完整 Run ID 集合；ref 包含可校验的 Session/Run 身份。每进程首次看到一个索引 epoch 时，把完整
+  manifest/ref 集合与可加载、未 tombstone、Session-scoped 的权威 current/previous 双槽集合核对；
+  自洽遗漏、缺 ref/目录、坏 manifest/ref 或 stale ref 都会在索引锁内重建。无法安全重建时稳定返回
+  `SessionUnavailableError`，不能伪装成 `last_run=None`。健康 epoch 的 direct 只做 O(1) epoch 判断和
+  目标 Session 查询，不逐请求扫描 Run 根目录。
 - catalog 与 direct summary 复用同一个公开有效 Run 状态 helper；未知状态在选择最新 Run 前过滤，不能
   遮蔽较旧的有效 Run。Run delete/prune/tombstone 与 Session cascade 原子、幂等清理对应 ref，但保留
   独立 Run tombstone 防止复活。
 - lifecycle 锁使用固定 64 分片，锁文件数量有界；按 ID tombstone 仍持久保留。锁顺序固定为
   `Session lifecycle（如适用） -> index lifecycle -> Run lifecycle -> checkpoint 双槽`。
-- save 先原子提交 ref + manifest，再写权威 checkpoint；索引提交失败不会留下未索引 Run，checkpoint
-  失败只留下可检测 stale ref，并在下次 direct/startup 重建，不存在静默漏 Run 的崩溃窗口。
+- save 先替换 ref，再以 manifest 单文件替换提交索引可见性，最后写权威 checkpoint；这不是跨文件事务。
+  索引阶段失败不会留下已提交 checkpoint，checkpoint 失败只留下可检测 stale ref。下一次 direct/startup
+  依据 epoch 和权威双槽核对重建，因此已覆盖的进程崩溃点不会永久静默漏 Run。
+- 每个临时文件在 replace 前 flush + fsync，replace 后再次 fsync 目标文件；POSIX 还尽力 fsync 必要父目录。
+  Windows 使用可移植的目标文件 flush/fsync + `os.replace`，Python 不提供可移植目录 fsync，因此这里只
+  声明进程崩溃恢复语义，不承诺断电、控制器缓存或文件系统故障下的绝对持久性。
 - 公共 DTO 字段保持 M23-R1 冻结契约；新增 `SESSION_CONTRACT_VERSION=1` 公共导出。Event v1、
   Session schema v1、RunState v6、M22/M24/M25 行为不变。
 
@@ -95,13 +102,16 @@
 14. 较新的未知 Run 状态不得遮蔽较旧 running/paused/terminal 状态；相同 UTC instant 以 Run ID DESC
     决胜。大量 Run create/delete 后 active generation 不留 ref/temp，lifecycle `.lock` 文件不超过 64，
     `.deleted` tombstone 仍逐 ID 保留。
+15. 同时从 manifest/generation/ref 删除最新 Run 但保留 checkpoint，或保留合法 ref 但删除双槽，重启
+    必须按权威集合重建且 direct/catalog 一致。ref/manifest replace 后、checkpoint 前模拟进程崩溃也必须
+    在重启或新 epoch 首次 direct 时清理 stale ref；同一健康 epoch 后续 direct 不再全目录扫描。
 
 ## Agent 验证结果
 
 - Ruff format/check：通过
 - mypy：131 source files，通过
 - import-linter：12/12
-- pytest coverage：753 passed、6 skipped、84%
+- pytest coverage：761 passed、6 skipped、84%
 - scripted eval：19/19
 - recovery eval：4/4
 - 测试/eval 子进程：无残留；仓库相关监听端口：无
@@ -113,7 +123,8 @@
 - force 删除的消费者错误是删除后的 fail-closed 信号，不是可重试写入信号。API 必须结束对应 Runtime。
 - Run 历史时间在读取边界规范化，不回写 checkpoint；Session v1 时间会随迁移原子规范化。运维比较原始
   文件时需考虑这一差异。
-- 旧 RunStore 首次创建本版实例或检测到索引不完整时会锁内扫描一次 checkpoint 原子重建 generation；
-  健康索引的按 ID get 不做全目录扫描。索引保存完整候选 ID 集，checkpoint 仍是权威事实。
+- 旧 RunStore 首次创建本版实例、进程首次看到新索引 epoch，或检测到索引不完整时，会锁内扫描一次
+  checkpoint 集合并按需重建 generation；健康 epoch 的按 ID get 不做全目录扫描。checkpoint 仍是权威
+  事实，manifest/ref 只是可修复索引。
 - 本 handoff 不授权修改 Agent 持久文件，也不替代正式契约
   `docs/agent-service-integration-guide.md` 和协调仓库冻结契约。

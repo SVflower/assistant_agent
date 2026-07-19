@@ -289,13 +289,17 @@ update_session_metadata(session_id, title, expected_metadata_version) -> Session
 该用例在 Session lifecycle 锁和文档锁内完成旧 Session 迁移、Session 字段读取、last_run 聚合和 strict
 DTO 构造。线性化点是锁内 last_run 聚合与 DTO 构造完成的时刻；并发 rename/delete/Session Run save
 只能在线性化点之前完成并被 summary 看见，或在线性化点之后执行，不能返回无法对应任一真实时刻的旧
-summary。RunStore 的 `.session-index-v1/manifest.json` 原子指向一个 generation，manifest 记录每个
-Session 的完整 Run ID 集合，ref 记录可校验的 Session/Run 身份，最终状态与时间仍从 Run checkpoint
-双槽权威校验。启动时完整校验索引；健康索引的按 ID 查询只校验目标 Session，不扫描全量 Run 目录。
-缺 ref/目录、坏 manifest/ref 或 stale ref 会在索引锁内从权威双槽原子重建；重建失败映射
-`SessionUnavailableError`，不得返回错误的 `last_run=None`。
-Run save 先提交 ref + manifest，再写 checkpoint：索引提交失败不会生成未索引 checkpoint，checkpoint
-失败只留下可检测 stale ref，后续查询或重启会重建，不会静默遗漏 Run。
+summary。RunStore 的 `.session-index-v1/manifest.json` 通过单文件原子替换选择 generation，manifest
+记录每个 Session 的完整 Run ID 集合，ref 记录可校验身份，状态和时间仍来自 checkpoint 双槽。每进程
+首次看到一个索引 epoch 时，完整 manifest/ref 集合会与可加载、未 tombstone、Session-scoped 的权威
+current/previous 集合核对；自洽遗漏、缺 ref/目录、坏 manifest/ref 或 stale ref 都会锁内重建。重建失败
+映射 `SessionUnavailableError`，不得返回错误的 `last_run=None`。健康 epoch 的按 ID 查询只做 O(1)
+epoch 判断和目标 Session 查询，不扫描全量 Run 目录。
+
+Run save 依次替换 ref、以 manifest 单文件替换提交索引可见性、再写 checkpoint；三者不是跨文件事务。
+索引阶段失败不会生成已提交 checkpoint，checkpoint 失败会留下可检测 stale ref，后续新 epoch 查询或
+重启根据权威集合重建。文件 replace 前后均 flush/fsync；POSIX 尽力 fsync 必要父目录，Windows 使用
+目标文件 flush/fsync + `os.replace`，不宣称断电或存储控制器故障下的绝对持久性。
 
 `catalog_sessions(query=None, limit=30, cursor=None) -> SessionCatalogPage` 是会话目录的唯一权威
 入口。结果按 `(updated_at DESC, id DESC)` 做 keyset 分页；`next_cursor` 是绑定规范化 query 的 opaque

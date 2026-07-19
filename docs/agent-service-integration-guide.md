@@ -289,8 +289,11 @@ update_session_metadata(session_id, title, expected_metadata_version) -> Session
 该用例在 Session lifecycle 锁和文档锁内完成旧 Session 迁移、Session 字段读取、last_run 聚合和 strict
 DTO 构造。线性化点是锁内 last_run 聚合与 DTO 构造完成的时刻；并发 rename/delete/Session Run save
 只能在线性化点之前完成并被 summary 看见，或在线性化点之后执行，不能返回无法对应任一真实时刻的旧
-summary。RunStore 的 `.session-index-v1/<session_id>/*.ref` 只提供候选 Run ID，最终状态与时间仍从
-Run checkpoint 双槽权威校验；旧 checkpoint 在 RunStore 初始化时锁内建立一次兼容索引。
+summary。RunStore 的 `.session-index-v1/manifest.json` 原子指向一个 generation，manifest 记录每个
+Session 的完整 Run ID 集合，ref 记录可校验的 Session/Run 身份，最终状态与时间仍从 Run checkpoint
+双槽权威校验。启动时完整校验索引；健康索引的按 ID 查询只校验目标 Session，不扫描全量 Run 目录。
+缺 ref/目录、坏 manifest/ref 或 stale ref 会在索引锁内从权威双槽原子重建；重建失败映射
+`SessionUnavailableError`，不得返回错误的 `last_run=None`。
 
 `catalog_sessions(query=None, limit=30, cursor=None) -> SessionCatalogPage` 是会话目录的唯一权威
 入口。结果按 `(updated_at DESC, id DESC)` 做 keyset 分页；`next_cursor` 是绑定规范化 query 的 opaque
@@ -311,8 +314,9 @@ UpdateSessionMetadataRequest = {title,expected_metadata_version}
 ```
 
 `message_count` 只统计公开 user/assistant，preview 只来自公开消息；last_run 从权威 RunStore 一次聚合，
-取 `(updated_at DESC, id DESC)` 第一项。以上 DTO 不含路径、prompt、reasoning、工具参数/结果、checkpoint、
-Token 或 Artifact 内容。
+先用 catalog 共用的公开状态集合过滤未知状态，再取 `(updated_at DESC, id DESC)` 第一项。较新的未知状态
+不能遮蔽较旧有效 Run。以上 DTO 不含路径、prompt、reasoning、工具参数/结果、checkpoint、Token 或
+Artifact 内容。
 
 `update_session_metadata(session_id, title, expected_metadata_version)` 使用锁内 fresh load 的
 `metadata_version` 做 CAS。成功后 title 原值持久化、`title_source=user`、版本加一；冲突绝不能自动重试
@@ -337,14 +341,16 @@ v1；非法类型、负数和未来版本 fail closed。
 所有 Session 更新和带 Session 的 Run checkpoint 共用短时跨进程 lifecycle 文件锁，并在锁内检查持久
 tombstone；Session 更新默认要求目标已存在。删除先发布 tombstone 再级联清理 Run，因此旧 Runtime 的
 checkpoint 或终态同步不能复活 Session/Run。普通删除还持有 M22 execution lease 覆盖“检查无活动 Run
-到删除提交”的窗口，避免检查后并发启动。锁顺序固定为 lifecycle -> Session 文档或 Run 文件锁。
+到删除提交”的窗口，避免检查后并发启动。锁顺序固定为 Session lifecycle（如适用）-> index lifecycle
+-> Run lifecycle -> checkpoint 双槽。lifecycle 短锁使用固定 64 分片限制 `.lock` 文件增长；按 ID
+tombstone 不分片并持续保留删除事实。
 
 Run 还有独立的短时跨进程 lifecycle 锁和持久 tombstone。首次 `RunStore.save` 创建 Run，后续 save
 轮转 current/previous；单删先发布 Run tombstone 再清理两个槽。此后同 run_id 的 save/create 和 load
 稳定失败，list 隐藏该 Run，重复删除返回 `False`，进程重启也不会丢失删除事实。默认 `_delete_run`
 仍拒绝 running/paused；`force=True` 允许发布 tombstone，使活动执行器的迟到 checkpoint fail closed。
-Session cascade 按 Session lifecycle -> Run lifecycle -> 双槽的固定顺序执行，与 M22 execution lease
-和 recovery checkpoint 兼容。
+Run delete/prune/tombstone 与 Session cascade 都在索引锁内幂等清理对应 ref；清 ref 不删除 Run
+tombstone。Session cascade 遵守上述统一锁顺序，与 M22 execution lease 和 recovery checkpoint 兼容。
 
 新 Session/Run 时间统一写为 UTC RFC3339 `Z`。旧无时区时间冻结解释为 UTC，不读取机器本地时区；
 带 offset 时间先换算为 UTC。Session v1 读取时会原子规范化其持久时间，Run 历史只在公共读取边界

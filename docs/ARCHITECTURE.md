@@ -215,6 +215,12 @@ checkpoint v6 累计保存 `retry_safety`、可靠会话基线、retry 来源/�
 `tool_uncertain`，事件源异常不得清空未决工具。v1-v5 没有可靠重试基线，迁移统一设为 unknown，
 这是刻意的 fail-closed 兼容。Event contract 仍为 v1，未修改 `agent/loop.py`。
 
+M23-R1 的按 Session ID summary 使用 `RunStore` manifest + generation ref 索引。manifest 是原子提交点，
+ref 只定位候选，checkpoint 双槽仍是权威事实；索引缺失或损坏在单一 index lifecycle 锁内重建，无法
+重建则 fail closed。锁顺序统一为 Session lifecycle（如适用）-> index lifecycle -> Run lifecycle ->
+checkpoint，delete/prune/cascade 同锁序清 ref 并保留 tombstone。lifecycle 锁采用固定 64 分片限制锁文件
+数量；哈希碰撞只增加短时串行，不改变按实体 tombstone 或线性化语义。
+
 `application/runs.py` 当前 934 行，超过 600 行非阻断评审线。它仍只拥有 SessionRuntime、事件 Iterator
 边界、Session terminal 同步和跨 Run 用例编排；所有 RunState 改写继续委托 RunCoordinator，依赖方向由
 import-linter 约束，事件 Iterator 的并发 close 只请求取消并由迭代线程完成 lease 释放；租约/重试/orphan/

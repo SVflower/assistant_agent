@@ -10,10 +10,11 @@
 - 第二轮复审最终实现：`4f932196a9e68269c5d1aaf1ab8320d4895d9632`
 - 按 ID summary 补齐基线：`2caa0cc0bcdc09ae92f89837185a38453eaf89f3`
 - 按 ID summary 精确实现：`f6bf10bd21d62a32e8f4a641f44c67bef8c42de7`
+- 索引完整性复审最终实现：`ad3550ef6513475970c5b70291c72f2e00443010`
 - 分支：`codex/m23-r1-summary-by-id`
 - `SESSION_CONTRACT_VERSION=1`、`EVENT_CONTRACT_VERSION=1`、RunState schema v6，未修改 Agent Loop
 
-本文件之后的纯文档提交不改变 API 应集成的 Agent 行为；等待中的 API 应基于上述按 ID summary 精确
+本文件之后的纯文档提交不改变 API 应集成的 Agent 行为；等待中的 API 应基于上述索引完整性复审最终
 实现 commit 集成和验证。
 
 ## API 必改项
@@ -52,8 +53,15 @@
   `SessionUnavailableError`；成功提交后不再执行可能失败的 RunStore 读取。
 - `get_session_summary` 在 Session lifecycle/document 锁内完成迁移、字段读取、目标 Session last_run 聚合
   和 DTO 构造。DTO 构造完成是线性化点，并发 rename/delete 只能发生在线性化点前或后。
-- RunStore 新增持久 `.session-index-v1` 候选索引；首次打开旧 RunStore 时一次迁移，之后按 ID summary
-  只扫描目标 Session 引用，并从权威 checkpoint 校验，不扫描全量 Run 目录或产生公共 load N+1。
+- RunStore 的 `.session-index-v1/manifest.json` 原子指向一个 generation，并记录每个 Session 的完整
+  Run ID 集合；ref 包含可校验的 Session/Run 身份。启动时完整校验，按 ID summary 只校验目标 Session；
+  缺 ref/目录、坏 manifest/ref 或 stale ref 会在索引锁内从权威双槽原子重建。无法安全重建时稳定返回
+  `SessionUnavailableError`，不能伪装成 `last_run=None`。
+- catalog 与 direct summary 复用同一个公开有效 Run 状态 helper；未知状态在选择最新 Run 前过滤，不能
+  遮蔽较旧的有效 Run。Run delete/prune/tombstone 与 Session cascade 原子、幂等清理对应 ref，但保留
+  独立 Run tombstone 防止复活。
+- lifecycle 锁使用固定 64 分片，锁文件数量有界；按 ID tombstone 仍持久保留。锁顺序固定为
+  `Session lifecycle（如适用） -> index lifecycle -> Run lifecycle -> checkpoint 双槽`。
 - 公共 DTO 字段保持 M23-R1 冻结契约；新增 `SESSION_CONTRACT_VERSION=1` 公共导出。Event v1、
   Session schema v1、RunState v6、M22/M24/M25 行为不变。
 
@@ -79,13 +87,18 @@
    不同时区进程环境中结果一致，`.1` 与 `.9` 保持不同 instant，所有 wire 时间均为 UTC `Z`。
 11. CLI 默认拒绝含活动 Run 的 Session 删除；force 成功后 Session 与 Run 双槽消失且迟到写失败。
 12. 回归 M22 resume/reconcile/retry、M24 Artifact 删除级联、M25 paused cancel 和 Web Runtime profile。
+13. 删除单 ref/Session ref 子目录、写坏 manifest/ref、遗留临时文件并重启；direct 必须自愈且与 catalog
+    一致。注入 manifest 原子替换失败时必须返回 `session_unavailable`，不能返回空 last_run。
+14. 较新的未知 Run 状态不得遮蔽较旧 running/paused/terminal 状态；相同 UTC instant 以 Run ID DESC
+    决胜。大量 Run create/delete 后 active generation 不留 ref/temp，lifecycle `.lock` 文件不超过 64，
+    `.deleted` tombstone 仍逐 ID 保留。
 
 ## Agent 验证结果
 
 - Ruff format/check：通过
 - mypy：131 source files，通过
 - import-linter：12/12
-- pytest coverage：741 passed、6 skipped、84%
+- pytest coverage：751 passed、6 skipped、84%
 - scripted eval：19/19
 - recovery eval：4/4
 - 测试/eval 子进程：无残留；仓库相关监听端口：无
@@ -97,7 +110,7 @@
 - force 删除的消费者错误是删除后的 fail-closed 信号，不是可重试写入信号。API 必须结束对应 Runtime。
 - Run 历史时间在读取边界规范化，不回写 checkpoint；Session v1 时间会随迁移原子规范化。运维比较原始
   文件时需考虑这一差异。
-- 旧 RunStore 首次创建本版实例时会锁内扫描一次 checkpoint 建立 Session 引用索引；后续按 ID get 不再
-  做全目录扫描。索引只保存候选 ID，checkpoint 仍是权威事实。
+- 旧 RunStore 首次创建本版实例或检测到索引不完整时会锁内扫描一次 checkpoint 原子重建 generation；
+  健康索引的按 ID get 不做全目录扫描。索引保存完整候选 ID 集，checkpoint 仍是权威事实。
 - 本 handoff 不授权修改 Agent 持久文件，也不替代正式契约
   `docs/agent-service-integration-guide.md` 和协调仓库冻结契约。

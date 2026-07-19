@@ -308,6 +308,9 @@ for event in execution.events:
 - 不要先 `list(events)` 再向客户端一次性发送，这会失去流式能力；
 - 正常公共流最后有一个 `kind == "run_terminal"`；
 - 调用方提前关闭或放弃 Iterator 时，Agent 会尝试把 Run 安全暂停，而不是误记为 completed。
+- `RunExecution.close()`/`RetryRunExecution.close()` 会请求取消；若另一线程正阻塞在 `next()`，关闭会
+  延迟到该迭代线程离开底层 Iterator 后完成。在此之前 execution lease 继续有效，`close()` 返回不表示
+  worker 已退出或 lease 已释放；宿主必须 join/await 自己拥有的 worker。
 - `warning` 不是事件或终态，须经调用方脱敏，不得据此把 Run 标记为 failed/paused/completed。
 
 终态规则：
@@ -517,7 +520,8 @@ async def start_worker(session, task, executor: ThreadPoolExecutor):
 - 先持久化/缓存，后广播；
 - 慢 WebSocket 订阅者隔离；
 - 客户端断开不自动取消 Run；
-- shutdown 时先 `session.close()`，再等待 worker。
+- shutdown 时先 `session.close()` 请求取消，再等待 worker；不得在 worker 退出前启动同 Session 的新
+  Runtime/Run。阻塞 provider 不响应取消时 lease 必须继续保留，不能为加速 shutdown 强行释放。
 
 ## 9. 交互端口
 

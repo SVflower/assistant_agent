@@ -137,8 +137,8 @@ python -m assistant_agent
 - M22 已完成：单机跨进程 Session execution lease、checkpoint v6、完整 Run snapshot、严格 resume、
   orphan 协调和基于可靠会话基线的 failed Run 安全幂等重试；Event v1 不变，v1-v5 checkpoint
   fail-closed 迁移。
-- 679 个测试通过（6 个平台能力测试跳过），覆盖率 84%，ruff/mypy、12/12 import-linter、
-  scripted 19/19、recovery 4/4 全绿；16,197 行/128 文件生产 Python + 1,411 行 eval 基础设施；
+- 690 个测试通过（6 个平台能力测试跳过），覆盖率 84%，ruff/mypy、12/12 import-linter、
+  scripted 19/19、recovery 4/4 全绿；18,807 行/128 文件生产 Python + 1,617 行 eval 基础设施；
   剩余 7 项技术债（4 中/3 低，无高优先级）。
 
 第三阶段总规划及 M9a-M10c 方案/决策已归档到 `docs/archive/phase3/`，还清

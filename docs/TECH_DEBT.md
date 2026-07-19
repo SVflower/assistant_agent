@@ -35,7 +35,7 @@
 | D22 | ~~**Loop/Recovery 接近单文件硬线**~~ ✅ 已还清（M19） | `agent/loop.py`(436)、`agent/run/` | ✅ | 单轮模型流、工具批次、预算、恢复、checkpoint 和 resume 已按状态所有权拆分；Loop 保留可见且只编排 Agent 算法。scripted 事件轨迹与 recovery fault injection 前后不变 | 后续按独立变化原因拆分，不恢复行数硬线，也不为降低数字拆散状态不变量 |
 | D23 | ~~**父进程先退出时进程输出收尾可无限等待**~~ ✅ 已还清（M21） | `execution/process.py`、`execution/jobs.py` | ✅ | 完整 deadline 覆盖 execution/drain/cleanup；遗留 PIPE 后代结构化失败并清理；`manage_process` 提供 Runtime 隔离的启动/状态/日志/停止，opaque ID、输出和历史均有界 | Windows `start /b` 与通用继承 PIPE 实测；POSIX shell 后台路径进入 CI。方案见 [归档](archive/phase14/m21-managed-command-lifecycle-plan.md) |
 | D24 | **公开 URL 校验未绑定实际连接地址** | `integrations/web_access/security.py`、`client.py` | 🟡 | URL 层拒绝非公网 DNS 结果并复检重定向，但 httpx 建连会再次解析，无法证明抵御 DNS rebinding。M25 已把 `fetch_url` 排除在 Web profile；CLI 仍需用户授权 | 引入可验证的 DNS pinning/自定义 transport，并测试连接目标与每跳解析一致后，才允许 Web profile 自动开放通用抓取 |
-| D25 | **Session/Run 应用门面继续增长** | `application/runs.py` | 🟡 | M22 加入 lease、snapshot、reconcile/retry 和终态降级后达到 895 行；当前状态改写仍集中委托 RunCoordinator，生命周期和依赖边界清晰，但已超过原 800 行触发线 | 下一里程碑开始前提取 snapshot 查询与 retry/reconcile Application 服务；不拆散 Iterator 结束/释放 lease/Session sync 不变量 |
+| D25 | **Session/Run 应用门面继续增长** | `application/runs.py` | 🟡 | M22 加入 lease、snapshot、reconcile/retry、终态降级和并发 close 状态机后达到 934 行；当前状态改写仍集中委托 RunCoordinator，生命周期和依赖边界清晰，但已超过原 800 行触发线 | 下一里程碑开始前提取 snapshot 查询与 retry/reconcile Application 服务；不拆散 Iterator 结束/释放 lease/Session sync 不变量 |
 
 ## 已还清（保留记录）
 - **任务级工具资源无边界** → M6.5 增加单次输出、累计输出、工具调用总数预算；多 tool-call 批次补齐结果后终止。✅ 2026-07-14

@@ -53,40 +53,78 @@ class _ExecutionEvents(Iterator[StepEvent]):
         self,
         source: Iterator[StepEvent],
         on_close: Callable[[bool], None],
+        request_cancel: Callable[[], object],
     ) -> None:
         self._source = source
         self._on_close = on_close
+        self._request_cancel = request_cancel
+        self._lock = threading.Lock()
         self._started = False
-        self._closed = False
+        self._iterating = False
+        self._close_requested = False
+        self._closing = False
+        self._finished = False
 
     def __iter__(self) -> _ExecutionEvents:
         return self
 
     def __next__(self) -> StepEvent:
-        if self._closed:
-            raise StopIteration
-        self._started = True
+        with self._lock:
+            if self._finished or self._close_requested:
+                raise StopIteration
+            if self._iterating:
+                raise RuntimeError("RunExecution events 不支持并发迭代")
+            self._started = True
+            self._iterating = True
         try:
-            return next(self._source)
+            item = next(self._source)
         except BaseException:
+            with self._lock:
+                self._iterating = False
             self._finish()
             raise
+        with self._lock:
+            self._iterating = False
+            should_close = self._claim_close_locked()
+        if should_close:
+            self._close_source()
+        return item
 
     def close(self) -> None:
-        if self._closed:
-            return
+        with self._lock:
+            if self._finished:
+                return
+        self._request_cancel()
+        with self._lock:
+            self._close_requested = True
+            should_close = self._claim_close_locked()
+        if should_close:
+            self._close_source()
+
+    def _claim_close_locked(self) -> bool:
+        if self._finished or not self._close_requested or self._iterating or self._closing:
+            return False
+        self._closing = True
+        return True
+
+    def _close_source(self) -> None:
         close = getattr(self._source, "close", None)
         try:
             if callable(close):
                 close()
-        finally:
-            self._finish()
+        except BaseException:
+            with self._lock:
+                self._closing = False
+            raise
+        self._finish()
 
     def _finish(self) -> None:
-        if self._closed:
-            return
-        self._closed = True
-        self._on_close(self._started)
+        with self._lock:
+            if self._finished:
+                return
+            self._finished = True
+            started = self._started
+        self._on_close(started)
 
 
 @dataclass(frozen=True)
@@ -766,6 +804,7 @@ class SessionRuntime:
         events = _ExecutionEvents(
             source,
             lambda started: self._execution_finished(coordinator, started),
+            self.runtime.run_control.request_cancel,
         )
         execution = RunExecution(coordinator.run_id, events, warning)
         with self._lock:

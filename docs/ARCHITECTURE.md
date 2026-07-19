@@ -215,9 +215,10 @@ checkpoint v6 累计保存 `retry_safety`、可靠会话基线、retry 来源/�
 `tool_uncertain`，事件源异常不得清空未决工具。v1-v5 没有可靠重试基线，迁移统一设为 unknown，
 这是刻意的 fail-closed 兼容。Event contract 仍为 v1，未修改 `agent/loop.py`。
 
-`application/runs.py` 当前 895 行，超过 600 行非阻断评审线。它仍只拥有 SessionRuntime、事件 Iterator
+`application/runs.py` 当前 934 行，超过 600 行非阻断评审线。它仍只拥有 SessionRuntime、事件 Iterator
 边界、Session terminal 同步和跨 Run 用例编排；所有 RunState 改写继续委托 RunCoordinator，依赖方向由
-import-linter 约束，租约/重试/orphan/唯一 terminal 有直接测试，因此本期不为行数机械拆分。若再新增一种
+import-linter 约束，事件 Iterator 的并发 close 只请求取消并由迭代线程完成 lease 释放；租约/重试/orphan/
+唯一 terminal 有直接测试，因此本期不为行数机械拆分。若再新增一种
 跨 Run 工作流或超过 800 行，应把 snapshot 查询和 retry/reconcile 用例提取为独立 Application 服务，
 不得拆散 `_stream/_finish_run/_end_run` 的生命周期不变量。该观察登记为 D25。
 

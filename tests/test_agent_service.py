@@ -168,6 +168,65 @@ def test_runtime_close_releases_unstarted_execution_lease(tmp_path, monkeypatch)
         first.close()
 
 
+@pytest.mark.parametrize("close_owner", ["execution", "runtime"])
+def test_concurrent_close_keeps_lease_until_blocked_worker_exits(
+    tmp_path, monkeypatch, close_owner
+):
+    entered = threading.Event()
+    release = threading.Event()
+
+    class BlockingClient:
+        def __init__(self, _provider) -> None:
+            pass
+
+        def complete_stream(self, messages, tools=None):
+            entered.set()
+            assert release.wait(timeout=5)
+            yield StreamEvent(kind="content", text="late")
+
+    config = _config(tmp_path, monkeypatch)
+    monkeypatch.setattr(runtime_module, "LLMClient", BlockingClient)
+    service = AgentService(config_path=config, workspace_root=tmp_path)
+    first = service.create_session()
+    execution = first.start_run("blocked-provider")
+    worker_errors: list[BaseException] = []
+
+    def consume() -> None:
+        try:
+            list(execution.events)
+        except BaseException as exc:  # pragma: no cover - assertion reports details
+            worker_errors.append(exc)
+
+    worker = threading.Thread(target=consume, daemon=True)
+    second = None
+    try:
+        worker.start()
+        assert entered.wait(timeout=2)
+        if close_owner == "execution":
+            execution.close()
+        else:
+            first.runtime.close("concurrent-close-test")
+
+        assert worker.is_alive()
+        second = service.load_session(first.session.id)
+        with pytest.raises(RunStillActiveError):
+            second.runtime.execution_leases.acquire(first.session.id)
+
+        release.set()
+        worker.join(timeout=2)
+        assert not worker.is_alive()
+        assert worker_errors == []
+
+        lease = second.runtime.execution_leases.acquire(first.session.id)
+        lease.release()
+    finally:
+        release.set()
+        worker.join(timeout=2)
+        if second is not None:
+            second.close()
+        first.close()
+
+
 def test_reconcile_is_idempotent_and_pauses_orphan(tmp_path, monkeypatch):
     service = AgentService(config_path=_config(tmp_path, monkeypatch), workspace_root=tmp_path)
     first = service.create_session()

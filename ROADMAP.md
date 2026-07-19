@@ -60,8 +60,8 @@
   已完成工具不重放，started 副作用需 retry/skip/abort；预算、重复熔断、权限和摘要状态跨进程恢复；
   trace/session/run/call 标识对齐，还清 D8。
 
-**质量**：679 测试通过（6 个平台能力测试跳过）、覆盖率 84%、16,197 行/128 文件生产 Python 源码 +
-1,411 行 eval 基础设施，Ruff/mypy 全绿。架构适应度测试（12 条声明式依赖契约 + 旧路径防回归 +
+**质量**：690 测试通过（6 个平台能力测试跳过）、覆盖率 84%、18,807 行/128 文件生产 Python 源码 +
+1,617 行 eval 基础设施，Ruff/mypy 全绿。架构适应度测试（12 条声明式依赖契约 + 旧路径防回归 +
 600 行非阻断评审）、技术债册、
 DoD 和里程碑工作流全在；CI 已加入 format/lint/mypy/coverage/scripted eval/recovery eval 与
 Windows/Linux、Python 3.11/3.13 矩阵。剩余 7 项技术债（4 中/3 低，无高优先级）。

@@ -6,12 +6,12 @@ import re
 
 from typer.testing import CliRunner
 
-from assistant_agent.agent.recovery import RunCoordinator
+from assistant_agent.agent.run.coordinator import RunCoordinator
 from assistant_agent.main import app
 from assistant_agent.persistence.run_store import RunStore
 from assistant_agent.persistence.store import SessionStore
 from assistant_agent.service import sync_terminal_session
-from assistant_agent.tools.base import ToolBudget
+from tests.support import ToolBudget
 
 
 def _terminal_coordinator(tmp_path, *, session_id="session-1") -> RunCoordinator:

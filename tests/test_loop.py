@@ -4,13 +4,13 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 
-from assistant_agent.agent.failures import ContinuationResult
 from assistant_agent.agent.loop import AgentLoop
+from assistant_agent.agent.run.failures import ContinuationResult
 from assistant_agent.config.schema import AppConfig
-from assistant_agent.llm.client import StreamEvent, ToolCall
 from assistant_agent.observability import NullLogger
-from assistant_agent.tools.base import Tool, ToolContext, ToolResult
+from assistant_agent.providers.ports import StreamEvent, ToolCall
 from assistant_agent.tools.registry import ToolRegistry, build_default_registry
+from tests.support import Tool, ToolContextFixture, ToolResult
 
 
 class FakeStreamClient:
@@ -86,7 +86,7 @@ def _loop(client, config=None, interrupt_check=None) -> AgentLoop:
         config or _config(),
         client,  # 鸭子类型：只需有 complete_stream 方法
         build_default_registry(),
-        ToolContext(confirm=lambda _m: "allow"),
+        ToolContextFixture(confirm=lambda _m: "allow"),
         interrupt_check=interrupt_check,
     )
 
@@ -266,7 +266,7 @@ def test_loop_continue_check_extends_budget():
         _config(max_iterations=2),
         client,
         build_default_registry(),
-        ToolContext(confirm=lambda _m: "allow"),
+        ToolContextFixture(confirm=lambda _m: "allow"),
         continue_check=cont,
     )
     events = list(loop.run("test"))
@@ -328,7 +328,7 @@ def test_oversized_task_stops_before_client_call():
         }
     )
     client = FakeStreamClient([_text_round("不应调用")])
-    loop = AgentLoop(config, client, ToolRegistry(), ToolContext(), system_prompt="SYS")
+    loop = AgentLoop(config, client, ToolRegistry(), ToolContextFixture(), system_prompt="SYS")
 
     events = list(loop.run("x" * 1000))
 
@@ -347,7 +347,7 @@ def test_set_client_updates_default_compactor_client():
     )
     original = FakeStreamClient([_text_round("old")])
     replacement = FakeStreamClient([_text_round("new")])
-    loop = AgentLoop(config, original, ToolRegistry(), ToolContext(), system_prompt="SYS")
+    loop = AgentLoop(config, original, ToolRegistry(), ToolContextFixture(), system_prompt="SYS")
 
     loop.set_client(replacement)
 
@@ -373,7 +373,7 @@ def test_set_client_keeps_explicit_summary_provider():
         config,
         FakeStreamClient([_text_round("main")]),
         ToolRegistry(),
-        ToolContext(),
+        ToolContextFixture(),
         system_prompt="SYS",
         summary_client=fixed_summary_client,
     )
@@ -418,7 +418,7 @@ def test_tool_call_budget_emits_audit_event():
         _config(max_tool_calls=1),
         FakeStreamClient([_tools_round(*calls)]),
         build_default_registry(),
-        ToolContext(logger=logger),
+        ToolContextFixture(logger=logger),
     )
 
     list(loop.run("批量调用"))
@@ -449,7 +449,7 @@ class _FixedOutputTool(Tool):
     def parameters(self) -> dict:
         return {"type": "object", "properties": {}}
 
-    def run(self, args: dict, ctx: ToolContext) -> ToolResult:
+    def run(self, args: dict, ctx: ToolContextFixture) -> ToolResult:
         return ToolResult.ok("x" * 100)
 
     def permission_requests(self, args, ctx):
@@ -488,7 +488,7 @@ def test_pause_inside_batch_stops_before_next_tool():
     client = FakeStreamClient(
         [_tools_round(ToolCall("c1", "first", {}), ToolCall("c2", "second", {}))]
     )
-    loop = AgentLoop(_config(), client, registry, ToolContext())
+    loop = AgentLoop(_config(), client, registry, ToolContextFixture())
 
     events = list(loop.run("pause"))
 
@@ -505,7 +505,7 @@ def test_cancel_inside_batch_resolves_remaining_tool_calls():
     client = FakeStreamClient(
         [_tools_round(ToolCall("c1", "first", {}), ToolCall("c2", "second", {}))]
     )
-    loop = AgentLoop(_config(), client, registry, ToolContext())
+    loop = AgentLoop(_config(), client, registry, ToolContextFixture())
 
     events = list(loop.run("cancel"))
 
@@ -520,7 +520,7 @@ def test_total_output_budget_truncates_then_stops():
     registry = ToolRegistry()
     registry.register(_FixedOutputTool())
     client = FakeStreamClient([_tool_round(ToolCall(id="c1", name="fixed_output", arguments={}))])
-    ctx = ToolContext(max_output_chars=1000)
+    ctx = ToolContextFixture(max_output_chars=1000)
     loop = AgentLoop(
         _config(max_total_tool_output_chars=40),
         client,
@@ -553,7 +553,7 @@ def test_total_output_budget_completes_remaining_batch_results():
         _config(max_total_tool_output_chars=40),
         client,
         registry,
-        ToolContext(max_output_chars=1000),
+        ToolContextFixture(max_output_chars=1000),
     )
 
     events = list(loop.run("批量大输出"))
@@ -594,7 +594,7 @@ def test_continue_iterations_does_not_reset_tool_budget():
         _config(max_iterations=1, max_tool_calls=1),
         client,
         build_default_registry(),
-        ToolContext(),
+        ToolContextFixture(),
         continue_check=lambda _used: True,
     )
 
@@ -615,7 +615,7 @@ def test_tool_call_budget_continuation_extends_current_run():
         _config(max_tool_calls=1),
         client,
         build_default_registry(),
-        ToolContext(),
+        ToolContextFixture(),
         budget_continue_check=lambda prompt: (
             prompts.append(prompt) or ContinuationResult("continue-calls", True)
         ),
@@ -639,7 +639,7 @@ def test_tool_output_budget_continuation_allows_next_round():
         _config(max_total_tool_output_chars=40),
         client,
         registry,
-        ToolContext(max_output_chars=1000),
+        ToolContextFixture(max_output_chars=1000),
         budget_continue_check=lambda prompt: (
             prompts.append(prompt) or ContinuationResult("continue-output", True)
         ),
@@ -668,7 +668,7 @@ def test_output_extension_inside_batch_does_not_prompt_twice():
         _config(max_total_tool_output_chars=40),
         client,
         registry,
-        ToolContext(max_output_chars=1000),
+        ToolContextFixture(max_output_chars=1000),
         budget_continue_check=lambda prompt: (
             prompts.append(prompt) or ContinuationResult("continue-output", True)
         ),
@@ -703,7 +703,7 @@ def test_continuation_hard_extension_count_stops_run():
         config,
         FakeStreamClient(rounds),
         build_default_registry(),
-        ToolContext(),
+        ToolContextFixture(),
         budget_continue_check=lambda _prompt: ContinuationResult("once", True),
     )
 

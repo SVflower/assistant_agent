@@ -3,7 +3,7 @@
 import pytest
 from pydantic import ValidationError
 
-from assistant_agent.agent.failures import budget_failure, tool_failure
+from assistant_agent.agent.run.failures import budget_failure, tool_failure
 from assistant_agent.service import RunFailure
 
 

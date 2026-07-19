@@ -4,13 +4,13 @@ from __future__ import annotations
 
 import subprocess
 
-from assistant_agent.tools.base import ToolContext
 from assistant_agent.tools.git import GitTool
 from assistant_agent.tools.permissions import Capability
+from tests.support import ToolContextFixture
 
 
-def _ctx() -> ToolContext:
-    return ToolContext(shell_timeout=30)
+def _ctx() -> ToolContextFixture:
+    return ToolContextFixture(shell_timeout=30)
 
 
 def _init_repo(tmp_path):

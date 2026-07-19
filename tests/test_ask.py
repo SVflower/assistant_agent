@@ -4,11 +4,11 @@ from __future__ import annotations
 
 from assistant_agent.interaction import QuestionAnswer, SafeDefaultInteractionPort
 from assistant_agent.tools.ask import AskUserTool
-from assistant_agent.tools.base import NO_USER_AVAILABLE, ToolContext
+from tests.support import NO_USER_AVAILABLE, ToolContextFixture
 
 
-def _ctx(ask=None, *, interactive=True) -> ToolContext:
-    return ToolContext(ask=ask or (lambda _q, _o: ""), interactive=interactive)
+def _ctx(ask=None, *, interactive=True) -> ToolContextFixture:
+    return ToolContextFixture(ask=ask or (lambda _q, _o: ""), interactive=interactive)
 
 
 def test_ask_interactive_returns_user_choice():
@@ -69,7 +69,7 @@ def test_ask_uses_service_interaction_without_tty() -> None:
             return QuestionAnswer(request.request_id, answer="方案B", available=True)
 
     port = Port()
-    context = ToolContext(interaction=port, interactive=True, current_call_id="call-1")
+    context = ToolContextFixture(interaction=port, interactive=True, current_call_id="call-1")
     context.bind_run("run-1", "session-1")
     result = AskUserTool().run({"question": "选哪个？", "options": ["方案A", "方案B"]}, context)
     assert result.output == "用户选择：方案B"

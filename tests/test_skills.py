@@ -7,8 +7,8 @@ from pathlib import Path
 from assistant_agent.agent.prompts import build_system_prompt
 from assistant_agent.integrations.skills.store import SkillStore, _split_frontmatter
 from assistant_agent.integrations.skills.tool import LoadSkillTool
-from assistant_agent.tools.base import ToolContext
 from assistant_agent.tools.registry import ToolRegistry
+from tests.support import ToolContextFixture
 
 
 def _write_skill(base: Path, name: str, frontmatter: str, body: str = "正文内容") -> None:
@@ -114,8 +114,8 @@ def test_get_body_unknown_returns_none(tmp_path):
 # ---- LoadSkillTool ----
 
 
-def _ctx() -> ToolContext:
-    return ToolContext()
+def _ctx() -> ToolContextFixture:
+    return ToolContextFixture()
 
 
 def test_load_skill_tool_returns_body(tmp_path):
@@ -152,7 +152,7 @@ def test_untrusted_skill_cannot_load_noninteractively(tmp_path):
     tool = LoadSkillTool(SkillStore.discover([tmp_path], sources=["project"]))
     registry = ToolRegistry()
     registry.register(tool)
-    result = registry.execute("load_skill", {"name": "s"}, ToolContext(interactive=False))
+    result = registry.execute("load_skill", {"name": "s"}, ToolContextFixture(interactive=False))
     assert result.is_error and not result.executed
     assert "不可信正文" not in result.output
 

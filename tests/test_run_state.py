@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from assistant_agent.agent.run_state import (
+from assistant_agent.agent.run.state import (
     RunState,
     ToolBudgetState,
     ToolCallState,

@@ -9,10 +9,23 @@ import sys
 import time
 from pathlib import Path
 
+from assistant_agent.execution import ProcessSupervisor
 from assistant_agent.persistence.artifacts import ArtifactStore
-from assistant_agent.tools.base import ToolContext
-from assistant_agent.tools.process import run_bounded_process
 from assistant_agent.tools.shell import ShellTool
+from tests.support import ToolContextFixture
+
+
+def _run_bounded_process(command, *, shell, timeout, max_stream_chars):
+    supervisor = ProcessSupervisor()
+    try:
+        return supervisor.run(
+            command,
+            shell=shell,
+            timeout=timeout,
+            max_stream_chars=max_stream_chars,
+        )
+    finally:
+        supervisor.close()
 
 
 def _command(code: str) -> str:
@@ -22,7 +35,7 @@ def _command(code: str) -> str:
 
 def test_dual_stream_capture_is_bounded_and_does_not_deadlock():
     code = "import sys; sys.stdout.write('o'*200000); sys.stderr.write('e'*200000)"
-    result = run_bounded_process(
+    result = _run_bounded_process(
         [sys.executable, "-c", code], shell=False, timeout=10, max_stream_chars=10_000
     )
     assert result.returncode == 0
@@ -36,7 +49,7 @@ def test_dual_stream_capture_is_bounded_and_does_not_deadlock():
 
 def test_timeout_kills_and_waits_for_process():
     started = time.perf_counter()
-    result = run_bounded_process(
+    result = _run_bounded_process(
         [sys.executable, "-c", "import time; time.sleep(5)"],
         shell=False,
         timeout=0.1,
@@ -47,7 +60,7 @@ def test_timeout_kills_and_waits_for_process():
 
 
 def test_shell_large_output_returns_bounded_preview_and_artifact(tmp_path):
-    ctx = ToolContext(
+    ctx = ToolContextFixture(
         workspace_root=tmp_path,
         artifact_root=tmp_path / "state" / "artifacts" / "tools",
         max_output_chars=1_000,

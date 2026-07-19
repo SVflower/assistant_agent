@@ -6,7 +6,7 @@ import json
 from collections import Counter
 from pathlib import Path
 
-from assistant_agent.obs import sanitize_for_display
+from assistant_agent.observability import sanitize_for_display
 from evals.loader import EvalLoadError, confined_path
 from evals.schema import CheckResult, EvalCase, ExpectedToolCall, TraceCall
 

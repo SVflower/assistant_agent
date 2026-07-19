@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from assistant_agent.tools.base import ToolContext
 from assistant_agent.tools.search import CodeSearchTool
+from tests.support import ToolContextFixture
 
 
-def _ctx() -> ToolContext:
-    return ToolContext()
+def _ctx() -> ToolContextFixture:
+    return ToolContextFixture()
 
 
 def _make_tree(tmp_path):

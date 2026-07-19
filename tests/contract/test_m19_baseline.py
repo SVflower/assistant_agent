@@ -1,10 +1,9 @@
-"""M19 迁移前的公共字段与兼容语义快照。"""
+"""稳定公共服务、事件、交互和 checkpoint 契约快照。"""
 
 from dataclasses import fields
 
-from assistant_agent.agent.run_state import RunState, ToolBudgetState, migrate_run_document
+from assistant_agent.agent.run.state import RunState, ToolBudgetState, migrate_run_document
 from assistant_agent.contracts.events import EVENT_CONTRACT_VERSION, StepEvent
-from assistant_agent.contracts.failures import RunFailure
 from assistant_agent.contracts.interactions import (
     ApprovalRequest,
     ContinueRequest,
@@ -73,21 +72,17 @@ def test_step_event_v1_field_baseline_and_sensitive_reasoning():
     assert event.sensitive is True
 
 
-def test_legacy_contract_imports_are_identity_aliases():
-    from assistant_agent.agent.events import StepEvent as LegacyStepEvent
-    from assistant_agent.agent.failures import RunFailure as LegacyRunFailure
+def test_public_roots_export_canonical_contract_types():
     from assistant_agent.contracts import AgentServiceError, RuntimeCapabilities, RuntimeNotice
-    from assistant_agent.interaction.models import ContinueRequest as LegacyContinueRequest
-    from assistant_agent.service.capabilities import RuntimeCapabilities as LegacyCapabilities
-    from assistant_agent.service.errors import AgentServiceError as LegacyServiceError
-    from assistant_agent.service.runtime import RuntimeNotice as LegacyRuntimeNotice
+    from assistant_agent.interaction import ContinueRequest as InteractionContinueRequest
+    from assistant_agent.service import AgentServiceError as ServiceError
+    from assistant_agent.service import RuntimeCapabilities as ServiceCapabilities
+    from assistant_agent.service import RuntimeNotice as ServiceNotice
 
-    assert LegacyStepEvent is StepEvent
-    assert LegacyRunFailure is RunFailure
-    assert LegacyContinueRequest is ContinueRequest
-    assert LegacyCapabilities is RuntimeCapabilities
-    assert LegacyServiceError is AgentServiceError
-    assert LegacyRuntimeNotice is RuntimeNotice
+    assert InteractionContinueRequest is ContinueRequest
+    assert ServiceCapabilities is RuntimeCapabilities
+    assert ServiceError is AgentServiceError
+    assert ServiceNotice is RuntimeNotice
 
 
 def test_interaction_request_field_baseline():

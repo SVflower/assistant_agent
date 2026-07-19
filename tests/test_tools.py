@@ -5,20 +5,16 @@ from __future__ import annotations
 import os
 import shlex
 
-from assistant_agent.tools.base import ToolContext, ToolResult
-from assistant_agent.tools.file_ops import (
-    EditFileTool,
-    ListDirTool,
-    MultiEditTool,
-    ReadFileTool,
-    WriteFileTool,
-)
+from assistant_agent.execution.process import _decode
+from assistant_agent.tools.file_edit import EditFileTool, MultiEditTool, WriteFileTool
+from assistant_agent.tools.file_read import ListDirTool, ReadFileTool
 from assistant_agent.tools.registry import ToolRegistry, build_default_registry
-from assistant_agent.tools.shell import ShellTool, _decode, is_dangerous
+from assistant_agent.tools.shell import ShellTool, is_dangerous
+from tests.support import ToolContextFixture, ToolResult
 
 
-def _ctx(**kwargs) -> ToolContext:
-    return ToolContext(**kwargs)
+def _ctx(**kwargs) -> ToolContextFixture:
+    return ToolContextFixture(**kwargs)
 
 
 def _delete_command(path) -> str:

@@ -13,10 +13,10 @@ from assistant_agent.integrations.web_access.backends import DuckDuckGoBackend, 
 from assistant_agent.integrations.web_access.client import WebClient, WebError
 from assistant_agent.integrations.web_access.extract import extract_html_text
 from assistant_agent.integrations.web_access.security import URLPolicyError, validate_public_url
-from assistant_agent.tools.base import ToolContext
 from assistant_agent.tools.permissions import Capability
 from assistant_agent.tools.registry import ToolRegistry
 from assistant_agent.tools.web import FetchURLTool, WebSearchTool
+from tests.support import ToolContextFixture
 
 PUBLIC_IP = "93.184.216.34"
 
@@ -212,18 +212,18 @@ def test_web_tools_permissions_results_and_display():
     search = WebSearchTool(web)
     fetch = FetchURLTool(web)
     assert (
-        search.permission_requests({"query": "q"}, ToolContext())[0].capability
+        search.permission_requests({"query": "q"}, ToolContextFixture())[0].capability
         == Capability.NETWORK_ACCESS
     )
     assert (
-        fetch.permission_requests({"url": "https://example.com/x"}, ToolContext())[0].target
+        fetch.permission_requests({"url": "https://example.com/x"}, ToolContextFixture())[0].target
         == "example.com"
     )
 
     registry = ToolRegistry()
     registry.register(search)
     registry.register(fetch)
-    ctx = ToolContext(interactive=True, confirm=lambda _message: "allow")
+    ctx = ToolContextFixture(interactive=True, confirm=lambda _message: "allow")
     result = registry.execute("web_search", {"query": "q"}, ctx)
     assert not result.is_error and result.metadata["result_count"] == 1
     assert result.metadata["source_urls"] == ["https://example.com"]

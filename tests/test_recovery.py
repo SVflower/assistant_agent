@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import pytest
 
-from assistant_agent.agent.recovery import RunCoordinator
-from assistant_agent.agent.run_state import PermissionGrantState
-from assistant_agent.llm.client import ToolCall
+from assistant_agent.agent.run.coordinator import RunCoordinator
+from assistant_agent.agent.run.state import PermissionGrantState
 from assistant_agent.persistence.run_store import RunStore
-from assistant_agent.tools.base import ToolBudget, ToolContext, ToolResult
+from assistant_agent.providers.ports import ToolCall
 from assistant_agent.tools.permissions import Capability, PermissionRequest, PermissionScope
+from tests.support import ToolBudget, ToolContextFixture, ToolResult
 
 
 def _coordinator(tmp_path) -> RunCoordinator:
@@ -138,7 +138,7 @@ def test_budget_and_exact_grants_restore(tmp_path):
     coordinator.state.permission_grants = [
         PermissionGrantState(capability="filesystem.read", tool="read_file", target="a")
     ]
-    ctx = ToolContext()
+    ctx = ToolContextFixture()
     budget = coordinator.restore_tool_context(ctx)
     assert budget.used_calls == 3 and budget.used_output_chars == 20
     assert ctx.permission_grants == {PermissionScope(Capability.FILESYSTEM_READ, "read_file", "a")}
@@ -146,7 +146,7 @@ def test_budget_and_exact_grants_restore(tmp_path):
 
 def test_capture_permission_grants_is_stable(tmp_path):
     coordinator = _coordinator(tmp_path)
-    ctx = ToolContext(
+    ctx = ToolContextFixture(
         permission_grants={
             PermissionScope(Capability.FILESYSTEM_WRITE, "write_file", "b"),
             PermissionScope(Capability.FILESYSTEM_READ, "read_file", "a"),

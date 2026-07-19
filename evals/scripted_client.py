@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Iterator
 from typing import Any
 
-from assistant_agent.llm.client import StreamEvent, ToolCall
+from assistant_agent.providers.ports import StreamEvent, ToolCall
 from evals.schema import ScriptRound
 
 

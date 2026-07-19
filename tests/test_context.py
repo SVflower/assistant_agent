@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from assistant_agent.agent.context import Conversation
-from assistant_agent.agent.token_budget import ContextWindowError
+from assistant_agent.agent.context.window import ContextWindowError
 
 
 def _conv(**kwargs) -> Conversation:

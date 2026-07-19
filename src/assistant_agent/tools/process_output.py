@@ -1,40 +1,10 @@
-"""Shell/Git 共用的进程结果格式化与兼容入口。"""
+"""Shell/Git 共用的进程结果格式化。"""
 
 from __future__ import annotations
 
 from typing import Any
 
-from assistant_agent.execution.control import RunControl
-from assistant_agent.execution.process import (
-    BoundedProcessResult,
-    CapturedStream,
-    ProcessSupervisor,
-    _decode,
-)
 from assistant_agent.tools.ports import ProcessResultPort
-
-
-def run_bounded_process(
-    command: str | list[str],
-    *,
-    shell: bool,
-    timeout: float,
-    max_stream_chars: int,
-    cwd: str | None = None,
-    control: RunControl | None = None,
-) -> BoundedProcessResult:
-    supervisor = ProcessSupervisor()
-    try:
-        return supervisor.run(
-            command,
-            shell=shell,
-            cwd=cwd,
-            timeout=timeout,
-            max_stream_chars=max_stream_chars,
-            control=control,
-        )
-    finally:
-        supervisor.close()
 
 
 def format_process_result(
@@ -90,11 +60,4 @@ def _bounded_preview(value: str, limit: int) -> str:
     return value[:head] + marker + value[-(keep - head) :]
 
 
-__all__ = [
-    "BoundedProcessResult",
-    "CapturedStream",
-    "ProcessSupervisor",
-    "_decode",
-    "format_process_result",
-    "run_bounded_process",
-]
+__all__ = ["format_process_result"]

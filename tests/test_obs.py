@@ -7,8 +7,8 @@ import time
 from pathlib import Path
 
 from assistant_agent.observability import EventLogger, NullLogger
-from assistant_agent.tools.base import Tool, ToolBudget, ToolContext, ToolResult
 from assistant_agent.tools.registry import ToolRegistry, build_default_registry
+from tests.support import Tool, ToolBudget, ToolContextFixture, ToolResult
 
 
 def _read_events(log_dir: Path) -> list[dict]:
@@ -145,7 +145,7 @@ def test_write_failure_is_non_fatal(tmp_path):
 def test_registry_execute_logs_tool_call_ok(tmp_path):
     f = tmp_path / "n.txt"
     f.write_text("hi", encoding="utf-8")
-    ctx = ToolContext(logger=_logger(tmp_path / "logs"), workspace_root=tmp_path)
+    ctx = ToolContextFixture(logger=_logger(tmp_path / "logs"), workspace_root=tmp_path)
     result = build_default_registry().execute("read_file", {"path": str(f)}, ctx)
     assert not result.is_error
 
@@ -158,7 +158,7 @@ def test_registry_execute_logs_tool_call_ok(tmp_path):
 
 
 def test_registry_execute_logs_error_status(tmp_path):
-    ctx = ToolContext(logger=_logger(tmp_path / "logs"))
+    ctx = ToolContextFixture(logger=_logger(tmp_path / "logs"))
     result = build_default_registry().execute("read_file", {"path": 123}, ctx)
     assert result.is_error
     assert _read_events(tmp_path / "logs")[0]["status"] == "error"
@@ -166,7 +166,7 @@ def test_registry_execute_logs_error_status(tmp_path):
 
 def test_registry_unknown_tool_not_logged(tmp_path):
     """未知工具没执行 → 不产生 tool_call 事件（提前 return）。"""
-    ctx = ToolContext(logger=_logger(tmp_path / "logs"))
+    ctx = ToolContextFixture(logger=_logger(tmp_path / "logs"))
     build_default_registry().execute("nonexistent", {}, ctx)
     assert not list((tmp_path / "logs").glob("*.jsonl"))
 
@@ -178,14 +178,14 @@ def test_request_confirm_audits_all_decisions(tmp_path):
     # allow / deny
     for choice in ("allow", "deny"):
         d = tmp_path / choice
-        ctx = ToolContext(confirm=lambda _m, c=choice: c, logger=_logger(d))
+        ctx = ToolContextFixture(confirm=lambda _m, c=choice: c, logger=_logger(d))
         ctx.request_confirm("run_shell", "msg")
         e = _read_events(d)[0]
         assert e["type"] == "confirm" and e["decision"] == choice and e["remembered"] is False
 
     # always：记 decision=always，并进入永久允许记忆
     d = tmp_path / "always"
-    ctx = ToolContext(confirm=lambda _m: "always", logger=_logger(d))
+    ctx = ToolContextFixture(confirm=lambda _m: "always", logger=_logger(d))
     ctx.request_confirm("run_shell", "msg")
     assert _read_events(d)[0]["decision"] == "always"
     assert "run_shell" in ctx.always_allowed
@@ -199,7 +199,11 @@ def test_request_confirm_remembered_allow(tmp_path):
         called["n"] += 1
         return "deny"
 
-    ctx = ToolContext(confirm=confirm, always_allowed={"run_shell"}, logger=_logger(tmp_path))
+    ctx = ToolContextFixture(
+        confirm=confirm,
+        always_allowed={"run_shell"},
+        logger=_logger(tmp_path),
+    )
     assert ctx.request_confirm("run_shell", "msg") is True
     assert called["n"] == 0
     e = _read_events(tmp_path)[0]
@@ -219,7 +223,7 @@ class _ConfirmingTool(Tool):
     def parameters(self) -> dict:
         return {"type": "object", "properties": {}}
 
-    def run(self, args: dict, ctx: ToolContext) -> ToolResult:
+    def run(self, args: dict, ctx: ToolContextFixture) -> ToolResult:
         ctx.request_confirm("run_shell", "确认？")
         return ToolResult.ok("done")
 
@@ -240,7 +244,7 @@ def test_approval_wait_separated_from_duration(tmp_path):
         time.sleep(0.05)  # 模拟等人 ~50ms
         return "allow"
 
-    ctx = ToolContext(confirm=slow_confirm, logger=_logger(tmp_path / "logs"))
+    ctx = ToolContextFixture(confirm=slow_confirm, logger=_logger(tmp_path / "logs"))
     _registry_with(_ConfirmingTool()).execute("confirming", {}, ctx)
 
     e = next(x for x in _read_events(tmp_path / "logs") if x["type"] == "tool_call")
@@ -260,7 +264,7 @@ class _DoubleConfirmingTool(Tool):
     def parameters(self) -> dict:
         return {"type": "object", "properties": {}}
 
-    def run(self, args: dict, ctx: ToolContext) -> ToolResult:
+    def run(self, args: dict, ctx: ToolContextFixture) -> ToolResult:
         ctx.request_confirm("first", "确认 1？")
         ctx.request_confirm("second", "确认 2？")
         return ToolResult.ok("done")
@@ -274,7 +278,7 @@ def test_approval_wait_accumulates_multiple_confirms(tmp_path):
         time.sleep(0.03)
         return "allow"
 
-    ctx = ToolContext(confirm=slow_confirm, logger=_logger(tmp_path / "logs"))
+    ctx = ToolContextFixture(confirm=slow_confirm, logger=_logger(tmp_path / "logs"))
     _registry_with(_DoubleConfirmingTool()).execute("double_confirming", {}, ctx)
     event = next(e for e in _read_events(tmp_path / "logs") if e["type"] == "tool_call")
     assert event["approval_wait_ms"] >= 50
@@ -284,7 +288,7 @@ def test_no_confirm_omits_approval_wait(tmp_path):
     """普通工具（不请求确认）的事件不含 approval_wait_ms。"""
     f = tmp_path / "n.txt"
     f.write_text("hi", encoding="utf-8")
-    ctx = ToolContext(logger=_logger(tmp_path / "logs"), workspace_root=tmp_path)
+    ctx = ToolContextFixture(logger=_logger(tmp_path / "logs"), workspace_root=tmp_path)
     build_default_registry().execute("read_file", {"path": str(f)}, ctx)
     e = _read_events(tmp_path / "logs")[0]
     assert "approval_wait_ms" not in e
@@ -301,7 +305,7 @@ class _BigOutputTool(Tool):
     def parameters(self) -> dict:
         return {"type": "object", "properties": {}}
 
-    def run(self, args: dict, ctx: ToolContext) -> ToolResult:
+    def run(self, args: dict, ctx: ToolContextFixture) -> ToolResult:
         return ToolResult.ok("x" * 100)
 
     def permission_requests(self, args, ctx):
@@ -310,7 +314,7 @@ class _BigOutputTool(Tool):
 
 def test_output_truncated_when_over_limit(tmp_path):
     """超限：返回给上下文的 output 被截断+标记，日志记原始长度并标 truncated。"""
-    ctx = ToolContext(logger=_logger(tmp_path / "logs"), max_output_chars=40)
+    ctx = ToolContextFixture(logger=_logger(tmp_path / "logs"), max_output_chars=40)
     result = _registry_with(_BigOutputTool()).execute("big", {}, ctx)
     assert len(result.output) == 40
     assert "输出已截断" in result.output
@@ -321,22 +325,22 @@ def test_output_truncated_when_over_limit(tmp_path):
 
 def test_output_not_truncated_under_limit(tmp_path):
     """未超限：output 原样，日志不含 truncated。"""
-    ctx = ToolContext(logger=_logger(tmp_path / "logs"), max_output_chars=1000)
+    ctx = ToolContextFixture(logger=_logger(tmp_path / "logs"), max_output_chars=1000)
     result = _registry_with(_BigOutputTool()).execute("big", {}, ctx)
     assert result.output == "x" * 100
     assert "truncated" not in _read_events(tmp_path / "logs")[0]
 
 
 def test_output_limit_zero_disables_truncation(tmp_path):
-    """默认 0：不截断（兼容裸 ToolContext）。"""
-    ctx = ToolContext(logger=_logger(tmp_path / "logs"))  # max_output_chars 默认 0
+    """默认 0：不截断（兼容裸 ToolContextFixture）。"""
+    ctx = ToolContextFixture(logger=_logger(tmp_path / "logs"))  # max_output_chars 默认 0
     result = _registry_with(_BigOutputTool()).execute("big", {}, ctx)
     assert result.output == "x" * 100
 
 
 def test_registry_call_budget_blocks_execution(tmp_path):
     budget = ToolBudget(max_calls=1, max_total_output_chars=1000)
-    ctx = ToolContext(logger=_logger(tmp_path / "logs"), budget=budget)
+    ctx = ToolContextFixture(logger=_logger(tmp_path / "logs"), budget=budget)
     registry = _registry_with(_BigOutputTool())
 
     assert not registry.execute("big", {}, ctx).is_error
@@ -349,7 +353,7 @@ def test_registry_call_budget_blocks_execution(tmp_path):
 
 def test_registry_total_output_budget_truncates_and_exhausts(tmp_path):
     budget = ToolBudget(max_calls=3, max_total_output_chars=40)
-    ctx = ToolContext(logger=_logger(tmp_path / "logs"), max_output_chars=100, budget=budget)
+    ctx = ToolContextFixture(logger=_logger(tmp_path / "logs"), max_output_chars=100, budget=budget)
     result = _registry_with(_BigOutputTool()).execute("big", {}, ctx)
 
     assert len(result.output) == 40
@@ -359,7 +363,7 @@ def test_registry_total_output_budget_truncates_and_exhausts(tmp_path):
 
 def test_unknown_tool_does_not_consume_call_budget(tmp_path):
     budget = ToolBudget(max_calls=1)
-    ctx = ToolContext(logger=_logger(tmp_path / "logs"), budget=budget)
+    ctx = ToolContextFixture(logger=_logger(tmp_path / "logs"), budget=budget)
     result = build_default_registry().execute("missing", {}, ctx)
 
     assert result.is_error

@@ -6,16 +6,16 @@ import os
 
 import pytest
 
-from assistant_agent.tools.base import ToolContext
 from assistant_agent.tools.file_edit import EditFileTool, MultiEditTool, WriteFileTool
 from assistant_agent.tools.file_read import ListDirTool, ReadFileTool
 from assistant_agent.tools.registry import ToolRegistry
+from tests.support import ToolContextFixture
 
 
 def _execute(tool, args, tmp_path):
     registry = ToolRegistry()
     registry.register(tool)
-    return registry.execute(tool.name, args, ToolContext(workspace_root=tmp_path))
+    return registry.execute(tool.name, args, ToolContextFixture(workspace_root=tmp_path))
 
 
 def test_read_100k_lines_middle_page_is_bounded(tmp_path):
@@ -37,7 +37,7 @@ def test_read_100k_lines_middle_page_is_bounded(tmp_path):
 def test_read_small_file_keeps_legacy_plain_output(tmp_path):
     path = tmp_path / "small.txt"
     path.write_bytes(b"a\r\nb\r\n")
-    result = ReadFileTool().run({"path": str(path)}, ToolContext())
+    result = ReadFileTool().run({"path": str(path)}, ToolContextFixture())
     assert result.output == "a\r\nb\r\n"
     assert result.metadata["has_more"] is False
 
@@ -73,7 +73,7 @@ def test_atomic_write_failure_keeps_old_file_and_cleans_temp(tmp_path, monkeypat
         raise OSError("injected")
 
     monkeypatch.setattr("assistant_agent.tools.file_io.os.replace", fail_replace)
-    result = WriteFileTool().run({"path": str(path), "content": "new"}, ToolContext())
+    result = WriteFileTool().run({"path": str(path), "content": "new"}, ToolContextFixture())
     assert result.code == "io_error"
     assert path.read_text(encoding="utf-8") == "old"
     assert list(tmp_path.glob(".state.txt.*.tmp")) == []
@@ -84,7 +84,7 @@ def test_edit_preserves_crlf_when_model_uses_lf(tmp_path):
     path.write_bytes(b"one\r\ntwo\r\n")
     result = EditFileTool().run(
         {"path": str(path), "old_string": "one\ntwo", "new_string": "ONE\nTWO"},
-        ToolContext(),
+        ToolContextFixture(),
     )
     assert result.code == "ok"
     assert path.read_bytes() == b"ONE\r\nTWO\r\n"
@@ -105,7 +105,7 @@ def test_multi_edit_atomic_replace_failure_keeps_old_file(tmp_path, monkeypatch)
                 {"old_string": "two", "new_string": "2"},
             ],
         },
-        ToolContext(),
+        ToolContextFixture(),
     )
     assert result.code == "io_error"
     assert path.read_text(encoding="utf-8") == "one\ntwo\n"
@@ -118,7 +118,7 @@ def test_atomic_edit_preserves_existing_permissions(tmp_path):
     path.write_text("old", encoding="utf-8")
     path.chmod(0o640)
     result = EditFileTool().run(
-        {"path": str(path), "old_string": "old", "new_string": "new"}, ToolContext()
+        {"path": str(path), "old_string": "old", "new_string": "new"}, ToolContextFixture()
     )
     assert result.code == "ok"
     assert path.stat().st_mode & 0o777 == 0o640

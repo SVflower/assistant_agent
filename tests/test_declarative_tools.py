@@ -6,10 +6,10 @@ from typing import Literal
 
 import pytest
 
-from assistant_agent.tools import FunctionTool, ToolContext, ToolRegistry, ToolResult, agent_tool
-from assistant_agent.tools.base import ToolBudget
+from assistant_agent.tools import FunctionTool, ToolRegistry, ToolResult, agent_tool
 from assistant_agent.tools.permissions import Capability, PermissionRequest
 from assistant_agent.tools.policy import PermissionPolicy
+from tests.support import ToolBudget, ToolContextFixture
 
 
 def _allow(_args, _ctx):
@@ -56,20 +56,20 @@ def test_registry_executes_with_defaults_and_ignores_unknown_fields():
 
     registry = ToolRegistry()
     registry.register(add)
-    result = registry.execute("add", {"left": 3, "extra": "ignored"}, ToolContext())
+    result = registry.execute("add", {"left": 3, "extra": "ignored"}, ToolContextFixture())
     assert result.output == "5"
     assert seen == {"left": 3, "right": 2}
 
 
 def test_context_is_injected_and_not_exposed_in_schema():
     @agent_tool(permissions=_allow)
-    def current_call(value: str, ctx: ToolContext) -> str:
+    def current_call(value: str, ctx: ToolContextFixture) -> str:
         return f"{value}:{ctx.current_call_id}"
 
     assert "ctx" not in current_call.parameters["properties"]
     registry = ToolRegistry()
     registry.register(current_call)
-    result = registry.execute("current_call", {"value": "ok"}, ToolContext(), call_id="c-1")
+    result = registry.execute("current_call", {"value": "ok"}, ToolContextFixture(), call_id="c-1")
     assert result.output == "ok:c-1"
 
 
@@ -83,7 +83,7 @@ def test_default_permission_is_conservative_and_prevents_execution():
 
     registry = ToolRegistry()
     registry.register(effect)
-    result = registry.execute("effect", {"value": "x"}, ToolContext(interactive=False))
+    result = registry.execute("effect", {"value": "x"}, ToolContextFixture(interactive=False))
     assert result.code == "permission_denied"
     assert result.executed is False
     assert calls == []
@@ -109,7 +109,7 @@ def test_permission_resolver_still_uses_registry_policy():
 
     registry = ToolRegistry()
     registry.register(write_record)
-    ctx = ToolContext(permission_policy=PermissionPolicy(mode="readonly"), interactive=False)
+    ctx = ToolContextFixture(permission_policy=PermissionPolicy(mode="readonly"), interactive=False)
     result = registry.execute("write_record", {"path": "outside.txt"}, ctx)
     assert result.code == "permission_denied"
     assert calls == []
@@ -125,11 +125,11 @@ def test_registry_validation_and_budget_happen_before_function():
 
     registry = ToolRegistry()
     registry.register(count)
-    invalid = registry.execute("count", {"value": "bad"}, ToolContext())
+    invalid = registry.execute("count", {"value": "bad"}, ToolContextFixture())
     exhausted = registry.execute(
         "count",
         {"value": 1},
-        ToolContext(budget=ToolBudget(max_calls=1, used_calls=1)),
+        ToolContextFixture(budget=ToolBudget(max_calls=1, used_calls=1)),
     )
     assert invalid.code == "invalid_arguments" and invalid.executed is False
     assert exhausted.code == "budget_exhausted" and exhausted.executed is False
@@ -149,7 +149,7 @@ def test_result_passthrough_exception_and_invalid_return_are_normalized():
     def invalid() -> int:
         return 42
 
-    ctx = ToolContext()
+    ctx = ToolContextFixture()
     assert structured.run({}, ctx).metadata == {"source": "function"}
     broken_result = broken.run({}, ctx)
     assert broken_result.code == "tool_exception"
@@ -172,11 +172,11 @@ def test_async_function_fails_at_decoration():
         ("def bad(*values: int): return str(values)", "不支持可变参数"),
         ("def bad(value: int, /): return str(value)", "不支持位置专用参数"),
         ("def bad(ctx: str): return ctx", "ctx 必须注解为 ToolContext"),
-        ("def bad(context: ToolContext): return 'x'", "必须命名为 ctx"),
+        ("def bad(context: ToolContextFixture): return 'x'", "必须命名为 ctx"),
     ],
 )
 def test_unsupported_signatures_fail_at_decoration(source, message):
-    namespace = {"ToolContext": ToolContext}
+    namespace = {"ToolContextFixture": ToolContextFixture}
     exec(source, namespace)
     with pytest.raises(TypeError, match=message):
         agent_tool(namespace["bad"])

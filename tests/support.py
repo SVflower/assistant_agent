@@ -1,8 +1,4 @@
-"""旧工具 API 的兼容入口。
-
-新代码应分别从 models、context、tool 和 ports 导入。兼容 ToolContext 仅为旧扩展补齐
-本地默认 adapter；生产装配必须直接构造 tools.context.ToolContext 并显式注入资源。
-"""
+"""测试专用的 ToolContext 装配，生产代码必须显式注入端口。"""
 
 from __future__ import annotations
 
@@ -13,20 +9,15 @@ from assistant_agent.execution import HostWorkspace, ProcessSupervisor, RunContr
 from assistant_agent.observability import NullLogger
 from assistant_agent.observability.redaction import sanitize_for_display
 from assistant_agent.persistence.artifacts import ArtifactStore
-from assistant_agent.tools.context import (
-    NO_USER_AVAILABLE,
-    ConfirmChoice,
-)
-from assistant_agent.tools.context import (
-    ToolContext as PortToolContext,
-)
+from assistant_agent.tools.context import NO_USER_AVAILABLE, ConfirmChoice
+from assistant_agent.tools.context import ToolContext as RuntimeToolContext
 from assistant_agent.tools.models import ArtifactRef, ToolBudget, ToolResult
 from assistant_agent.tools.ports import ToolTelemetry
 from assistant_agent.tools.tool import Tool
 
 
-class ToolContext(PortToolContext):
-    """兼容构造器；为旧调用方提供原有宿主默认资源。"""
+class ToolContextFixture(RuntimeToolContext):
+    """为单元测试装配宿主 Workspace、控制器、日志与 ArtifactStore。"""
 
     def __init__(self, **kwargs: Any) -> None:
         root = Path(kwargs.get("workspace_root", Path.cwd())).expanduser().resolve()
@@ -64,6 +55,6 @@ __all__ = [
     "NO_USER_AVAILABLE",
     "Tool",
     "ToolBudget",
-    "ToolContext",
+    "ToolContextFixture",
     "ToolResult",
 ]

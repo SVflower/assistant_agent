@@ -1,4 +1,4 @@
-"""可观测性兼容入口；按需加载，避免纯脱敏工具启动具体 logger。"""
+"""可观测性公共入口；按需加载，避免纯脱敏工具启动具体 logger。"""
 
 from importlib import import_module
 from typing import Any

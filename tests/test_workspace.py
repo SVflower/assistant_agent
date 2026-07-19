@@ -15,9 +15,10 @@ from assistant_agent.execution import (
     RunControl,
     WorkspaceError,
 )
-from assistant_agent.tools.base import ToolContext
-from assistant_agent.tools.file_ops import ReadFileTool, WriteFileTool
+from assistant_agent.tools.file_edit import WriteFileTool
+from assistant_agent.tools.file_read import ReadFileTool
 from assistant_agent.tools.shell import ShellTool
+from tests.support import ToolContextFixture
 
 
 def _workspace(kind, root):
@@ -61,7 +62,7 @@ def test_file_tools_use_workspace_root_and_reject_escape(tmp_path):
     root = tmp_path / "root"
     root.mkdir()
     workspace = _workspace(ConfinedWorkspace, root)
-    ctx = ToolContext(workspace=workspace)
+    ctx = ToolContextFixture(workspace=workspace)
     written = WriteFileTool().run({"path": "inside.txt", "content": "ok"}, ctx)
     escaped = WriteFileTool().run({"path": "../outside.txt", "content": "bad"}, ctx)
     read = ReadFileTool().run({"path": "inside.txt"}, ctx)
@@ -73,7 +74,7 @@ def test_file_tools_use_workspace_root_and_reject_escape(tmp_path):
 
 def test_shell_executes_with_workspace_as_cwd(tmp_path):
     workspace = _workspace(ConfinedWorkspace, tmp_path)
-    ctx = ToolContext(workspace=workspace, shell_timeout=10)
+    ctx = ToolContextFixture(workspace=workspace, shell_timeout=10)
     code = "import pathlib; pathlib.Path('cwd-marker.txt').write_text('ok')"
     command = subprocess.list2cmdline([sys.executable, "-c", code])
     result = ShellTool().run({"command": command}, ctx)

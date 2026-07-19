@@ -7,10 +7,10 @@ from assistant_agent.cli.commands import ChatContext, build_default_slash_regist
 from assistant_agent.config.schema import AppConfig
 from assistant_agent.integrations.mcp.configure import MCPProbeResult, MCPService
 from assistant_agent.integrations.skills import SkillManager
-from assistant_agent.llm.client import StreamEvent
 from assistant_agent.persistence.store import SessionStore
-from assistant_agent.tools.base import ToolContext
+from assistant_agent.providers.ports import StreamEvent
 from assistant_agent.tools.registry import build_default_registry
+from tests.support import ToolContextFixture
 
 
 class FakeConsole:
@@ -63,7 +63,7 @@ def _config(**providers) -> AppConfig:
 
 def _ctx(tmp_path):
     config = _config()
-    loop = AgentLoop(config, _FakeClient(), build_default_registry(), ToolContext())
+    loop = AgentLoop(config, _FakeClient(), build_default_registry(), ToolContextFixture())
     console = FakeConsole()
     store = SessionStore(base_dir=tmp_path / "sessions")
     session = store.new_session(provider="cloud", model="openai/a")

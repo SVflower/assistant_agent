@@ -13,15 +13,15 @@ from assistant_agent.interaction import (
     RecoveryDecision,
     SafeDefaultInteractionPort,
 )
-from assistant_agent.llm.client import StreamEvent, ToolCall
 from assistant_agent.persistence.store import SessionStore
+from assistant_agent.providers.ports import StreamEvent, ToolCall
 from assistant_agent.service import (
     AgentService,
     RuntimeConfigError,
     SessionBusyError,
     SessionRunConflictError,
 )
-from assistant_agent.tools.base import ToolBudget
+from tests.support import ToolBudget
 
 
 class _FakeClient:

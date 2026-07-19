@@ -18,7 +18,7 @@ def test_reasoning_is_always_marked_sensitive() -> None:
     assert event.sensitive is True
 
 
-def test_existing_event_construction_remains_compatible() -> None:
+def test_event_defaults_are_stable() -> None:
     event = StepEvent(kind="tool_result", call_id="call-1")
     assert event.call_id == "call-1"
     assert event.terminal_status is None
@@ -29,9 +29,3 @@ def test_service_facade_exports_canonical_implementations() -> None:
     assert AgentRuntime is ApplicationRuntime
     assert AgentService is BootstrapAgentService
     assert create_runtime is bootstrap_create_runtime
-
-    from assistant_agent.service.runtime import AgentRuntime as LegacyRuntime
-    from assistant_agent.service.sessions import AgentService as LegacyAgentService
-
-    assert LegacyRuntime is ApplicationRuntime
-    assert LegacyAgentService is BootstrapAgentService

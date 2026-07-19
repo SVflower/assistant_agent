@@ -11,16 +11,9 @@ forbidden_modules =
     assistant_agent.cli
     assistant_agent.config
     assistant_agent.interaction
-    assistant_agent.llm
-    assistant_agent.mcp
-    assistant_agent.obs
-    assistant_agent.runtime
     assistant_agent.service
-    assistant_agent.session
-    assistant_agent.skills
     assistant_agent.tools
     assistant_agent.ui
-    assistant_agent.web
     assistant_agent.main
     assistant_agent.application
     assistant_agent.bootstrap
@@ -37,10 +30,6 @@ source_modules =
     assistant_agent.agent
 forbidden_modules =
     assistant_agent.providers.litellm
-    assistant_agent.llm
-    assistant_agent.runtime
-    assistant_agent.obs.logger
-    assistant_agent.session
     assistant_agent.service
     assistant_agent.ui
     assistant_agent.cli
@@ -92,9 +81,6 @@ source_modules =
     assistant_agent.tools.context
     assistant_agent.tools.ports
 forbidden_modules =
-    assistant_agent.obs.logger
-    assistant_agent.runtime
-    assistant_agent.tools.artifacts
     assistant_agent.observability.logger
     assistant_agent.execution
     assistant_agent.persistence.artifacts
@@ -110,12 +96,6 @@ forbidden_modules =
     assistant_agent.execution
     assistant_agent.persistence
     assistant_agent.observability
-    assistant_agent.mcp
-    assistant_agent.skills
-    assistant_agent.web
-    assistant_agent.runtime
-    assistant_agent.session
-    assistant_agent.obs
     assistant_agent.service
     assistant_agent.cli
     assistant_agent.ui
@@ -181,15 +161,8 @@ forbidden_modules =
     assistant_agent.execution
     assistant_agent.integrations
     assistant_agent.interaction
-    assistant_agent.llm
-    assistant_agent.mcp
-    assistant_agent.obs
     assistant_agent.observability
     assistant_agent.persistence
     assistant_agent.providers
-    assistant_agent.runtime
-    assistant_agent.session
-    assistant_agent.skills
     assistant_agent.tools
     assistant_agent.ui
-    assistant_agent.web

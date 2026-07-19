@@ -15,9 +15,9 @@ from prompt_toolkit.output.base import Size
 from prompt_toolkit.output.vt100 import Vt100_Output
 from rich.console import Console as RichConsole
 
-from assistant_agent.agent.events import StepEvent
+from assistant_agent.contracts.events import StepEvent
 from assistant_agent.tools.display import call_display, result_display, safe_text
-from assistant_agent.tools.result import ToolResult
+from assistant_agent.tools.models import ToolResult
 from assistant_agent.ui.chat_prompt import ChatPrompt, SlashCommandCompleter
 from assistant_agent.ui.console import Console
 from assistant_agent.ui.conversation_renderer import ConversationRenderer

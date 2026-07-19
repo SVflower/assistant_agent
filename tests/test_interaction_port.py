@@ -14,10 +14,10 @@ from assistant_agent.interaction import (
     QuestionRequest,
     SafeDefaultInteractionPort,
 )
-from assistant_agent.tools.base import Tool, ToolContext, ToolResult
 from assistant_agent.tools.permissions import Capability, PermissionRequest
 from assistant_agent.tools.policy import PermissionPolicy
 from assistant_agent.tools.registry import ToolRegistry
+from tests.support import Tool, ToolContextFixture, ToolResult
 
 
 def test_safe_default_never_allows() -> None:
@@ -126,7 +126,7 @@ class _CaptureApproval(SafeDefaultInteractionPort):
 
 def test_registry_delivers_structured_redacted_approval_identity(tmp_path) -> None:
     port = _CaptureApproval()
-    context = ToolContext(
+    context = ToolContextFixture(
         workspace_root=tmp_path,
         interaction=port,
         permission_policy=PermissionPolicy(mode="strict"),
@@ -158,7 +158,7 @@ def test_interaction_exception_fails_closed(tmp_path) -> None:
     tool = _EffectTool()
     registry = ToolRegistry()
     registry.register(tool)
-    context = ToolContext(
+    context = ToolContextFixture(
         workspace_root=tmp_path,
         interaction=BrokenPort(),
         permission_policy=PermissionPolicy(mode="strict"),

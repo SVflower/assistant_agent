@@ -6,12 +6,13 @@ from typing import Any
 
 import pytest
 
-from assistant_agent.tools.base import Tool, ToolBudget, ToolContext, ToolResult
-from assistant_agent.tools.file_ops import ReadFileTool, WriteFileTool
+from assistant_agent.tools.file_edit import WriteFileTool
+from assistant_agent.tools.file_read import ReadFileTool
 from assistant_agent.tools.lifecycle import ReplayPolicy
 from assistant_agent.tools.permissions import PermissionRequest
 from assistant_agent.tools.registry import ToolRegistry
 from assistant_agent.tools.shell import ShellTool
+from tests.support import Tool, ToolBudget, ToolContextFixture, ToolResult
 
 
 class _Lifecycle:
@@ -73,7 +74,7 @@ def test_lifecycle_started_and_completed_wrap_side_effect():
     result = _registry(tool).execute(
         "record",
         {"value": "ok"},
-        ToolContext(),
+        ToolContextFixture(),
         call_id="c1",
         lifecycle=lifecycle,
     )
@@ -95,7 +96,7 @@ def test_approval_checkpoint_happens_before_prompt_and_started(tmp_path):
         return "allow"
 
     target = tmp_path / "outside" / "x.txt"
-    ctx = ToolContext(workspace_root=tmp_path / "workspace", confirm=confirm)
+    ctx = ToolContextFixture(workspace_root=tmp_path / "workspace", confirm=confirm)
     result = _registry(WriteFileTool()).execute(
         "write_file",
         {"path": str(target), "content": "x"},
@@ -114,7 +115,7 @@ def test_denied_call_completes_without_started(tmp_path):
     result = _registry(WriteFileTool()).execute(
         "write_file",
         {"path": str(target), "content": "x"},
-        ToolContext(workspace_root=tmp_path / "workspace"),
+        ToolContextFixture(workspace_root=tmp_path / "workspace"),
         call_id="c1",
         lifecycle=lifecycle,
     )
@@ -127,11 +128,17 @@ def test_preflight_and_budget_failure_are_completed():
     lifecycle = _Lifecycle()
     tool = _RecordingTool([])
     registry = _registry(tool)
-    invalid = registry.execute("record", {}, ToolContext(), call_id="bad", lifecycle=lifecycle)
+    invalid = registry.execute(
+        "record",
+        {},
+        ToolContextFixture(),
+        call_id="bad",
+        lifecycle=lifecycle,
+    )
     exhausted = registry.execute(
         "record",
         {"value": "x"},
-        ToolContext(budget=ToolBudget(max_calls=1, used_calls=1)),
+        ToolContextFixture(budget=ToolBudget(max_calls=1, used_calls=1)),
         call_id="budget",
         lifecycle=lifecycle,
     )
@@ -148,7 +155,7 @@ def test_started_checkpoint_failure_prevents_tool_run():
         _registry(tool).execute(
             "record",
             {"value": "x"},
-            ToolContext(),
+            ToolContextFixture(),
             call_id="c1",
             lifecycle=lifecycle,
         )
@@ -163,7 +170,7 @@ def test_completed_checkpoint_failure_propagates_after_tool_run():
         _registry(tool).execute(
             "record",
             {"value": "x"},
-            ToolContext(),
+            ToolContextFixture(),
             call_id="c1",
             lifecycle=lifecycle,
         )
@@ -177,14 +184,14 @@ def test_replay_policy_requires_workspace_read_or_trusted_readonly(tmp_path):
     _registry(ReadFileTool()).execute(
         "read_file",
         {"path": str(inside)},
-        ToolContext(workspace_root=tmp_path),
+        ToolContextFixture(workspace_root=tmp_path),
         call_id="read",
         lifecycle=lifecycle,
     )
     _registry(ShellTool()).execute(
         "run_shell",
         {"command": "pwd"},
-        ToolContext(workspace_root=tmp_path),
+        ToolContextFixture(workspace_root=tmp_path),
         call_id="shell",
         lifecycle=lifecycle,
     )
@@ -196,7 +203,7 @@ def test_replay_policy_requires_workspace_read_or_trusted_readonly(tmp_path):
 
 def test_lifecycle_requires_call_id_and_context_is_restored():
     tool = _RecordingTool([])
-    ctx = ToolContext(current_call_id="outer")
+    ctx = ToolContextFixture(current_call_id="outer")
     with pytest.raises(ValueError, match="call_id"):
         _registry(tool).execute("record", {"value": "x"}, ctx, lifecycle=_Lifecycle())
     _registry(tool).execute("record", {"value": "x"}, ctx, call_id="inner")

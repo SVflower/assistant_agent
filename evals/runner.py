@@ -18,13 +18,12 @@ from assistant_agent.agent.loop import AgentLoop, StepEvent
 from assistant_agent.agent.prompts import build_system_prompt
 from assistant_agent.config.loader import load_config
 from assistant_agent.config.schema import AppConfig
-from assistant_agent.llm.client import LLMClient
-from assistant_agent.mcp import MCPManager
-from assistant_agent.mcp.tool import MCPTool
-from assistant_agent.obs import NullLogger
-from assistant_agent.obs.redaction import redact_text, sanitize_args, truncate_text
-from assistant_agent.skills import LoadSkillTool, SkillStore
-from assistant_agent.tools.base import ConfirmChoice, ToolContext
+from assistant_agent.integrations.mcp import MCPManager
+from assistant_agent.integrations.mcp.tool import MCPTool
+from assistant_agent.integrations.skills import LoadSkillTool, SkillStore
+from assistant_agent.observability import NullLogger
+from assistant_agent.observability.redaction import redact_text, sanitize_args, truncate_text
+from assistant_agent.providers.litellm import LLMClient
 from assistant_agent.tools.permissions import Capability, PermissionRule
 from assistant_agent.tools.policy import PermissionPolicy
 from assistant_agent.tools.registry import build_default_registry
@@ -39,6 +38,7 @@ from evals.schema import (
 )
 from evals.scorers import repeated_call_count, score_case
 from evals.scripted_client import ScriptedClient
+from evals.support import ConfirmChoice, EvalToolContext
 
 
 class EvalAuditLogger(NullLogger):
@@ -221,7 +221,7 @@ def _run_one(
         )
         logger = EvalAuditLogger()
         confirmation = ConfirmationCounter(case.permissions.confirm)
-        context = ToolContext(
+        context = EvalToolContext(
             workspace_root=root,
             logger=logger,
             permission_policy=_policy(case, root),

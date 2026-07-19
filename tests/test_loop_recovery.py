@@ -8,16 +8,16 @@ from typing import Any
 
 import pytest
 
-from assistant_agent.agent.continuation import ContinuationController
-from assistant_agent.agent.failures import ContinuationResult
 from assistant_agent.agent.loop import AgentLoop
-from assistant_agent.agent.recovery import RunCoordinator
+from assistant_agent.agent.run.budgets import ContinuationController
+from assistant_agent.agent.run.coordinator import RunCoordinator
+from assistant_agent.agent.run.failures import ContinuationResult
 from assistant_agent.config.schema import AppConfig, ContinuationConfig
-from assistant_agent.llm.client import StreamEvent, ToolCall
 from assistant_agent.persistence.run_store import RunStore
-from assistant_agent.tools.base import Tool, ToolBudget, ToolContext, ToolResult
+from assistant_agent.providers.ports import StreamEvent, ToolCall
 from assistant_agent.tools.permissions import Capability, PermissionRequest
 from assistant_agent.tools.registry import ToolRegistry
+from tests.support import Tool, ToolBudget, ToolContextFixture, ToolResult
 
 
 class SimulatedCrash(BaseException):
@@ -122,7 +122,7 @@ def _loop(client, tools: list[Tool], *, interactive: bool = True, workspace=None
         _config(),
         client,
         registry,
-        ToolContext(
+        ToolContextFixture(
             interactive=interactive,
             workspace_root=workspace or Path.cwd(),
             confirm=lambda _message: "allow",
@@ -174,7 +174,7 @@ def test_budget_extension_checkpoint_is_idempotent(tmp_path):
         budget=budget,
     )
     loaded = RunCoordinator.load(RunStore(tmp_path), coordinator.run_id)
-    restored = loaded.restore_tool_context(ToolContext())
+    restored = loaded.restore_tool_context(ToolContextFixture())
 
     assert loaded.extend_budget(
         request_id="continue-1",
@@ -219,7 +219,7 @@ def test_resumed_continuation_uses_checkpoint_limits_not_new_config(tmp_path):
         "tool_calls",
         used=1,
         limit=1,
-        budget=loaded.restore_tool_context(ToolContext()),
+        budget=loaded.restore_tool_context(ToolContextFixture()),
         coordinator=loaded,
     )
 

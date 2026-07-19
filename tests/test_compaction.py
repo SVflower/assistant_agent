@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from assistant_agent.agent.compaction import Compactor, group_turns
 from assistant_agent.agent.context import Conversation
-from assistant_agent.llm.client import StreamEvent
+from assistant_agent.agent.context.compaction import Compactor, group_turns
+from assistant_agent.providers.ports import StreamEvent
 
 
 class _SummaryClient:
@@ -127,8 +127,8 @@ def test_export_history_stays_full_after_checkpoint():
 from assistant_agent.agent.loop import AgentLoop  # noqa: E402
 from assistant_agent.config.schema import AppConfig  # noqa: E402
 from assistant_agent.persistence.store import SessionStore  # noqa: E402
-from assistant_agent.tools.base import ToolContext  # noqa: E402
 from assistant_agent.tools.registry import ToolRegistry  # noqa: E402
+from tests.support import ToolContextFixture  # noqa: E402
 
 
 class _TurnClient:
@@ -152,7 +152,7 @@ def _loop(enabled: bool, threshold: float = 0.01) -> AgentLoop:
             },
         }
     )
-    return AgentLoop(cfg, _TurnClient(), ToolRegistry(), ToolContext())
+    return AgentLoop(cfg, _TurnClient(), ToolRegistry(), ToolContextFixture())
 
 
 def _preload(loop: AgentLoop, n_turns: int) -> None:
@@ -190,7 +190,7 @@ def test_loop_summary_failure_degrades_gracefully():
             },
         }
     )
-    loop = AgentLoop(cfg, _SummaryFailClient(), ToolRegistry(), ToolContext())
+    loop = AgentLoop(cfg, _SummaryFailClient(), ToolRegistry(), ToolContextFixture())
     _preload(loop, 10)
     events = list(loop.run("新问题"))  # 摘要失败但不崩
     assert loop.export_checkpoint() is None  # 降级：checkpoint 未写

@@ -50,12 +50,6 @@ def extract_result(result: Any) -> tuple[str, bool, Any | None]:
     return text, is_error, structured
 
 
-def extract_content(result: Any) -> tuple[str, bool]:
-    """兼容入口：返回旧的 (文本, is_error) 二元组。"""
-    text, is_error, _structured = extract_result(result)
-    return text, is_error
-
-
 class MCPTool(Tool):
     """一个 MCP server 工具的本地适配器。"""
 

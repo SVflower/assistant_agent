@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 from rich.console import Console as RichConsole
 
-from assistant_agent.agent.events import StepEvent
+from assistant_agent.contracts.events import StepEvent
 from assistant_agent.tools.display import call_display
 from assistant_agent.ui.activity import ActivityController, ActivityIndicator
 from assistant_agent.ui.console import Console

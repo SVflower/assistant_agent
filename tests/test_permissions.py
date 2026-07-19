@@ -6,7 +6,6 @@ from pathlib import Path
 from typing import Any
 
 from assistant_agent.observability import NullLogger
-from assistant_agent.tools.base import Tool, ToolContext, ToolResult
 from assistant_agent.tools.permissions import (
     Capability,
     PermissionRequest,
@@ -15,6 +14,7 @@ from assistant_agent.tools.permissions import (
 )
 from assistant_agent.tools.policy import PermissionPolicy
 from assistant_agent.tools.registry import ToolRegistry
+from tests.support import Tool, ToolContextFixture, ToolResult
 
 
 def _request(target: str = "target") -> PermissionRequest:
@@ -80,7 +80,7 @@ def test_explicit_rule_is_preserved_in_permission_audit(tmp_path):
 
     request = _request(str(tmp_path / "file.txt"))
     logger = _Recorder()
-    ctx = ToolContext(
+    ctx = ToolContextFixture(
         workspace_root=tmp_path,
         logger=logger,
         permission_policy=PermissionPolicy(
@@ -125,7 +125,7 @@ def test_default_sensitive_roots_remain_denied_when_custom_roots_are_added(tmp_p
 
 
 def test_noninteractive_ask_fails_closed(tmp_path):
-    ctx = ToolContext(
+    ctx = ToolContextFixture(
         workspace_root=tmp_path,
         permission_policy=PermissionPolicy(mode="strict"),
         interactive=False,
@@ -145,7 +145,7 @@ def test_permission_prompt_deduplicates_shared_risk(tmp_path):
         PermissionRequest("shell", Capability.PROCESS_EXECUTE, "cmd", "共享风险"),
         PermissionRequest("shell", Capability.NETWORK_ACCESS, "unknown", "共享风险"),
     ]
-    ctx = ToolContext(
+    ctx = ToolContextFixture(
         workspace_root=tmp_path,
         permission_policy=PermissionPolicy(mode="workspace"),
         interactive=True,
@@ -208,7 +208,7 @@ def _registry(tool: Tool) -> ToolRegistry:
 
 def test_pre_observer_can_deny_without_execution():
     tool = _EffectTool()
-    ctx = ToolContext(
+    ctx = ToolContextFixture(
         permission_policy=PermissionPolicy(mode="unrestricted"),
         pre_tool_observers=[_DenyObserver()],
     )
@@ -219,7 +219,7 @@ def test_pre_observer_can_deny_without_execution():
 
 def test_pre_observer_exception_fails_closed():
     tool = _EffectTool()
-    ctx = ToolContext(
+    ctx = ToolContextFixture(
         permission_policy=PermissionPolicy(mode="unrestricted"),
         pre_tool_observers=[_BrokenPreObserver()],
     )
@@ -238,7 +238,7 @@ def test_post_observer_exception_does_not_replace_result():
 
     tool = _EffectTool()
     logger = _Recorder()
-    ctx = ToolContext(
+    ctx = ToolContextFixture(
         permission_policy=PermissionPolicy(mode="unrestricted"),
         post_tool_observers=[_BrokenPostObserver()],
         logger=logger,
@@ -252,7 +252,7 @@ def test_post_observer_exception_does_not_replace_result():
 def test_observer_mutation_cannot_change_execution_or_result():
     tool = _EffectTool()
     observer = _MutatingObserver()
-    ctx = ToolContext(
+    ctx = ToolContextFixture(
         permission_policy=PermissionPolicy(mode="unrestricted"),
         pre_tool_observers=[observer],
         post_tool_observers=[observer],
@@ -268,6 +268,6 @@ def test_unknown_extension_tool_defaults_to_confirmation():
             return Tool.permission_requests(self, args, ctx)
 
     tool = _UndeclaredTool()
-    result = _registry(tool).execute(tool.name, {}, ToolContext(interactive=False))
+    result = _registry(tool).execute(tool.name, {}, ToolContextFixture(interactive=False))
     assert result.is_error and not result.executed
     assert tool.calls == 0

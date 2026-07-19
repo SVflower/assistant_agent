@@ -13,9 +13,9 @@ from assistant_agent.config.writer import ConfigWriteError, MCPConfigStore
 from assistant_agent.integrations.mcp.configure import MCPConfigureError, MCPProbeResult, MCPService
 from assistant_agent.integrations.skills.manager import SkillInstallError, SkillManager
 from assistant_agent.integrations.skills.store import SkillStore
-from assistant_agent.tools.base import ToolContext
 from assistant_agent.tools.extensions import ConfigureMCPServerTool, ManageSkillTool
 from assistant_agent.tools.permissions import Capability
+from tests.support import ToolContextFixture
 
 _CONFIG = """
 # keep this project comment
@@ -99,7 +99,7 @@ def test_skill_rejects_unmanaged_conflict_and_symlink(tmp_path, monkeypatch):
 def test_manage_skill_tool_reports_restart(tmp_path, monkeypatch):
     monkeypatch.setenv("ASSISTANT_AGENT_HOME", str(tmp_path / "home"))
     tool = ManageSkillTool(SkillManager(tmp_path / "workspace"))
-    result = tool.run({"action": "install", "source": str(_skill(tmp_path))}, ToolContext())
+    result = tool.run({"action": "install", "source": str(_skill(tmp_path))}, ToolContextFixture())
     assert not result.is_error
     assert "下次启动生效" in result.output
 
@@ -210,7 +210,7 @@ def test_configure_mcp_tool_declares_specific_permissions(tmp_path, monkeypatch)
         "scope": "user",
         "server": {"command": "npx", "args": ["-y", "pkg@1"]},
     }
-    requests = tool.permission_requests(args, ToolContext())
+    requests = tool.permission_requests(args, ToolContextFixture())
     assert {request.capability for request in requests} == {
         Capability.PROCESS_EXECUTE,
         Capability.FILESYSTEM_WRITE,
@@ -234,8 +234,8 @@ def test_configure_mcp_tool_add_and_remove(tmp_path, monkeypatch):
             "name": "demo",
             "server": {"command": "npx", "args": ["pkg@1"]},
         },
-        ToolContext(),
+        ToolContextFixture(),
     )
-    removed = tool.run({"action": "remove", "name": "demo"}, ToolContext())
+    removed = tool.run({"action": "remove", "name": "demo"}, ToolContextFixture())
     assert not added.is_error and "下次启动生效" in added.output
     assert not removed.is_error and service.store.get("demo", "user") is None

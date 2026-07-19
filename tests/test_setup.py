@@ -15,8 +15,8 @@ from assistant_agent.interaction import SafeDefaultInteractionPort
 from assistant_agent.observability import NullLogger
 from assistant_agent.persistence.run_store import RunStore
 from assistant_agent.persistence.store import SessionStore
-from assistant_agent.service.runtime import AgentRuntime
-from assistant_agent.tools.base import ToolContext
+from assistant_agent.service import AgentRuntime
+from tests.support import ToolContextFixture
 
 
 class _Console:
@@ -94,7 +94,7 @@ def test_runtime_close_is_idempotent(tmp_path):
     logger = _Logger()
     mcp = _MCP()
     interaction = SafeDefaultInteractionPort()
-    ctx = ToolContext(interaction=interaction, workspace_root=tmp_path)
+    ctx = ToolContextFixture(interaction=interaction, workspace_root=tmp_path)
     runtime = AgentRuntime(
         config=config,
         loop=object(),  # type: ignore[arg-type]

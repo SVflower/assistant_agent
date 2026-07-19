@@ -6,7 +6,7 @@ from collections.abc import Callable, Generator
 from dataclasses import dataclass, field
 from typing import Any
 
-from assistant_agent.agent.failures import provider_failure
+from assistant_agent.agent.run.failures import provider_failure
 from assistant_agent.agent.run.ports import ControlState
 from assistant_agent.contracts.events import StepEvent
 from assistant_agent.contracts.failures import RunFailure

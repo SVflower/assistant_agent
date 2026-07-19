@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from assistant_agent.tools.base import ToolContext
 from assistant_agent.tools.registry import ToolRegistry
 from assistant_agent.tools.search import CodeSearchTool
+from tests.support import ToolContextFixture
 
 
 def _search(args):
@@ -14,7 +14,9 @@ def _search(args):
     registry.register(CodeSearchTool())
     requested = Path(args.get("path") or ".")
     workspace = requested if requested.is_dir() else requested.parent
-    return registry.execute("code_search", args, ToolContext(workspace_root=workspace.resolve()))
+    return registry.execute(
+        "code_search", args, ToolContextFixture(workspace_root=workspace.resolve())
+    )
 
 
 def test_context_lines_include_neighbors_and_mark_match(tmp_path):

@@ -6,7 +6,7 @@ import os
 from types import SimpleNamespace
 
 from assistant_agent.config.schema import ProviderConfig
-from assistant_agent.llm.client import (
+from assistant_agent.providers.litellm import (
     LLMClient,
     _bypass_proxy_for_local,
     _finalize_tool_calls,

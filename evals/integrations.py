@@ -8,8 +8,8 @@ from types import SimpleNamespace
 from typing import Any
 
 from assistant_agent.config.schema import AppConfig
-from assistant_agent.mcp.tool import MCPTool
-from assistant_agent.skills import LoadSkillTool, SkillMeta, SkillSource, SkillStore
+from assistant_agent.integrations.mcp.tool import MCPTool
+from assistant_agent.integrations.skills import LoadSkillTool, SkillMeta, SkillSource, SkillStore
 from assistant_agent.tools.registry import ToolRegistry
 from evals.schema import EvalCase
 

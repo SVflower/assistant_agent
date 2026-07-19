@@ -5,7 +5,6 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import Any, Literal
 
-from assistant_agent.agent.failures import tool_failure
 from assistant_agent.agent.run.budgets import ContinuationStateMixin
 from assistant_agent.agent.run.checkpoint import (
     decode_budget,
@@ -14,6 +13,7 @@ from assistant_agent.agent.run.checkpoint import (
     encode_request,
     encode_result,
 )
+from assistant_agent.agent.run.failures import tool_failure
 from assistant_agent.agent.run.ports import (
     LoadedRunPort,
     NullRunTelemetry,

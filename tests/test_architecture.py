@@ -15,6 +15,34 @@ from pathlib import Path
 SRC = Path(__file__).resolve().parent.parent / "src" / "assistant_agent"
 
 _REVIEW_FILE_LINES = 600
+_REMOVED_LEGACY_PACKAGES = {"llm", "mcp", "obs", "runtime", "session", "skills", "web"}
+_REMOVED_FORWARDERS = {
+    "agent/compaction.py",
+    "agent/continuation.py",
+    "agent/events.py",
+    "agent/execution.py",
+    "agent/failures.py",
+    "agent/loop_resume.py",
+    "agent/recovery.py",
+    "agent/recovery_codec.py",
+    "agent/recovery_definitions.py",
+    "agent/run_control.py",
+    "agent/run_state.py",
+    "agent/token_budget.py",
+    "interaction/models.py",
+    "interaction/ports.py",
+    "service/capabilities.py",
+    "service/errors.py",
+    "service/events.py",
+    "service/policy.py",
+    "service/runtime.py",
+    "service/sessions.py",
+    "tools/artifacts.py",
+    "tools/base.py",
+    "tools/file_ops.py",
+    "tools/process.py",
+    "tools/result.py",
+}
 
 
 def _iter_src_files() -> list[Path]:
@@ -76,6 +104,18 @@ def test_service_root_is_definition_free_facade():
         if isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef))
     ]
     assert definitions == []
+
+
+def test_removed_legacy_import_paths_do_not_return():
+    """开发期只维护目标结构，不重新引入迁移前的包或转发文件。"""
+    existing_packages = {path.name for path in SRC.iterdir() if path.is_dir()}
+    assert not (_REMOVED_LEGACY_PACKAGES & existing_packages)
+    existing_forwarders = {
+        path.relative_to(SRC).as_posix()
+        for path in SRC.rglob("*.py")
+        if path.relative_to(SRC).as_posix() in _REMOVED_FORWARDERS
+    }
+    assert not existing_forwarders
 
 
 def test_tools_do_not_depend_on_agent_or_ui():

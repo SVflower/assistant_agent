@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import pytest
 
-from assistant_agent.tools.base import ArtifactRef, Tool, ToolBudget, ToolContext, ToolResult
 from assistant_agent.tools.registry import ToolRegistry
 from assistant_agent.tools.validation import ToolSchemaError
+from tests.support import ArtifactRef, Tool, ToolBudget, ToolContextFixture, ToolResult
 
 
 class RecordingTool(Tool):
@@ -41,7 +41,7 @@ class RecordingTool(Tool):
         )
 
 
-def test_tool_result_old_constructor_remains_compatible():
+def test_tool_result_constructor_defaults_are_stable():
     assert ToolResult("ok").code == "ok"
     assert ToolResult("bad", is_error=True).code == "tool_error"
 
@@ -59,7 +59,7 @@ def test_validation_happens_before_permission_and_side_effect(args):
     tool = RecordingTool()
     registry = ToolRegistry()
     registry.register(tool)
-    result = registry.execute(tool.name, args, ToolContext())
+    result = registry.execute(tool.name, args, ToolContextFixture())
     assert result.code == "invalid_arguments"
     assert result.retryable is True
     assert result.executed is False
@@ -71,7 +71,7 @@ def test_validation_allows_unknown_fields_for_small_model_tolerance():
     tool = RecordingTool()
     registry = ToolRegistry()
     registry.register(tool)
-    result = registry.execute("record", {"mode": "safe", "extra": "ignored"}, ToolContext())
+    result = registry.execute("record", {"mode": "safe", "extra": "ignored"}, ToolContextFixture())
     assert result.code == "ok"
     assert tool.run_calls == 1
 
@@ -92,7 +92,7 @@ def test_output_limiting_preserves_structured_fields():
     tool = RecordingTool()
     registry = ToolRegistry()
     registry.register(tool)
-    result = registry.execute("record", {"mode": "safe"}, ToolContext(max_output_chars=5))
+    result = registry.execute("record", {"mode": "safe"}, ToolContextFixture(max_output_chars=5))
     assert len(result.output) == 5
     assert result.metadata == {"source": "test"}
     assert result.artifacts[0].id == "a"
@@ -104,8 +104,8 @@ def test_budget_and_unknown_tool_have_stable_codes():
     tool = RecordingTool()
     registry.register(tool)
     budget = ToolBudget(max_calls=1, used_calls=1)
-    exhausted = registry.execute("record", {"mode": "safe"}, ToolContext(budget=budget))
-    unknown = registry.execute("missing", {}, ToolContext())
+    exhausted = registry.execute("record", {"mode": "safe"}, ToolContextFixture(budget=budget))
+    unknown = registry.execute("missing", {}, ToolContextFixture())
     assert exhausted.code == "budget_exhausted"
     assert exhausted.executed is False
     assert unknown.code == "unknown_tool"

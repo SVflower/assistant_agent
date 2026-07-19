@@ -9,7 +9,6 @@ from typing import Any
 from assistant_agent.agent.context.compaction import Compactor
 from assistant_agent.agent.context.conversation import Conversation, estimate_tools_tokens
 from assistant_agent.agent.context.window import ContextWindowError
-from assistant_agent.agent.failures import budget_failure
 from assistant_agent.agent.prompts import build_system_prompt
 from assistant_agent.agent.run.budgets import (
     BudgetContinueCheck,
@@ -18,6 +17,7 @@ from assistant_agent.agent.run.budgets import (
 )
 from assistant_agent.agent.run.control import finish_control
 from assistant_agent.agent.run.coordinator import RecoveryChoice, RunCoordinator
+from assistant_agent.agent.run.failures import budget_failure
 from assistant_agent.agent.run.ports import ControlState, RunControlPort
 from assistant_agent.agent.run.resume import resume_loop, sync_loop_state
 from assistant_agent.agent.run.state import ToolCallState

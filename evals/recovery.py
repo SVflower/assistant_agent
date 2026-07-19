@@ -9,13 +9,13 @@ from tempfile import TemporaryDirectory
 from typing import Any
 
 from assistant_agent.agent.loop import AgentLoop
-from assistant_agent.agent.recovery import RunCoordinator
+from assistant_agent.agent.run.coordinator import RunCoordinator
 from assistant_agent.config.schema import AppConfig
-from assistant_agent.session.run_store import RunStore
-from assistant_agent.tools.base import Tool, ToolContext, ToolResult
+from assistant_agent.persistence.run_store import RunStore
 from assistant_agent.tools.registry import ToolRegistry
 from evals.schema import ScriptRound
 from evals.scripted_client import ScriptedClient
+from evals.support import EvalToolContext, Tool, ToolResult
 
 
 class SimulatedCrash(BaseException):
@@ -97,7 +97,7 @@ def _loop(
         config,
         client,
         registry,
-        ToolContext(interactive=interactive),
+        EvalToolContext(interactive=interactive),
         interactive=interactive,
         system_prompt="recovery-eval",
     )

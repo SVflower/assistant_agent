@@ -4,8 +4,8 @@
 > 或其他上层服务。
 >
 > 本文是公共服务契约的长期唯一正式入口；里程碑归档和阶段性交接不能替代本文。
-> 当前公共事件契约：`EVENT_CONTRACT_VERSION == 1`；当前 Run checkpoint：schema v3。
-> 最近同步：M21 受管命令与后台进程生命周期（2026-07-19）。
+> 当前公共事件契约：`EVENT_CONTRACT_VERSION == 1`；当前 Run checkpoint：schema v4。
+> 最近同步：M24 受控图表展示与 Artifact（2026-07-19）。
 
 ## 1. 集成边界
 
@@ -134,6 +134,19 @@ assistant_agent.tools
   崩溃，仍沿用既有 `tool_uncertain`，不得自动重放 start；
 - container Workspace 当前返回 `managed_process_container_unsupported`，绝不退化到宿主执行。
 
+### 2.4 M24 图表与 Presentation Artifact 契约
+
+- `EVENT_CONTRACT_VERSION` 保持 `1`，不新增 EventKind；`ToolResult/StepEvent` additive 增加
+  `chart: ChartArtifact | None`。
+- Run checkpoint 升 v4；读取 v1/v2/v3 时迁移为 `presentations=[]`。旧 Agent 不承诺降级读取 v4。
+- Agent 是 Artifact 唯一权威所有者。API 不保存第二份完整数据，不解析 checkpoint/Session 文件。
+- `present_chart` 是纯、安全幂等工具。模型只能提交受控 `ChartSpecV1`，不能提交 ECharts option、
+  formatter、HTML、URL、graphic、脚本、函数或颜色配置。
+- 工具 schema 占用超过上下文预算时 Runtime 可省略 `present_chart`，并通过
+  `chart_presentation_omitted_context_limit` notice 报告；调用方以 `RuntimeCapabilities.tools` 为准。
+- 成功事件顺序固定为 `tool_call -> tool_result(chart) -> final -> run_terminal`。Artifact 已原子
+  checkpoint 后才发 `tool_result`；失败产生 `artifact_rejected` notice，不改变正文和终态。
+
 ## 3. 推荐入口
 
 业务服务优先使用 `AgentService`。它收编了 Session、Run、恢复和终态同步，不要求调用方复制状态机。
@@ -204,6 +217,11 @@ session = service.load_session(session_id, interaction=port, interactive=True)
 session_list = service.list_sessions()
 run_list = service.list_runs(session_id=session_id)
 unfinished = session.unfinished_runs()
+presentations = session.list_presentations()
+session_snapshot = session.snapshot()
+run_snapshot = session.run_snapshot(run_id)
+artifact = session.get_artifact(artifact_id)
+artifact = service.get_artifact(session_id, artifact_id)
 ```
 
 一个 `SessionRuntime` 独占以下状态：
@@ -224,7 +242,8 @@ deleted = service.delete_session(session_id)
 ```
 
 Session 存在 running/paused Run 时，默认抛出 `SessionRunConflictError`。服务不应为方便删除而隐式
-取消或丢弃可恢复 Run。`force=True` 只适合已由产品策略明确确认的数据清理流程。
+取消或丢弃可恢复 Run。`force=True` 只适合已由产品策略明确确认的数据清理流程。删除成功后会级联
+删除该 Session 所属 Run，内联 Artifact 随之不可读取。
 
 ### 5.3 关闭
 
@@ -310,7 +329,7 @@ from assistant_agent.service import (
 ```text
 kind, text, tool_name, tool_args, is_error, usage, call_id, display,
 result_code, result_metadata, contract_version, sensitive,
-terminal_status, failure, phase, budget
+terminal_status, failure, phase, budget, chart
 ```
 
 新增字段保持可选，调用方必须忽略未知未来字段和未知向后兼容事件，不能使 Run 消费失败。
@@ -330,6 +349,39 @@ terminal_status, failure, phase, budget
 | `interrupted` | 兼容事件 | 终态以 `run_terminal` 为准 |
 | `activity` | 安全运行阶段和可选预算快照 | 更新临时 Run 状态，不写入消息历史 |
 | `run_terminal` | 公共 Run 终态 | 读取 `terminal_status` 和 `failure` |
+
+成功的 `present_chart` 工具结果在 `chart` 携带完整 `ChartArtifact`。API 事件层只应转发其 ref/summary，
+完整数据通过 `get_artifact` 按需读取。其他事件的 `chart` 为 null；旧消费者忽略该字段即可。
+
+### 7.1 Chart DTO
+
+`ChartSpecV1` 字段：
+
+```text
+schema_version=1, chart_type, title, description, source_label,
+columns[{key,label,data_type,unit}], rows,
+x_key, series[{key,label}], category_key, value_key
+```
+
+`chart_type` 为 `line|bar|stacked_bar|area|scatter|donut`；`data_type` 为
+`string|number|datetime`。line/bar/stacked_bar/area 使用 `x_key+series`；scatter 的 x/series
+必须是 number；donut 使用 `category_key+value_key` 且 value 为 number。单元只允许 string、有限
+number 或 null，bool 非 number。硬限为 12 列、5000 行、20000 cells、8 series。
+
+`ChartArtifact` 是以下 ref 字段加完整 `spec`：
+
+```text
+artifact_id, kind="chart", schema_version=1, content_hash="sha256:...",
+session_id, run_id, message_id, created_at, title, size_bytes, spec
+```
+
+单 Artifact 最大 512 KiB，每 Run 最多 16 个且合计 2 MiB。Artifact 创建后不可修改；更新必须创建
+新 ID。新 Assistant message 具有稳定 `message_id` 和 Artifact refs；旧消息允许 `id=null`、
+`artifacts=[]`。`AssistantMessageSnapshot`、`SessionSnapshot`、`RunSnapshot` 和全部 Chart DTO 均从
+`assistant_agent.service`/`assistant_agent.contracts` 导出。
+
+读取错误只使用类型化异常：`ArtifactNotFoundError.code == "artifact_not_found"`（404）和
+`ArtifactUnavailableError.code == "artifact_unavailable"`（503），不能向网络返回路径或原始异常。
 
 `terminal_status` 取值：
 
@@ -616,6 +668,7 @@ AgentService（一个服务实例）
 POST   /sessions
 GET    /sessions/{session_id}
 DELETE /sessions/{session_id}
+GET    /sessions/{session_id}/artifacts/{artifact_id}
 POST   /sessions/{session_id}/runs
 GET    /runs/{run_id}
 POST   /runs/{run_id}/pause
@@ -641,15 +694,44 @@ Agent 事件推荐映射：
 activity            -> run.activity（覆盖临时状态）
 content_delta       -> assistant.delta（partial=true）
 tool_call/result    -> run.tool（按 call_id 配对，优先 display）
+tool_result(chart)  -> assistant.artifact（只发 ref/summary，完整数据走 REST）
 usage               -> run.usage
 final               -> assistant.final_candidate
 error/interrupted   -> run.notice（不是终态）
 run_terminal        -> run.terminal + 原子更新 Run snapshot
 ```
 
-Run snapshot 至少保留 `terminal_status/failure/current_phase/budget/pending_interaction/final_candidate`。
+Run snapshot 至少保留 `terminal_status/failure/current_phase/budget/pending_interaction/final_candidate/artifacts`。
 API 自行增加 seq、timestamp、session_id、run_id、heartbeat 和重连缓存；网络重连只能重放 API 已缓存
 DTO，不能重新迭代 Agent 或重新执行工具。
+
+M24 REST/事件映射：
+
+```text
+MessageResponse.id: string | null = null
+MessageResponse.artifacts: ArtifactSummaryResponse[] = []
+RunResponse.artifacts: ArtifactSummaryResponse[] = []
+GET artifact -> AgentService.get_artifact(session_id, artifact_id)
+ArtifactNotFoundError -> HTTP 404 {code: "artifact_not_found"}
+ArtifactUnavailableError -> HTTP 503 {code: "artifact_unavailable"}
+```
+
+`assistant.artifact` 只携带 `PresentationArtifactRef` 等价 summary，不携带 `spec.rows`。Web 收到后再按
+session/artifact ID 读取完整 Artifact。API 不复制完整 Artifact；缓存 summary 仅用于事件重连，不成为
+权威存储。成功事件序列：
+
+```text
+run.tool(call_id, phase=call)
+run.tool(call_id, phase=result) + assistant.artifact(summary)
+assistant.final_candidate
+run.activity(syncing_session)
+run.terminal(completed)
+```
+
+非法/超限图表序列为 `tool_result(result_code=artifact_rejected) -> run.notice -> 后续正文 ->
+run.terminal`，不得把图表局部失败提升为 Run failed。刷新历史时使用 `SessionSnapshot.assistant_messages`
+的稳定 `id/artifacts`；旧消息 `id=null/artifacts=[]`，不得由 API 临时生成 ID。删除 Session 后旧
+artifact URL 必须返回统一 404，跨 Session 查询也返回同一 404，避免泄漏存在性。
 
 ## 13. 常见错误
 
@@ -667,6 +749,8 @@ DTO，不能重新迭代 Agent 或重新执行工具。
 - 未固定事件契约版本就部署调用方。
 - 把 `available_cached` 当作 MCP 已在线，或等待所有 optional MCP 才标记 API ready；
 - 在 `discovering -> restart_required` 后向活跃 Runtime 热插拔工具。
+- 把完整 Chart rows 放入 WebSocket 重连缓存，或让 Web 接收模型生成的 ECharts option；
+- API 扫描 Agent Session/Run 文件、复制完整 Artifact，或为旧消息补造不稳定 message ID。
 
 ## 14. 接入验收清单
 
@@ -691,6 +775,10 @@ DTO，不能重新迭代 Agent 或重新执行工具。
 18. Runtime 淘汰/关闭后后台发现线程、MCP 子进程和已连接 transport 均被清理。
 19. `ToolDisplay.timeout_seconds` 缺失时保持兼容，存在时只作为安全展示值，不读取完整命令推断超时；
 20. API 不写死 `manage_process`，并能处理工具因上下文预算或 policy 未注册的 Runtime；
+21. API 忽略普通 `tool_result.chart=null`，把成功 chart 映射为 summary 事件并通过 REST 拉完整数据；
+22. 图表刷新/历史恢复、跨 Session 404、删除级联、503 损坏态和断线重放均通过；
+23. `artifact_rejected` 不改变 final/run_terminal，低上下文或 recovery 关闭导致工具缺失时 API 仍 ready；
+24. Web 只把 ChartSpecV1 映射为固定 ECharts option，未知 schema/encoding 安全降级为表格或忽略。
 21. opaque process ID 不作为 OS PID 展示、不跨 Runtime 持久化，Runtime 淘汰/关闭后不自动恢复；
 22. `background_process_detected`、`managed_process_container_unsupported` 和
     `managed_process_detached_child` 按结构化工具结果处理，不解析中文文本；

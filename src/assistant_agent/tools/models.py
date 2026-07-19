@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from assistant_agent.contracts.charts import ChartArtifact
+
 
 @dataclass
 class ArtifactRef:
@@ -68,10 +70,13 @@ class ToolResult:
     artifacts: list[ArtifactRef] = field(default_factory=list)
     budget_exhausted: str | None = None
     executed: bool = True
+    chart: ChartArtifact | None = None
 
     def __post_init__(self) -> None:
         if not self.code:
             self.code = "tool_error" if self.is_error else "ok"
+        if self.is_error:
+            self.chart = None
 
     @classmethod
     def ok(
@@ -81,6 +86,7 @@ class ToolResult:
         code: str = "ok",
         metadata: dict[str, Any] | None = None,
         artifacts: list[ArtifactRef] | None = None,
+        chart: ChartArtifact | None = None,
     ) -> ToolResult:
         return cls(
             output=output,
@@ -88,6 +94,7 @@ class ToolResult:
             code=code,
             metadata=metadata or {},
             artifacts=artifacts or [],
+            chart=chart,
         )
 
     @classmethod

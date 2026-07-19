@@ -33,6 +33,9 @@
 - **受管命令生命周期（M21）**：前台命令的 deadline 覆盖 execution/drain/cleanup；父进程先退出、
   后代继承 PIPE 时结构化失败并清理，不再永久停在 `tools_pending`；`manage_process` 提供 Runtime
   隔离的后台服务启动/状态/有界日志/停止，使用 opaque ID，Runtime 关闭统一清理。
+- **受控图表展示（M24）**：版本化 ChartSpecV1 与不可变 Chart Artifact；`present_chart` 复用工具安全链，
+  RunState v4 原子保存并同步 Session；公共服务提供稳定 message/artifact refs、list/get/snapshot，API
+  无需解析内部文件。事件 v1 保持 additive 兼容。
 - **工具**：读/写/局部编辑/列目录/shell/代码检索/git 只读/用户澄清，以及带来源的
   `web_search`/`fetch_url`；搜索 backend 可替换，抓取含 SSRF、重定向和响应上限防护。
 - **命令层**：slash 命令系统本地拦截不花 token；`/skills` 与 `/mcp` 支持列出、安装、诊断、
@@ -51,8 +54,8 @@
   已完成工具不重放，started 副作用需 retry/skip/abort；预算、重复熔断、权限和摘要状态跨进程恢复；
   trace/session/run/call 标识对齐，还清 D8。
 
-**质量**：637 测试通过（6 个平台能力测试跳过）、覆盖率 84%、14,897 行/125 文件生产 Python 源码 +
-1,404 行 eval 基础设施，Ruff/mypy 全绿。架构适应度测试（12 条声明式依赖契约 + 旧路径防回归 +
+**质量**：654 测试通过（6 个平台能力测试跳过）、覆盖率 84%、15,496 行/127 文件生产 Python 源码 +
+1,411 行 eval 基础设施，Ruff/mypy 全绿。架构适应度测试（12 条声明式依赖契约 + 旧路径防回归 +
 600 行非阻断评审）、技术债册、
 DoD 和里程碑工作流全在；CI 已加入 format/lint/mypy/coverage/scripted eval/recovery eval 与
 Windows/Linux、Python 3.11/3.13 矩阵。剩余 5 项技术债（2 中/3 低，无高优先级）。
@@ -60,13 +63,12 @@ Windows/Linux、Python 3.11/3.13 矩阵。剩余 5 项技术债（2 中/3 低，
 **边界（明确未做）**：外置 MCP/自定义 Python Tool 的容器化、远程 Workspace、子 Agent 编排、
 Web GUI、rewind/recap、非交互 init、PyPI 分发。
 
-**阶段状态**：第一至第十四阶段已完成。M10c 的
+**阶段状态**：第一至第十五阶段已完成。M10c 的
 “不做全栈 async”决策保持不变；M14 以同步 RunControl、跨平台 ProcessSupervisor 和 Workspace
 抽象补齐受控执行边界并还清 D18。
 
-**当前进展**：M21 已完成。前台 Shell 不再因后台后代持有 PIPE 而无限等待；后台服务改走
-SessionRuntime 隔离的 `manage_process`。`ToolDisplay.timeout_seconds` 为向后兼容扩展，
-StepEvent v1 与 checkpoint v3 不变。公共调用继续只依赖
+**当前进展**：M24 已完成。Agent 权威保存受控 Chart Artifact，StepEvent v1 additive 增加 `chart`，
+Run checkpoint 升 v4 并兼容迁移 v1-v3；API 通过公共 get/list/snapshot 接入。公共调用继续只依赖
 `assistant_agent.service` / `contracts` / `interaction`。见
 [架构事实源](docs/ARCHITECTURE.md)与[正式服务契约](docs/agent-service-integration-guide.md)。
 
@@ -305,6 +307,19 @@ D14，M9c 已还清 D9，M10a 已还清 D16，M10b 已还清 D8，M11a 已还清
 > ToolDisplay 向后兼容增加安全 timeout，StepEvent v1/checkpoint v3 不变。637 passed、6 skipped、
 > 覆盖率 84%；Ruff、mypy、12/12 import-linter、scripted 18/18、recovery 4/4 全绿；生产 Python
 > 14,897 行/125 文件，未修改 Loop。
+
+### 第十五阶段（已完成）
+
+| 里程碑 | 主题 | 状态 |
+|--------|------|------|
+| M24 | 受控图表展示与 Presentation Artifact | ✅ · [方案](docs/archive/phase15/m24-chart-presentation-plan.md) |
+
+> **M24 已完成**：ChartSpecV1 严格限制六类图表、编码和数据规模；`present_chart` 纯且安全幂等，
+> Artifact 在 tool_result 前进入 RunState v4 原子 checkpoint，并在终态同步 Session message refs。
+> AgentService/SessionRuntime 提供 list/get/snapshot 和删除级联；低上下文或关闭 recovery 时安全省略工具。
+> StepEvent/EventKind v1 不变，新增 chart 为可选字段。654 passed、6 skipped、覆盖率 84%；Ruff、mypy、
+> 12/12 import-linter、scripted 19/19、recovery 4/4 全绿；生产 Python 15,496 行/127 文件，
+> eval 基础设施 1,411 行，未修改 Loop。
 
 ## 未来方向（P3，信号驱动，暂不做）
 

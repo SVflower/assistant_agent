@@ -17,6 +17,8 @@ from assistant_agent.persistence.store import SessionStore
 from assistant_agent.providers.ports import StreamEvent, ToolCall
 from assistant_agent.service import (
     AgentService,
+    ArtifactNotFoundError,
+    ArtifactUnavailableError,
     RuntimeConfigError,
     SessionBusyError,
     SessionRunConflictError,
@@ -47,6 +49,11 @@ def test_public_facade_runs_and_syncs_terminal_session(tmp_path, monkeypatch):
     service = AgentService(config_path=_config(tmp_path, monkeypatch), workspace_root=tmp_path)
     session_runtime = service.create_session(interaction=SafeDefaultInteractionPort())
     try:
+        assert "present_chart" not in session_runtime.capabilities.tools
+        assert any(
+            item.code == "chart_presentation_omitted_context_limit"
+            for item in session_runtime.runtime.notices
+        )
         execution = session_runtime.start_run("task")
         events = list(execution.events)
         assert any(item.kind == "final" and item.text == "done" for item in events)
@@ -65,6 +72,96 @@ def test_public_facade_runs_and_syncs_terminal_session(tmp_path, monkeypatch):
         assert run["session_synced"] is True
     finally:
         session_runtime.close()
+
+
+class _ChartClient:
+    def __init__(self, _provider) -> None:
+        self.calls = 0
+
+    def complete_stream(self, messages, tools=None):
+        self.calls += 1
+        if self.calls == 1:
+            yield StreamEvent(
+                kind="tool_calls",
+                tool_calls=[
+                    ToolCall(
+                        "chart-call",
+                        "present_chart",
+                        {
+                            "schema_version": 1,
+                            "chart_type": "bar",
+                            "title": "数量",
+                            "columns": [
+                                {
+                                    "key": "name",
+                                    "label": "名称",
+                                    "data_type": "string",
+                                    "unit": None,
+                                },
+                                {
+                                    "key": "value",
+                                    "label": "数量",
+                                    "data_type": "number",
+                                    "unit": None,
+                                },
+                            ],
+                            "rows": [["A", 1], ["B", 2]],
+                            "x_key": "name",
+                            "series": [{"key": "value", "label": "数量"}],
+                            "category_key": None,
+                            "value_key": None,
+                        },
+                    )
+                ],
+            )
+        else:
+            yield StreamEvent(kind="content", text="图表已生成")
+
+
+def test_chart_event_history_snapshot_and_cascade_delete(tmp_path, monkeypatch):
+    config = _config(tmp_path, monkeypatch)
+    config.write_text(
+        "active: fake\nproviders:\n  fake:\n    model: openai/fake\n"
+        "agent:\n  max_context_tokens: 16000\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(runtime_module, "LLMClient", _ChartClient)
+    service = AgentService(config_path=config, workspace_root=tmp_path)
+    session_runtime = service.create_session()
+    session_id = session_runtime.session.id
+    execution = session_runtime.start_run("画图")
+    events = list(execution.events)
+    chart_event = next(item for item in events if item.kind == "tool_result")
+    assert chart_event.chart is not None
+    assert [item.kind for item in events][-3:] == ["final", "activity", "run_terminal"]
+    artifact_id = chart_event.chart.artifact_id
+    assert service.get_artifact(session_id, artifact_id) == chart_event.chart
+    assert session_runtime.get_artifact(artifact_id) == chart_event.chart
+    assert session_runtime.list_presentations() == (chart_event.chart,)
+    snapshot = session_runtime.snapshot()
+    assert snapshot.artifacts == (chart_event.chart.ref,)
+    assert snapshot.assistant_messages[-1].id == chart_event.chart.message_id
+    assert snapshot.assistant_messages[-1].artifacts == (chart_event.chart.ref,)
+    run_snapshot = session_runtime.run_snapshot(execution.run_id)
+    assert run_snapshot.artifacts == (chart_event.chart.ref,)
+    session_runtime.close()
+
+    assert service.delete_session(session_id) is True
+    assert all(item.id != execution.run_id for item in service.list_runs())
+    with pytest.raises(ArtifactNotFoundError):
+        service.get_artifact(session_id, artifact_id)
+
+
+def test_corrupt_artifact_state_is_typed_unavailable(tmp_path, monkeypatch):
+    service = AgentService(config_path=_config(tmp_path, monkeypatch), workspace_root=tmp_path)
+    session_runtime = service.create_session()
+    session_id = session_runtime.session.id
+    session_runtime.close()
+    store = service._session_store
+    store._path(session_id).write_text("{broken", encoding="utf-8")
+    with pytest.raises(ArtifactUnavailableError) as caught:
+        service.get_artifact(session_id, "chart_" + "0" * 24)
+    assert "broken" not in str(caught.value)
 
 
 def test_same_session_rejects_second_active_run(tmp_path, monkeypatch):

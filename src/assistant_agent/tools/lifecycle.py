@@ -8,7 +8,7 @@ from typing import Literal, Protocol
 from assistant_agent.tools.models import ToolResult
 from assistant_agent.tools.permissions import PermissionRequest
 
-ReplayPolicy = Literal["safe_readonly", "requires_decision"]
+ReplayPolicy = Literal["safe_readonly", "safe_idempotent", "requires_decision"]
 
 
 class ToolExecutionLifecycle(Protocol):

@@ -14,7 +14,15 @@ from assistant_agent.application.models import RunMeta, RunResumeInfo, Session
 from assistant_agent.application.ports import RunCatalogRepository, SessionRepository
 from assistant_agent.application.runtime import AgentRuntime
 from assistant_agent.contracts.capabilities import RuntimeCapabilities
+from assistant_agent.contracts.charts import (
+    AssistantMessageSnapshot,
+    ChartArtifact,
+    RunSnapshot,
+    SessionSnapshot,
+    stable_message_id,
+)
 from assistant_agent.contracts.errors import (
+    ArtifactNotFoundError,
     RuntimeClosedError,
     SessionBusyError,
     SessionRunConflictError,
@@ -107,6 +115,30 @@ def sync_terminal_session(
     session.provider = state.provider
     session.model = state.model
     session.compaction_checkpoint = state.compaction_checkpoint
+    by_id = {item.artifact_id: item for item in session.presentations}
+    for artifact in state.presentations:
+        existing = by_id.get(artifact.artifact_id)
+        if existing is not None and existing.content_hash != artifact.content_hash:
+            continue
+        by_id.setdefault(artifact.artifact_id, artifact)
+    session.presentations = list(by_id.values())
+    message_id = stable_message_id(state.run_id)
+    if not any(item.id == message_id for item in session.assistant_messages):
+        assistant_content = next(
+            (
+                str(message.get("content") or "")
+                for message in reversed(state.messages)
+                if message.get("role") == "assistant" and not message.get("tool_calls")
+            ),
+            state.terminal_text if state.status == "completed" else "",
+        )
+        session.assistant_messages.append(
+            AssistantMessageSnapshot(
+                id=message_id,
+                content=assistant_content,
+                artifacts=tuple(item.ref for item in state.presentations),
+            )
+        )
     store.save(session, state.messages)
     coordinator.mark_session_synced()
     return session
@@ -191,6 +223,48 @@ class SessionRuntime:
             for item in self.runtime.run_store.list()
             if item.session_id == self.session.id and item.status in {"running", "paused"}
         ]
+
+    def list_presentations(self) -> tuple[ChartArtifact, ...]:
+        merged = {item.artifact_id: item for item in self.session.presentations}
+        for meta in self.runtime.run_store.list():
+            if meta.session_id != self.session.id:
+                continue
+            try:
+                state = RunCoordinator.load(self.runtime.run_store, meta.id).state
+            except Exception:
+                continue
+            if state.session_id != self.session.id:
+                continue
+            for artifact in state.presentations:
+                merged.setdefault(artifact.artifact_id, artifact)
+        return tuple(merged.values())
+
+    def get_artifact(self, artifact_id: str) -> ChartArtifact:
+        artifact = next(
+            (item for item in self.list_presentations() if item.artifact_id == artifact_id),
+            None,
+        )
+        if artifact is None:
+            raise ArtifactNotFoundError("图表 Artifact 不存在")
+        return artifact
+
+    def snapshot(self) -> SessionSnapshot:
+        presentations = self.list_presentations()
+        return SessionSnapshot(
+            id=self.session.id,
+            assistant_messages=tuple(self.session.assistant_messages),
+            artifacts=tuple(item.ref for item in presentations),
+        )
+
+    def run_snapshot(self, run_id: str) -> RunSnapshot:
+        coordinator = RunCoordinator.load(self.runtime.run_store, run_id)
+        if coordinator.state.session_id != self.session.id:
+            raise ArtifactNotFoundError("Run 不属于当前 Session")
+        return RunSnapshot(
+            id=run_id,
+            status=coordinator.state.status,
+            artifacts=tuple(item.ref for item in coordinator.state.presentations),
+        )
 
     def start_run(self, task: str) -> RunExecution:
         self._begin_run(None)

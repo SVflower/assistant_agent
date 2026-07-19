@@ -56,6 +56,7 @@ from assistant_agent.persistence.artifacts import ArtifactStore
 from assistant_agent.persistence.run_store import RunStore
 from assistant_agent.persistence.store import SessionStore
 from assistant_agent.providers.litellm import LLMClient
+from assistant_agent.tools.charts import PresentChartTool
 from assistant_agent.tools.context import ToolContext
 from assistant_agent.tools.extensions import ConfigureMCPServerTool, ManageSkillTool
 from assistant_agent.tools.processes import ManageProcessTool
@@ -180,6 +181,31 @@ def create_runtime(
             interactive, skills=skill_meta or None, managed_process=False
         )
 
+        chart_available = config.agent.recovery.enabled and register_core_tool_if_fits(
+            config, registry, system_prompt, PresentChartTool()
+        )
+        if not chart_available:
+            system_prompt = build_system_prompt(
+                interactive,
+                skills=skill_meta or None,
+                managed_process=False,
+                chart_presentation=False,
+            )
+            notices.append(
+                RuntimeNotice(
+                    (
+                        "chart_presentation_omitted_context_limit"
+                        if config.agent.recovery.enabled
+                        else "chart_presentation_requires_recovery"
+                    ),
+                    (
+                        "上下文窗口不足，当前 Runtime 未注册图表展示工具。"
+                        if config.agent.recovery.enabled
+                        else "图表展示要求启用 Run checkpoint，当前 Runtime 未注册该工具。"
+                    ),
+                )
+            )
+
         tool_context = ToolContext(
             workspace=workspace,
             run_control=control,
@@ -224,6 +250,7 @@ def create_runtime(
                 skills=skill_meta or None,
                 runtime_inspection=False,
                 managed_process=False,
+                chart_presentation=chart_available,
             )
             notices.append(
                 RuntimeNotice(
@@ -236,6 +263,7 @@ def create_runtime(
             skills=skill_meta or None,
             runtime_inspection=inspection_available,
             managed_process=True,
+            chart_presentation=chart_available,
         )
         managed_process_available = register_core_tool_if_fits(
             config, registry, managed_process_prompt, ManageProcessTool()
@@ -258,6 +286,7 @@ def create_runtime(
                 extension_management=False,
                 runtime_inspection=inspection_available,
                 managed_process=managed_process_available,
+                chart_presentation=chart_available,
             )
         elif not register_extension_tools(config, registry, system_prompt, extension_tools):
             extension_management = False
@@ -267,6 +296,7 @@ def create_runtime(
                 extension_management=False,
                 runtime_inspection=inspection_available,
                 managed_process=managed_process_available,
+                chart_presentation=chart_available,
             )
             notices.append(
                 RuntimeNotice(

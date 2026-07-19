@@ -24,6 +24,7 @@ from assistant_agent.integrations.skills import LoadSkillTool, SkillStore
 from assistant_agent.observability import NullLogger
 from assistant_agent.observability.redaction import redact_text, sanitize_args, truncate_text
 from assistant_agent.providers.litellm import LLMClient
+from assistant_agent.tools.charts import PresentChartTool
 from assistant_agent.tools.permissions import Capability, PermissionRule
 from assistant_agent.tools.policy import PermissionPolicy
 from assistant_agent.tools.registry import build_default_registry
@@ -206,6 +207,9 @@ def _run_one(
                 raise ValueError(f"未知 provider：{provider}")
             config.active = provider
         registry = build_default_registry()
+        chart_eval = "chart" in case.tags
+        if chart_eval:
+            registry.register(PresentChartTool())
         mocked_skills = register_case_mocks(case, root, registry)
         configured_skills = skill_store.list() if skill_store is not None else []
         if configured_skills and registry.get("load_skill") is None:
@@ -218,6 +222,7 @@ def _run_one(
             interactive=mode == "scripted",
             skills=[(meta.name, f"[{meta.source}] {meta.description}") for meta in visible_skills]
             or None,
+            chart_presentation=chart_eval,
         )
         logger = EvalAuditLogger()
         confirmation = ConfirmationCounter(case.permissions.confirm)
@@ -230,6 +235,8 @@ def _run_one(
             max_output_chars=config.tools.max_output_chars,
             max_captured_output_chars=config.tools.max_captured_output_chars,
             max_artifact_files=config.tools.max_artifact_files,
+            current_run_id="eval-run" if chart_eval else "",
+            current_session_id="eval-session" if chart_eval else None,
         )
         client = (
             ScriptedClient(case.script) if mode == "scripted" else LLMClient(config.active_provider)

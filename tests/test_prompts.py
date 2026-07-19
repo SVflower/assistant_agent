@@ -12,6 +12,11 @@ def test_build_system_prompt_includes_base():
     assert SYSTEM_PROMPT in prompt
 
 
+def test_chart_prompt_tracks_runtime_capability():
+    assert "present_chart" in build_system_prompt(chart_presentation=True)
+    assert "present_chart" not in build_system_prompt(chart_presentation=False)
+
+
 def test_system_prompt_names_all_tools():
     # 显式列出真实工具名，帮小模型对齐 function-calling schema
     for tool_name in ("read_file", "write_file", "list_dir", "run_shell"):

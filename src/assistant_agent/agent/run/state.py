@@ -10,6 +10,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from assistant_agent.contracts.charts import ChartArtifact
 from assistant_agent.contracts.failures import BudgetResource, RunFailure
 
 RunStatus = Literal["running", "paused", "cancelled", "completed", "failed"]
@@ -28,10 +29,10 @@ ToolCallStatus = Literal[
     "failed",
     "skipped",
 ]
-ReplayPolicy = Literal["safe_readonly", "requires_decision"]
+ReplayPolicy = Literal["safe_readonly", "safe_idempotent", "requires_decision"]
 
 _RESOLVED_TOOL_STATUSES = {"completed", "failed", "skipped"}
-_SCHEMA_VERSION: Literal[3] = 3
+_SCHEMA_VERSION: Literal[4] = 4
 
 
 def now_iso() -> str:
@@ -109,6 +110,7 @@ class ToolResultState(StrictStateModel):
     retryable: bool = False
     executed: bool = True
     budget_exhausted: str | None = None
+    chart: ChartArtifact | None = None
 
 
 class PermissionRequestState(StrictStateModel):
@@ -137,7 +139,7 @@ class ToolCallState(StrictStateModel):
 
 
 class RunState(StrictStateModel):
-    schema_version: Literal[3] = _SCHEMA_VERSION
+    schema_version: Literal[4] = _SCHEMA_VERSION
     run_id: str = Field(min_length=1)
     session_id: str | None = None
     task: str
@@ -172,6 +174,7 @@ class RunState(StrictStateModel):
     last_signature: str | None = None
     repeat_count: int = Field(default=0, ge=0)
     tool_calls: list[ToolCallState] = Field(default_factory=list)
+    presentations: list[ChartArtifact] = Field(default_factory=list, max_length=16)
     permission_grants: list[PermissionGrantState] = Field(default_factory=list)
     terminal_text: str = ""
     failure: RunFailure | None = None
@@ -211,6 +214,15 @@ class RunState(StrictStateModel):
         ids = [call.id for call in self.tool_calls]
         if len(ids) != len(set(ids)):
             raise ValueError("当前工具批次存在重复 call ID")
+        artifact_ids = [item.artifact_id for item in self.presentations]
+        if len(artifact_ids) != len(set(artifact_ids)):
+            raise ValueError("Run 存在重复 artifact_id")
+        if any(item.run_id != self.run_id for item in self.presentations):
+            raise ValueError("Artifact 不属于当前 Run")
+        if any(item.session_id != self.session_id for item in self.presentations):
+            raise ValueError("Artifact 不属于当前 Session")
+        if sum(item.size_bytes for item in self.presentations) > 2 * 1024 * 1024:
+            raise ValueError("Run Artifact 总量超过 2 MiB")
         self._validate_tool_messages()
         return self
 
@@ -239,7 +251,7 @@ def migrate_run_document(document: dict[str, Any]) -> dict[str, Any]:
     version = document.get("schema_version")
     if version == _SCHEMA_VERSION:
         return document
-    if version in {1, 2}:
+    if version in {1, 2, 3}:
         migrated = dict(document)
         migrated["schema_version"] = _SCHEMA_VERSION
         iteration_limit = max(int(migrated.get("iteration_budget", 1)), 1)
@@ -277,6 +289,7 @@ def migrate_run_document(document: dict[str, Any]) -> dict[str, Any]:
             },
         )
         migrated.setdefault("continuation_decisions", [])
+        migrated.setdefault("presentations", [])
         if migrated.get("status") == "failed" and not migrated.get("failure"):
             migrated["failure"] = {
                 "code": "internal_error",

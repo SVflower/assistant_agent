@@ -8,6 +8,7 @@ from typing import Any
 from assistant_agent.contracts.events import ToolDisplay
 from assistant_agent.tools.context import ToolContext
 from assistant_agent.tools.display import call_display, result_display
+from assistant_agent.tools.lifecycle import ReplayPolicy
 from assistant_agent.tools.models import ToolResult
 from assistant_agent.tools.permissions import Capability, PermissionRequest
 
@@ -52,3 +53,12 @@ class Tool(abc.ABC):
                 risk="未知扩展工具可能产生外部副作用",
             )
         ]
+
+    def replay_policy(
+        self,
+        args: dict[str, Any],
+        ctx: ToolContext,
+        requests: list[PermissionRequest],
+    ) -> ReplayPolicy | None:
+        """工具可显式声明恢复策略；默认交由 Registry 保守推断。"""
+        return None

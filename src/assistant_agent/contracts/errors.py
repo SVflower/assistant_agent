@@ -38,3 +38,11 @@ class SessionBusyError(AgentServiceError):
 
 class SessionRunConflictError(AgentServiceError):
     pass
+
+
+class ArtifactNotFoundError(AgentServiceError):
+    code = "artifact_not_found"
+
+
+class ArtifactUnavailableError(AgentServiceError):
+    code = "artifact_unavailable"

@@ -155,8 +155,16 @@ def _is_within_workspace(target: str, workspace_root: Path) -> bool:
     return True
 
 
-def _replay_policy(requests: list[PermissionRequest], ctx: ToolContext) -> ReplayPolicy:
+def _replay_policy(
+    tool: Tool,
+    args: dict[str, Any],
+    requests: list[PermissionRequest],
+    ctx: ToolContext,
+) -> ReplayPolicy:
     """只有权限契约能证明无副作用时才允许恢复自动重试。"""
+    declared = tool.replay_policy(args, ctx, requests)
+    if declared is not None:
+        return declared
     if requests and all(
         request.capability == Capability.FILESYSTEM_READ
         and _is_within_workspace(request.target, ctx.workspace_root)
@@ -279,7 +287,7 @@ class ToolRegistry:
                         call_id,
                         limited,
                         requests,
-                        _replay_policy(requests, ctx),
+                        _replay_policy(tool, args, requests, ctx),
                     )
         except Exception:
             result = ToolResult(
@@ -291,7 +299,7 @@ class ToolRegistry:
             limited = _finish_denied(name, args, result, ctx, start, call_id)
             return _notify_completed(lifecycle, call_id, limited, [], "requires_decision")
 
-        replay_policy = _replay_policy(requests, ctx)
+        replay_policy = _replay_policy(tool, args, requests, ctx)
         before_prompt: Callable[[], None] | None = None
         if lifecycle is not None:
 

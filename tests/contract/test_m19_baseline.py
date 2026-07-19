@@ -20,8 +20,16 @@ def test_service_public_exports_baseline():
         "AgentRuntime",
         "AgentService",
         "AgentServiceError",
+        "ArtifactNotFoundError",
+        "ArtifactUnavailableError",
+        "AssistantMessageSnapshot",
+        "ChartArtifact",
+        "ChartColumn",
+        "ChartSeries",
+        "ChartSpecV1",
         "EVENT_CONTRACT_VERSION",
         "RunExecution",
+        "RunSnapshot",
         "RuntimeClosedError",
         "RuntimeConfigError",
         "RuntimeInitializationError",
@@ -35,6 +43,8 @@ def test_service_public_exports_baseline():
         "SessionBusyError",
         "SessionRunConflictError",
         "SessionRuntime",
+        "SessionSnapshot",
+        "PresentationArtifactRef",
         "StepEvent",
         "ToolDisplay",
         "BudgetSnapshot",
@@ -66,6 +76,7 @@ def test_step_event_v1_field_baseline_and_sensitive_reasoning():
         "failure",
         "phase",
         "budget",
+        "chart",
     ]
     event = StepEvent(kind="reasoning", text="private")
     assert event.contract_version == 1
@@ -154,7 +165,7 @@ def test_interaction_request_field_baseline():
         assert tuple(field.name for field in fields(model)) == names
 
 
-def test_run_state_v3_field_and_legacy_migration_baseline():
+def test_run_state_v4_field_and_legacy_migration_baseline():
     assert tuple(RunState.model_fields) == (
         "schema_version",
         "run_id",
@@ -179,6 +190,7 @@ def test_run_state_v3_field_and_legacy_migration_baseline():
         "last_signature",
         "repeat_count",
         "tool_calls",
+        "presentations",
         "permission_grants",
         "terminal_text",
         "failure",
@@ -204,7 +216,7 @@ def test_run_state_v3_field_and_legacy_migration_baseline():
         created_at="2026-07-19T00:00:00",
         updated_at="2026-07-19T00:00:00",
     )
-    for version in (1, 2):
+    for version in (1, 2, 3):
         legacy = state.model_dump(mode="python")
         legacy["schema_version"] = version
         for key in (
@@ -212,8 +224,9 @@ def test_run_state_v3_field_and_legacy_migration_baseline():
             "tool_call_continuation",
             "tool_output_continuation",
             "continuation_decisions",
+            "presentations",
         ):
             legacy.pop(key)
         migrated = migrate_run_document(legacy)
-        assert migrated["schema_version"] == 3
-        assert RunState.model_validate(migrated).schema_version == 3
+        assert migrated["schema_version"] == 4
+        assert RunState.model_validate(migrated).schema_version == 4

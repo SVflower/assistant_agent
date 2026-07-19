@@ -47,6 +47,7 @@ def encode_result(result: ToolResult) -> ToolResultState:
         retryable=result.retryable,
         executed=result.executed,
         budget_exhausted=result.budget_exhausted,
+        chart=result.chart,
     )
 
 
@@ -58,4 +59,5 @@ def decode_result(result: ToolResultState) -> ToolResult:
         retryable=result.retryable,
         executed=result.executed,
         budget_exhausted=result.budget_exhausted,
+        chart=result.chart,
     )

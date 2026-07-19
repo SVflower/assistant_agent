@@ -448,3 +448,36 @@
       usage: {prompt_tokens: 40, completion_tokens: 10}
   expect:
     final_contains: [保留最新任务]
+
+- schema_version: 1
+  id: chart-presentation
+  title: 结构化数据使用受控图表展示
+  tags: [scripted, chart, presentation]
+  task: 把 A=12、B=18 展示为柱状图，并给出文字结论。
+  budget:
+    max_context_tokens: 16000
+  script:
+    - tool_calls:
+        - name: present_chart
+          arguments:
+            schema_version: 1
+            chart_type: bar
+            title: 数量对比
+            columns:
+              - {key: name, label: 名称, data_type: string, unit: null}
+              - {key: value, label: 数量, data_type: number, unit: null}
+            rows: [[A, 12], [B, 18]]
+            x_key: name
+            series: [{key: value, label: 数量}]
+            category_key: null
+            value_key: null
+    - final: 已生成数量对比图，B 比 A 多 6。
+  expect:
+    trajectory: strict
+    expected_calls:
+      - name: present_chart
+        output_contains: [已创建图表]
+        is_error: false
+    required_tools: [present_chart]
+    max_tool_calls: 1
+    final_contains: [B 比 A 多 6]

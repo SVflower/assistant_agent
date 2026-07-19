@@ -277,8 +277,10 @@ InteractionPort、Session/Run 公共服务门面和稳定 StepEvent 契约，可
 模型通过只读 `inspect_runtime` 查询当前工具、Skill、MCP 动态状态，不再搜索项目文件猜测自身能力。
 第十四阶段 M21 已修复父进程先退出、后代继承 PIPE 导致的无限等待，并增加 Runtime 隔离的
 `manage_process` 后台进程生命周期；前台命令和后台服务不再混用逃逸语法。
-当前 637 个测试通过（6 个平台能力测试跳过）、覆盖率 84%、14,897 行/125 文件
-生产 Python 源码 + 1,404 行 eval 基础设施；scripted 18/18、recovery 4/4；剩余 5 项技术债
+第十五阶段 M24 已增加受控 `ChartSpecV1`/不可变 Chart Artifact 与声明式 `present_chart`；图表先进入
+RunState v4 原子 checkpoint 再发布事件，终态同步 Session，公共服务提供 list/get/snapshot，API 无需
+读取内部文件。当前 654 个测试通过（6 个平台能力测试跳过）、覆盖率 84%、15,496 行/127 文件
+生产 Python 源码 + 1,411 行 eval 基础设施；scripted 19/19、recovery 4/4；剩余 5 项技术债
 （2 中/3 低，无高优先级）。详见
 [架构事实源](docs/ARCHITECTURE.md)和[通用服务调用指南](docs/agent-service-integration-guide.md)。
 

@@ -60,11 +60,11 @@ def resume_loop(
                 )
             return
         for call in coordinator.mark_uncertain_if_needed():
-            if call.replay_policy == "safe_readonly":
+            if call.replay_policy in {"safe_readonly", "safe_idempotent"}:
                 coordinator.retry(call.id)
                 yield StepEvent(
                     kind="notice",
-                    text=f"（恢复：自动重试只读工具 {call.name}，call_id={call.id}）",
+                    text=f"（恢复：自动重试安全工具 {call.name}，call_id={call.id}）",
                 )
                 continue
             if recovery_check is None:

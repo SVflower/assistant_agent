@@ -120,7 +120,14 @@ def execute_tool_batch(
             result_code=result.code,
             result_metadata=result.metadata,
             failure=failure,
+            chart=result.chart,
         )
+        if result.code == "artifact_rejected":
+            yield StepEvent(
+                kind="notice",
+                text="图表未创建；文字回答与 Run 状态不受影响。",
+                result_code="artifact_rejected",
+            )
         if coordinator is not None:
             yield StepEvent(kind="activity", phase="saving_checkpoint")
         if result.code == "mcp_outcome_unknown" and coordinator is not None:

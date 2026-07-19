@@ -166,7 +166,22 @@ M21 维持同步 Agent Loop，但对进程执行建立完整所有权：
 前台进程监管与后台进程 registry 复用 `ManagedProcessHandle`、Windows Job Object 和 POSIX process
 group，不允许形成第二套平台终止实现。
 
-## 8. 复杂度基线
+## 8. Presentation Artifact 所有权
+
+M24 不新增独立 Artifact 状态机：`contracts/charts.py` 拥有稳定 DTO 与 canonical 编码；
+`tools/charts.py` 只负责声明式输入适配；`agent/run/coordinator.py` 是 Run 限额、冲突、幂等和 checkpoint
+顺序的唯一 owner；Session 终态同步由 Application 编排，既有 RunStore/SessionStore 提供原子持久化。
+
+完整图表可受 512 KiB/16 个/2 MiB 硬限内联保存，API 只经 Service 读取，不扫描持久化目录。
+`present_chart` 依赖 checkpoint 正确性，因此 recovery 关闭时不注册；工具 schema 超出上下文预算时也
+安全省略并发布 Runtime notice。两种降级都不得阻止 Runtime ready。
+
+事件仍为 `tool_call -> tool_result(chart) -> final -> run_terminal`，Event contract v1 additive 兼容；
+Run checkpoint v4 负责从 v1-v3 迁移空 presentations。M24 未修改 Loop，也未新增超过 600 行模块；
+既有 `integrations/mcp/manager.py` 720 行评审结论不变，其状态/连接/目录发现共享同一生命周期，暂不
+为行数机械拆分。
+
+## 9. 复杂度基线
 
 Ruff C901 是循环检查而非机械拆分指标。M19a 的最高复杂度基线为 35；M19d 提取单轮模型流后
 已按实测收紧到 27。高复杂度函数应结合状态不变量判断，不能为降低数字拆出隐式共享状态。
@@ -177,7 +192,7 @@ Ruff C901 是循环检查而非机械拆分指标。M19a 的最高复杂度基�
 | `ui.conversation_renderer.ConversationRenderer.render` | 23 | 本期不移动 UI，观察 |
 | `bootstrap.runtime.create_runtime` | 20 | M19e 已收敛为唯一 composition root |
 
-## 9. 未来能力落位
+## 10. 未来能力落位
 
 | 能力 | 预期位置 | 进入条件 |
 |---|---|---|
@@ -192,7 +207,7 @@ Ruff C901 是循环检查而非机械拆分指标。M19a 的最高复杂度基�
 
 这些条目是落位地图，不授权预建空抽象。
 
-## 9. 暂不改造项与观察信号
+## 11. 暂不改造项与观察信号
 
 | 暂不改造 | 原因 | 重新评估信号 |
 |---|---|---|

@@ -10,7 +10,10 @@ from assistant_agent.application.ports import (
 )
 from assistant_agent.application.runs import SessionRuntime, inspect_run
 from assistant_agent.contracts.capabilities import RuntimeCapabilities
+from assistant_agent.contracts.charts import ChartArtifact
 from assistant_agent.contracts.errors import (
+    ArtifactNotFoundError,
+    ArtifactUnavailableError,
     RuntimeClosedError,
     SessionRunConflictError,
 )
@@ -100,7 +103,37 @@ class AgentService:
             raise SessionRunConflictError(
                 f"Session 存在未完成 Run：{', '.join(item.id for item in unfinished)}"
             )
-        return self._session_store.delete(session_id)
+        deleted = self._session_store.delete(session_id)
+        if deleted:
+            for item in list(self._run_store.list()):
+                if item.session_id == session_id:
+                    self._run_store.delete(item.id)
+        return deleted
+
+    def get_artifact(self, session_id: str, artifact_id: str) -> ChartArtifact:
+        """按 Session 隔离读取完整 Artifact，不暴露持久化路径。"""
+        try:
+            session = self._session_store.load(session_id)
+            for artifact in session.presentations:
+                if artifact.artifact_id == artifact_id:
+                    return artifact
+            for meta in self._run_store.list():
+                if meta.session_id != session_id:
+                    continue
+                document = self._run_store.load(meta.id).document
+                from assistant_agent.agent.run.state import RunState, migrate_run_document
+
+                state = RunState.model_validate(migrate_run_document(document))
+                for artifact in state.presentations:
+                    if artifact.artifact_id == artifact_id:
+                        return artifact
+        except FileNotFoundError as exc:
+            raise ArtifactNotFoundError("图表 Artifact 不存在") from exc
+        except ArtifactNotFoundError:
+            raise
+        except Exception as exc:
+            raise ArtifactUnavailableError("图表 Artifact 暂不可用") from exc
+        raise ArtifactNotFoundError("图表 Artifact 不存在")
 
     def probe_capabilities(self) -> RuntimeCapabilities:
         runtime = self._runtime_factory(None, False, None)

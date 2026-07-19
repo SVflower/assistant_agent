@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from assistant_agent.contracts.charts import AssistantMessageSnapshot, ChartArtifact
+
 _PREVIEW_LEN = 40
 
 
@@ -17,6 +19,8 @@ class Session:
     model: str = ""
     messages: list[dict[str, Any]] = field(default_factory=list)
     compaction_checkpoint: dict[str, Any] | None = None
+    presentations: list[ChartArtifact] = field(default_factory=list)
+    assistant_messages: list[AssistantMessageSnapshot] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -27,6 +31,10 @@ class Session:
             "model": self.model,
             "messages": self.messages,
             "compaction_checkpoint": self.compaction_checkpoint,
+            "presentations": [item.model_dump(mode="json") for item in self.presentations],
+            "assistant_messages": [
+                item.model_dump(mode="json") for item in self.assistant_messages
+            ],
         }
 
     @classmethod
@@ -39,6 +47,13 @@ class Session:
             model=data.get("model", ""),
             messages=data.get("messages", []),
             compaction_checkpoint=data.get("compaction_checkpoint"),
+            presentations=[
+                ChartArtifact.model_validate(item) for item in data.get("presentations", [])
+            ],
+            assistant_messages=[
+                AssistantMessageSnapshot.model_validate(item)
+                for item in data.get("assistant_messages", [])
+            ],
         )
 
     @property

@@ -33,6 +33,10 @@ from assistant_agent.agent.run.state import (
     now_iso,
     stable_call_id,
 )
+from assistant_agent.contracts.charts import (
+    MAX_RUN_ARTIFACT_BYTES,
+    MAX_RUN_ARTIFACTS,
+)
 from assistant_agent.contracts.failures import RunFailure
 from assistant_agent.providers.ports import ToolCall
 from assistant_agent.tools.context import ToolContext
@@ -309,6 +313,8 @@ class RunCoordinator(ContinuationStateMixin, DefinitionStateMixin):
             self._capture_bound_context()
             self.checkpoint()
             return
+        if result.chart is not None:
+            self._record_presentation(result)
         call.status = (
             "skipped" if not result.executed else ("failed" if result.is_error else "completed")
         )
@@ -324,6 +330,40 @@ class RunCoordinator(ContinuationStateMixin, DefinitionStateMixin):
         self.state.phase = "tools_pending"
         self._capture_bound_context()
         self.checkpoint()
+
+    def _record_presentation(self, result: ToolResult) -> None:
+        artifact = result.chart
+        if artifact is None:
+            return
+        existing = next(
+            (item for item in self.state.presentations if item.artifact_id == artifact.artifact_id),
+            None,
+        )
+        if existing is not None:
+            if existing.content_hash == artifact.content_hash:
+                result.chart = existing
+                return
+            self._reject_chart(result, "图表标识冲突，已保留原有图表。")
+            return
+        if (
+            artifact.run_id != self.run_id
+            or artifact.session_id != self.state.session_id
+            or len(self.state.presentations) >= MAX_RUN_ARTIFACTS
+            or sum(item.size_bytes for item in self.state.presentations) + artifact.size_bytes
+            > MAX_RUN_ARTIFACT_BYTES
+        ):
+            self._reject_chart(result, "图表超过当前 Run 的安全存储上限，已忽略。")
+            return
+        self.state.presentations.append(artifact)
+
+    @staticmethod
+    def _reject_chart(result: ToolResult, message: str) -> None:
+        result.output = message
+        result.is_error = True
+        result.code = "artifact_rejected"
+        result.retryable = False
+        result.executed = False
+        result.chart = None
 
     def batch_completed(self, messages: list[dict[str, Any]]) -> None:
         if any(

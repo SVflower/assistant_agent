@@ -473,14 +473,19 @@ def create_runtime(
             skill_store=skill_store,
             tool_context=tool_context,
             interaction=port,
-            session_store=SessionStore(paths.sessions),
+            session_store=SessionStore(
+                paths.sessions, lifecycle_dir=paths.workspace / "session-lifecycle"
+            ),
             visible_skills=visible_skills,
             notices=notices,
             skill_manager=skill_manager,
             mcp_service=mcp_service,
             web=web,
             mcp=mcp,
-            run_store=RunStore(resolve_run_dir(config.agent.recovery.dir, root)),
+            run_store=RunStore(
+                resolve_run_dir(config.agent.recovery.dir, root),
+                lifecycle_dir=paths.workspace / "session-lifecycle",
+            ),
             execution_leases=FileSessionExecutionLeaseManager(paths.workspace / "execution-leases"),
             interactive=interactive,
             run_control=control,

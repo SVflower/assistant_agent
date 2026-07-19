@@ -12,6 +12,8 @@ from pathlib import Path
 from typing import Any, Literal
 
 from assistant_agent.application.models import RunMeta
+from assistant_agent.contracts.time import parse_utc_timestamp
+from assistant_agent.persistence.session_lifecycle import SessionLifecycle
 
 _RUN_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$")
 
@@ -26,12 +28,18 @@ class LoadedRun:
 class RunStore:
     """不依赖 agent 类型的版本化 JSON 文档存储。"""
 
-    def __init__(self, base_dir: str | Path | None = None) -> None:
+    def __init__(
+        self,
+        base_dir: str | Path | None = None,
+        *,
+        lifecycle_dir: str | Path | None = None,
+    ) -> None:
         if base_dir is None:
             from assistant_agent.config.paths import state_paths
 
             base_dir = state_paths().runs
         self._dir = Path(base_dir)
+        self._lifecycle = SessionLifecycle(lifecycle_dir or self._dir.parent / "session-lifecycle")
 
     def _path(self, run_id: str, *, previous: bool = False) -> Path:
         if not isinstance(run_id, str) or not _RUN_ID.fullmatch(run_id):
@@ -58,6 +66,18 @@ class RunStore:
         return text.encode("utf-8", errors="strict")
 
     def save(self, run_id: str, document: dict[str, Any]) -> None:
+        session_id = document.get("session_id")
+        if session_id is None:
+            self._save_unchecked(run_id, document)
+            return
+        if not isinstance(session_id, str):
+            raise ValueError("Run checkpoint session_id 必须是字符串或 null")
+        with self._lifecycle.lock(session_id):
+            if self._lifecycle.is_deleted_locked(session_id):
+                raise FileNotFoundError(f"Session 已删除：{session_id}")
+            self._save_unchecked(run_id, document)
+
+    def _save_unchecked(self, run_id: str, document: dict[str, Any]) -> None:
         payload = self._encode(run_id, document)
         self._dir.mkdir(parents=True, exist_ok=True)
         current = self._path(run_id)
@@ -91,7 +111,7 @@ class RunStore:
             raise ValueError("Run checkpoint ID 与文件名不一致")
         return document
 
-    def load(self, run_id: str) -> LoadedRun:
+    def _load_unchecked(self, run_id: str) -> LoadedRun:
         current = self._path(run_id)
         previous = self._path(run_id, previous=True)
         current_error: Exception | None = None
@@ -110,6 +130,13 @@ class RunStore:
         if current_error is not None:
             raise ValueError(f"Run checkpoint 损坏且没有 previous：{run_id}") from current_error
         raise FileNotFoundError(f"Run 不存在：{run_id}")
+
+    def load(self, run_id: str) -> LoadedRun:
+        loaded = self._load_unchecked(run_id)
+        session_id = loaded.document.get("session_id")
+        if isinstance(session_id, str) and self._lifecycle.is_deleted(session_id):
+            raise FileNotFoundError(f"Run 不存在：{run_id}")
+        return loaded
 
     def list(self) -> list[RunMeta]:
         if not self._dir.is_dir():
@@ -135,8 +162,32 @@ class RunStore:
                 )
             except (FileNotFoundError, ValueError):
                 continue
-        metas.sort(key=lambda item: item.updated_at, reverse=True)
+        metas.sort(
+            key=lambda item: (parse_utc_timestamp(item.updated_at), item.id),
+            reverse=True,
+        )
         return metas
+
+    def delete_session_runs(self, session_id: str) -> builtins.list[str]:
+        """在 tombstone 后删除该 Session 的所有 Run 槽位。"""
+        removed: builtins.list[str] = []
+        with self._lifecycle.lock(session_id):
+            if not self._lifecycle.is_deleted_locked(session_id):
+                raise ValueError("删除 Run 前必须先发布 Session tombstone")
+            if not self._dir.is_dir():
+                return removed
+            run_ids = {
+                path.name.removesuffix(".prev.json").removesuffix(".json")
+                for path in self._dir.glob("*.json")
+            }
+            for run_id in run_ids:
+                try:
+                    loaded = self._load_unchecked(run_id)
+                except (FileNotFoundError, ValueError):
+                    continue
+                if loaded.document.get("session_id") == session_id and self.delete(run_id):
+                    removed.append(run_id)
+        return removed
 
     def _fsync_directory(self) -> None:
         if os.name == "nt":

@@ -19,6 +19,7 @@ from assistant_agent.contracts.errors import (
     SessionMetadataConflictError,
     SessionUnavailableError,
 )
+from assistant_agent.persistence.execution_lease import FileSessionExecutionLeaseManager
 from assistant_agent.persistence.run_store import RunStore
 from assistant_agent.persistence.store import SessionStore, UnsupportedSessionSchemaError
 
@@ -28,6 +29,7 @@ def _service(tmp_path, *, run_store=None):
         runtime_factory=lambda *_args: None,  # type: ignore[arg-type]
         session_store=SessionStore(tmp_path / "sessions"),
         run_store=run_store or RunStore(tmp_path / "runs"),
+        session_leases=FileSessionExecutionLeaseManager(tmp_path / "execution-leases"),
         max_completed_runs=10,
     )
 
@@ -80,7 +82,7 @@ def test_unknown_future_session_schema_fails_closed(tmp_path):
 def test_auto_title_boundaries_and_user_title_is_never_overwritten(tmp_path):
     store = SessionStore(tmp_path / "sessions")
     session = store.new_session()
-    store.save(session, [{"role": "user", "content": "\u2003\n\t"}])
+    store.save(session, [{"role": "user", "content": "\u2003\n\t"}], must_exist=False)
     assert store.load(session.id).title == "（空会话）"
     source = "字" * 81
     store.save(
@@ -104,7 +106,7 @@ def test_auto_title_boundaries_and_user_title_is_never_overwritten(tmp_path):
 def test_metadata_cas_and_stale_run_save_preserve_rename(tmp_path):
     store = SessionStore(tmp_path / "sessions")
     session = store.new_session()
-    store.save(session, [])
+    store.save(session, [], must_exist=False)
     stale_run_snapshot = store.load(session.id)
     renamed = store.update_metadata(session.id, "renamed", 1)
     with pytest.raises(SessionMetadataConflictError) as conflict:
@@ -122,7 +124,7 @@ def test_metadata_cas_and_stale_run_save_preserve_rename(tmp_path):
 def test_cross_process_metadata_cas_has_exactly_one_winner(tmp_path):
     store = SessionStore(tmp_path / "sessions")
     session = store.new_session()
-    store.save(session, [])
+    store.save(session, [], must_exist=False)
     start = tmp_path / "start"
     script = """
 import sys, time
@@ -180,7 +182,7 @@ def test_catalog_same_second_cursor_query_binding_and_tamper(tmp_path, monkeypat
     ids = []
     for title in ("Ａlpha", "alpha two", "other"):
         session = store.new_session()
-        store.save(session, [])
+        store.save(session, [], must_exist=False)
         store.update_metadata(session.id, title, 1)
         ids.append(session.id)
     service = _service(tmp_path)
@@ -221,6 +223,44 @@ def test_catalog_same_second_cursor_query_binding_and_tamper(tmp_path, monkeypat
         service.catalog_sessions(query="alpha", cursor=unsupported)
 
 
+def test_catalog_mixed_time_formats_use_utc_keyset_order(tmp_path):
+    store = SessionStore(tmp_path / "sessions")
+    documents = (
+        ("naive", "2026-01-01T10:00:00"),
+        ("offset", "2026-01-01T11:00:00+02:00"),
+        ("zulu", "2026-01-01T09:30:00Z"),
+    )
+    for session_id, updated_at in documents:
+        path = store._path(session_id)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "id": session_id,
+                    "title": session_id,
+                    "title_source": "auto",
+                    "metadata_version": 1,
+                    "created_at": updated_at,
+                    "updated_at": updated_at,
+                    "messages": [],
+                }
+            ),
+            encoding="utf-8",
+        )
+    service = _service(tmp_path)
+    seen = []
+    cursor = None
+    while True:
+        page = service.catalog_sessions(limit=1, cursor=cursor)
+        seen.extend(item.id for item in page.items)
+        cursor = page.next_cursor
+        if cursor is None:
+            break
+    assert seen == ["naive", "zulu", "offset"]
+    assert all(item.updated_at.endswith("Z") for item in service.catalog_sessions().items)
+
+
 def test_catalog_only_searches_public_preview_and_aggregates_last_run_once(tmp_path):
     store = SessionStore(tmp_path / "sessions")
     session = store.new_session()
@@ -231,6 +271,7 @@ def test_catalog_only_searches_public_preview_and_aggregates_last_run_once(tmp_p
             {"role": "tool", "content": "tool-needle"},
             {"role": "assistant", "content": "public answer"},
         ],
+        must_exist=False,
     )
 
     class CountingRuns:
@@ -245,7 +286,7 @@ def test_catalog_only_searches_public_preview_and_aggregates_last_run_once(tmp_p
                     "completed",
                     "terminal",
                     session.id,
-                    "2026-07-20T00:00:00",
+                    "2026-07-20T10:00:00Z",
                     "secret",
                 ),
                 RunMeta(
@@ -253,7 +294,15 @@ def test_catalog_only_searches_public_preview_and_aggregates_last_run_once(tmp_p
                     "failed",
                     "terminal",
                     session.id,
-                    "2026-07-20T00:00:00",
+                    "2026-07-20T12:00:00+02:00",
+                    "secret",
+                ),
+                RunMeta(
+                    "run-c",
+                    "completed",
+                    "terminal",
+                    session.id,
+                    "2026-07-20T09:30:00",
                     "secret",
                 ),
             ]
@@ -290,7 +339,7 @@ def test_catalog_validation_is_stable(tmp_path, kwargs, error):
 def test_update_metadata_validation_is_stable(tmp_path):
     store = SessionStore(tmp_path / "sessions")
     session = store.new_session()
-    store.save(session, [])
+    store.save(session, [], must_exist=False)
     service = _service(tmp_path)
     updated = service.update_session_metadata(session.id, "界" * 100, 1)
     assert updated.title == "界" * 100
@@ -299,3 +348,61 @@ def test_update_metadata_validation_is_stable(tmp_path):
             service.update_session_metadata(session.id, title, 2)
     with pytest.raises(InvalidSessionMetadataError):
         service.update_session_metadata(session.id, "valid", True)
+
+
+def test_metadata_update_reads_run_catalog_before_commit(tmp_path):
+    store = SessionStore(tmp_path / "sessions")
+    session = store.new_session()
+    store.save(session, [], must_exist=False)
+
+    class FailingRuns:
+        def list(self):
+            raise OSError("run catalog unavailable")
+
+    service = _service(tmp_path, run_store=FailingRuns())
+    with pytest.raises(SessionUnavailableError):
+        service.update_session_metadata(session.id, "must not commit", 1)
+    unchanged = store.load(session.id)
+    assert unchanged.title == "（空会话）"
+    assert unchanged.metadata_version == 1
+
+
+def test_metadata_update_has_no_fallible_run_read_after_commit(tmp_path):
+    store = SessionStore(tmp_path / "sessions")
+    session = store.new_session()
+    store.save(session, [], must_exist=False)
+
+    class OneReadRuns:
+        def __init__(self):
+            self.calls = 0
+
+        def list(self):
+            self.calls += 1
+            if self.calls > 1:
+                raise OSError("post-commit read must not happen")
+            return []
+
+    runs = OneReadRuns()
+    service = _service(tmp_path, run_store=runs)
+    updated = service.update_session_metadata(session.id, "committed", 1)
+    assert updated.title == "committed"
+    assert updated.metadata_version == 2
+    assert runs.calls == 1
+    assert store.load(session.id).title == "committed"
+
+
+def test_metadata_update_maps_session_store_failure_without_commit(tmp_path, monkeypatch):
+    store = SessionStore(tmp_path / "sessions")
+    session = store.new_session()
+    store.save(session, [], must_exist=False)
+    service = _service(tmp_path)
+
+    def fail_update(*_args, **_kwargs):
+        raise OSError("session store unavailable")
+
+    monkeypatch.setattr(service._session_store, "update_metadata", fail_update)
+    with pytest.raises(SessionUnavailableError):
+        service.update_session_metadata(session.id, "must not commit", 1)
+    unchanged = store.load(session.id)
+    assert unchanged.title == "（空会话）"
+    assert unchanged.metadata_version == 1

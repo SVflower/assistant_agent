@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 
+import pytest
 from typer.testing import CliRunner
 
 from assistant_agent.agent.run.coordinator import RunCoordinator
@@ -41,21 +42,15 @@ def _terminal_coordinator(tmp_path, *, session_id="session-1") -> RunCoordinator
     return coordinator
 
 
-def test_terminal_run_rebuilds_missing_session_and_syncs_idempotently(tmp_path):
+def test_terminal_run_does_not_rebuild_missing_session(tmp_path):
     coordinator = _terminal_coordinator(tmp_path)
     sessions = SessionStore(tmp_path / "sessions")
 
-    first = sync_terminal_session(coordinator, sessions)
-    second = sync_terminal_session(coordinator, sessions)
-
-    assert first is not None and second is not None
-    saved = sessions.load("session-1")
-    assert saved.messages == [
-        {"role": "user", "content": "task"},
-        {"role": "assistant", "content": "done"},
-    ]
+    with pytest.raises(FileNotFoundError):
+        sync_terminal_session(coordinator, sessions)
+    assert not sessions._path("session-1").exists()
     loaded = RunCoordinator.load(RunStore(tmp_path / "runs"), "run-1")
-    assert loaded.state.session_synced is True
+    assert loaded.state.session_synced is False
 
 
 def test_terminal_run_without_session_is_immediately_synced(tmp_path):

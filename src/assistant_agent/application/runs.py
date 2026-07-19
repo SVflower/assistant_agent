@@ -233,14 +233,7 @@ def sync_terminal_session(
     if state.session_synced:
         return session or store.load(state.session_id)
     if session is None:
-        try:
-            session = store.load(state.session_id)
-        except FileNotFoundError:
-            session = Session(
-                id=state.session_id,
-                created_at=state.created_at,
-                updated_at=state.updated_at,
-            )
+        session = store.load(state.session_id)
     session.provider = state.provider
     session.model = state.model
     session.compaction_checkpoint = state.compaction_checkpoint
@@ -268,7 +261,7 @@ def sync_terminal_session(
                 artifacts=tuple(item.ref for item in state.presentations),
             )
         )
-    store.save(session, state.messages)
+    store.save(session, state.messages, must_exist=True)
     coordinator.mark_session_synced()
     return session
 
@@ -832,6 +825,7 @@ class SessionRuntime:
     def _acquire_execution_lease(self) -> None:
         try:
             self._execution_lease = self.runtime.execution_leases.acquire(self.session.id)
+            self.runtime.session_store.load(self.session.id)
         except BaseException:
             self._end_run()
             raise

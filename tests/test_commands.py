@@ -235,6 +235,6 @@ def test_context_reports_state(tmp_path):
 
 def test_sessions_lists(tmp_path):
     ctx = _ctx(tmp_path)
-    ctx.store.save(ctx.session, [{"role": "user", "content": "x"}])
+    ctx.store.save(ctx.session, [{"role": "user", "content": "x"}], must_exist=False)
     build_default_slash_registry().dispatch("/sessions", ctx)
     assert "[sessions:" in ctx.console.text()

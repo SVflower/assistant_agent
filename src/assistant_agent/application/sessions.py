@@ -8,7 +8,7 @@ import hmac
 import json
 import secrets
 import unicodedata
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import Literal, cast
 
 from pydantic import ValidationError
@@ -17,6 +17,7 @@ from assistant_agent.application.models import RunMeta, RunResumeInfo, SessionMe
 from assistant_agent.application.ports import (
     RunCatalogRepository,
     RuntimeFactoryPort,
+    SessionExecutionLeaseManager,
     SessionRepository,
 )
 from assistant_agent.application.runs import SessionRuntime, inspect_run
@@ -41,6 +42,7 @@ from assistant_agent.contracts.sessions import (
     SessionSummary,
     UpdateSessionMetadataRequest,
 )
+from assistant_agent.contracts.time import normalize_utc_timestamp, parse_utc_timestamp
 
 _CURSOR_VERSION = 1
 _CURSOR_DOMAIN = b"assistant-agent:m23-r1:session-cursor:"
@@ -52,11 +54,7 @@ def _normalize_query(value: str) -> str:
 
 
 def _as_utc_iso(value: str) -> str:
-    source = value.removesuffix("Z") + ("+00:00" if value.endswith("Z") else "")
-    parsed = datetime.fromisoformat(source)
-    if parsed.tzinfo is None:
-        parsed = parsed.astimezone()
-    return parsed.astimezone(UTC).isoformat(timespec="seconds").replace("+00:00", "Z")
+    return normalize_utc_timestamp(value)
 
 
 def _cursor_signature(data: bytes) -> str:
@@ -67,7 +65,7 @@ def _encode_cursor(query: str, item: SessionMeta) -> str:
     payload = {
         "id": item.id,
         "query": query,
-        "updated_at": item.updated_at,
+        "updated_at": _as_utc_iso(item.updated_at),
         "version": _CURSOR_VERSION,
     }
     data = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
@@ -80,7 +78,7 @@ def _encode_cursor(query: str, item: SessionMeta) -> str:
     return base64.urlsafe_b64encode(envelope).decode().rstrip("=")
 
 
-def _decode_cursor(cursor: str, query: str) -> tuple[str, str]:
+def _decode_cursor(cursor: str, query: str) -> tuple[datetime, str]:
     try:
         if not cursor or not isinstance(cursor, str):
             raise ValueError
@@ -107,7 +105,7 @@ def _decode_cursor(cursor: str, query: str) -> tuple[str, str]:
             raise ValueError
         if not isinstance(payload["updated_at"], str) or not isinstance(payload["id"], str):
             raise ValueError
-        return payload["updated_at"], payload["id"]
+        return parse_utc_timestamp(payload["updated_at"]), payload["id"]
     except (UnicodeError, ValueError, TypeError, json.JSONDecodeError) as exc:
         raise InvalidSessionCursorError("Session cursor 无效") from exc
 
@@ -121,11 +119,13 @@ class AgentService:
         runtime_factory: RuntimeFactoryPort,
         session_store: SessionRepository,
         run_store: RunCatalogRepository,
+        session_leases: SessionExecutionLeaseManager,
         max_completed_runs: int,
     ) -> None:
         self._runtime_factory = runtime_factory
         self._session_store = session_store
         self._run_store = run_store
+        self._session_leases = session_leases
         self._max_completed_runs = max_completed_runs
 
     def create_session(
@@ -140,7 +140,7 @@ class AgentService:
                 provider=runtime.config.active,
                 model=runtime.config.active_provider.model,
             )
-            runtime.session_store.save(session, [])
+            runtime.session_store.save(session, [], must_exist=False)
             runtime.logger.bind_session(session.id)
             return SessionRuntime(runtime, session)
         except BaseException:
@@ -195,9 +195,12 @@ class AgentService:
                 "failed",
             }:
                 continue
-            current = last_runs.get(run.session_id)
-            if current is None or (run.updated_at, run.id) > (current.updated_at, current.id):
-                last_runs[run.session_id] = run
+            try:
+                current = last_runs.get(run.session_id)
+                if current is None or self._run_key(run) > self._run_key(current):
+                    last_runs[run.session_id] = run
+            except ValueError as exc:
+                raise SessionUnavailableError("Session catalog 暂不可用") from exc
         filtered = [
             item
             for item in sessions
@@ -205,13 +208,19 @@ class AgentService:
             or normalized_query in _normalize_query(item.title)
             or normalized_query in _normalize_query(item.preview)
         ]
-        filtered.sort(key=lambda item: (item.updated_at, item.id), reverse=True)
-        if cursor_key is not None:
-            filtered = [item for item in filtered if (item.updated_at, item.id) < cursor_key]
+        try:
+            filtered.sort(key=self._session_key, reverse=True)
+            if cursor_key is not None:
+                filtered = [item for item in filtered if self._session_key(item) < cursor_key]
+        except ValueError as exc:
+            raise SessionUnavailableError("Session catalog 暂不可用") from exc
         selected = filtered[: limit + 1]
         page_items = selected[:limit]
         try:
-            summaries = tuple(self._summary(item, last_runs.get(item.id)) for item in page_items)
+            summaries = tuple(
+                self._summary(item, self._last_run_summary(last_runs.get(item.id)))
+                for item in page_items
+            )
         except ValueError as exc:
             raise SessionUnavailableError("Session catalog 暂不可用") from exc
         next_cursor = (
@@ -236,6 +245,21 @@ class AgentService:
         except ValidationError as exc:
             raise InvalidSessionMetadataError("Session 元数据不合法") from exc
         try:
+            runs = self._run_store.list()
+            last_run = max(
+                (
+                    item
+                    for item in runs
+                    if item.session_id == session_id
+                    and item.status in {"running", "paused", "cancelled", "completed", "failed"}
+                ),
+                key=self._run_key,
+                default=None,
+            )
+            last_run_summary = self._last_run_summary(last_run)
+        except (OSError, ValueError) as exc:
+            raise SessionUnavailableError("Session 元数据暂不可用") from exc
+        try:
             session = self._session_store.update_metadata(
                 session_id,
                 request.title,
@@ -257,24 +281,10 @@ class AgentService:
             ),
             preview=session.preview,
         )
-        last_run = max(
-            (
-                item
-                for item in self._run_store.list()
-                if item.session_id == session_id
-                and item.status in {"running", "paused", "cancelled", "completed", "failed"}
-            ),
-            key=lambda item: (item.updated_at, item.id),
-            default=None,
-        )
-        try:
-            return self._summary(meta, last_run)
-        except ValueError as exc:
-            raise SessionUnavailableError("Session 元数据暂不可用") from exc
+        return self._summary(meta, last_run_summary)
 
     @staticmethod
-    def _summary(meta: SessionMeta, run: RunMeta | None) -> SessionSummary:
-        last_run = None
+    def _last_run_summary(run: RunMeta | None) -> LastRunSummary | None:
         if run is not None and run.status in {
             "running",
             "paused",
@@ -282,7 +292,7 @@ class AgentService:
             "completed",
             "failed",
         }:
-            last_run = LastRunSummary(
+            return LastRunSummary(
                 id=run.id,
                 status=cast(
                     Literal["running", "paused", "cancelled", "completed", "failed"],
@@ -290,6 +300,18 @@ class AgentService:
                 ),
                 updated_at=_as_utc_iso(run.updated_at),
             )
+        return None
+
+    @staticmethod
+    def _run_key(run: RunMeta) -> tuple[datetime, str]:
+        return parse_utc_timestamp(run.updated_at), run.id
+
+    @staticmethod
+    def _session_key(session: SessionMeta) -> tuple[datetime, str]:
+        return parse_utc_timestamp(session.updated_at), session.id
+
+    @staticmethod
+    def _summary(meta: SessionMeta, last_run: LastRunSummary | None) -> SessionSummary:
         return SessionSummary(
             id=meta.id,
             title=meta.title,
@@ -323,21 +345,32 @@ class AgentService:
         return self._run_store.prune(self._max_completed_runs)
 
     def delete_session(self, session_id: str, *, force: bool = False) -> bool:
-        unfinished = [
-            item
-            for item in self._run_store.list()
-            if item.session_id == session_id and item.status in {"running", "paused"}
-        ]
-        if unfinished and not force:
-            raise SessionRunConflictError(
-                f"Session 存在未完成 Run：{', '.join(item.id for item in unfinished)}"
-            )
-        deleted = self._session_store.delete(session_id)
-        if deleted:
-            for item in list(self._run_store.list()):
-                if item.session_id == session_id:
-                    self._run_store.delete(item.id)
-        return deleted
+        lease = None
+        if not force:
+            from assistant_agent.contracts.errors import RunStillActiveError
+
+            try:
+                lease = self._session_leases.acquire(session_id)
+            except RunStillActiveError as exc:
+                raise SessionRunConflictError("Session 当前存在活跃 Run") from exc
+        try:
+            if not force:
+                unfinished = [
+                    item
+                    for item in self._run_store.list()
+                    if item.session_id == session_id and item.status in {"running", "paused"}
+                ]
+                if unfinished:
+                    raise SessionRunConflictError(
+                        f"Session 存在未完成 Run：{', '.join(item.id for item in unfinished)}"
+                    )
+            deleted = self._session_store.delete(session_id)
+            if deleted:
+                self._run_store.delete_session_runs(session_id)
+            return deleted
+        finally:
+            if lease is not None:
+                lease.release()
 
     def get_artifact(self, session_id: str, artifact_id: str) -> ChartArtifact:
         """按 Session 隔离读取完整 Artifact，不暴露持久化路径。"""

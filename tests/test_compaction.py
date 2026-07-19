@@ -209,7 +209,7 @@ def test_session_persists_checkpoint_roundtrip(tmp_path):
     store = SessionStore(base_dir=tmp_path / "s")
     sess = store.new_session(provider="c", model="m")
     sess.compaction_checkpoint = {"summary": "要点", "covered_upto": 6}
-    store.save(sess, [{"role": "user", "content": "hi"}])
+    store.save(sess, [{"role": "user", "content": "hi"}], must_exist=False)
     loaded = store.load(sess.id)
     assert loaded.compaction_checkpoint == {"summary": "要点", "covered_upto": 6}
 
@@ -217,7 +217,7 @@ def test_session_persists_checkpoint_roundtrip(tmp_path):
 def test_session_checkpoint_defaults_none(tmp_path):
     store = SessionStore(base_dir=tmp_path / "s")
     sess = store.new_session()
-    store.save(sess, [])
+    store.save(sess, [], must_exist=False)
     assert store.load(sess.id).compaction_checkpoint is None
 
 

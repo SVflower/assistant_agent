@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-from datetime import datetime
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+from assistant_agent.contracts.time import parse_utc_timestamp
 
 
 class _StrictModel(BaseModel):
@@ -72,7 +73,7 @@ class UpdateSessionMetadataRequest(_StrictModel):
 def _require_utc(value: str) -> str:
     if not value.endswith("Z"):
         raise ValueError("时间必须是 ISO 8601 UTC")
-    parsed = datetime.fromisoformat(value.removesuffix("Z") + "+00:00")
+    parsed = parse_utc_timestamp(value)
     offset = parsed.utcoffset()
     if offset is None or offset.total_seconds() != 0:
         raise ValueError("时间必须是 ISO 8601 UTC")

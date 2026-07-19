@@ -120,6 +120,135 @@ def test_terminal_session_sync_preserves_concurrent_user_rename(tmp_path, monkey
         session_runtime.close()
 
 
+def test_delete_holds_execution_lease_between_check_and_commit(tmp_path, monkeypatch):
+    service = AgentService(config_path=_config(tmp_path, monkeypatch), workspace_root=tmp_path)
+    stale_runtime = service.create_session()
+    session_id = stale_runtime.session.id
+    checked = threading.Event()
+    release = threading.Event()
+    original_list = service._run_store.list
+    first_call = True
+
+    def blocking_list():
+        nonlocal first_call
+        items = original_list()
+        if first_call:
+            first_call = False
+            checked.set()
+            assert release.wait(timeout=5)
+        return items
+
+    monkeypatch.setattr(service._run_store, "list", blocking_list)
+    outcome = []
+    delete_errors = []
+    thread = threading.Thread(
+        target=lambda: _call_with_errors(
+            lambda: service.delete_session(session_id), outcome, delete_errors
+        )
+    )
+    thread.start()
+    try:
+        assert checked.wait(timeout=5)
+        with pytest.raises(RunStillActiveError):
+            stale_runtime.start_run("must not start during delete")
+    finally:
+        release.set()
+        thread.join(timeout=5)
+        stale_runtime.close()
+    assert not thread.is_alive()
+    assert delete_errors == []
+    assert outcome == [True]
+    with pytest.raises(FileNotFoundError):
+        service.load_session(session_id)
+    assert service.list_runs(session_id=session_id) == []
+
+
+def test_force_delete_active_run_tombstones_session_and_run_writes(tmp_path, monkeypatch):
+    service = AgentService(config_path=_config(tmp_path, monkeypatch), workspace_root=tmp_path)
+    session_runtime = service.create_session()
+    session_id = session_runtime.session.id
+    execution = session_runtime.start_run("active delete")
+    run_id = execution.run_id
+    run_dir = session_runtime.runtime.run_store._dir
+    first_event = next(execution.events)
+    assert first_event.terminal_status is None
+    assert (run_dir / f"{run_id}.json").is_file()
+
+    assert service.delete_session(session_id, force=True) is True
+    with pytest.raises(FileNotFoundError):
+        list(execution.events)
+    session_runtime.close()
+
+    assert not session_runtime.runtime.session_store._path(session_id).exists()
+    assert not list(run_dir.glob(f"{run_id}*.json"))
+    assert service.list_runs(session_id=session_id) == []
+    with pytest.raises(FileNotFoundError):
+        session_runtime.runtime.session_store.save(
+            session_runtime.session,
+            [{"role": "user", "content": "must not revive"}],
+        )
+    assert not list(run_dir.glob(f"{run_id}*.json"))
+
+
+def test_force_delete_waits_for_terminal_session_write_then_removes_all(tmp_path, monkeypatch):
+    service = AgentService(config_path=_config(tmp_path, monkeypatch), workspace_root=tmp_path)
+    session_runtime = service.create_session()
+    session_id = session_runtime.session.id
+    execution = session_runtime.start_run("terminal delete race")
+    run_id = execution.run_id
+    run_dir = session_runtime.runtime.run_store._dir
+    writing = threading.Event()
+    release_write = threading.Event()
+    original_write = SessionStore._atomic_write_locked
+
+    def blocking_write(store, session):
+        if session.messages and session.messages[-1].get("content") == "done":
+            writing.set()
+            assert release_write.wait(timeout=5)
+        return original_write(store, session)
+
+    monkeypatch.setattr(SessionStore, "_atomic_write_locked", blocking_write)
+    execution_errors = []
+    execution_thread = threading.Thread(
+        target=lambda: _consume_with_errors(execution.events, execution_errors)
+    )
+    delete_result = []
+    delete_thread = threading.Thread(
+        target=lambda: delete_result.append(service.delete_session(session_id, force=True))
+    )
+    execution_thread.start()
+    try:
+        assert writing.wait(timeout=5)
+        delete_thread.start()
+        assert delete_thread.is_alive()
+    finally:
+        release_write.set()
+        execution_thread.join(timeout=5)
+        delete_thread.join(timeout=5)
+        session_runtime.close()
+    assert not execution_thread.is_alive()
+    assert not delete_thread.is_alive()
+    assert all(isinstance(error, FileNotFoundError) for error in execution_errors)
+    assert delete_result == [True]
+    assert not session_runtime.runtime.session_store._path(session_id).exists()
+    assert not list(run_dir.glob(f"{run_id}*.json"))
+    assert service.list_runs(session_id=session_id) == []
+
+
+def _consume_with_errors(events, errors):
+    try:
+        list(events)
+    except Exception as exc:  # noqa: BLE001 - test captures the race outcome for cleanup
+        errors.append(exc)
+
+
+def _call_with_errors(call, results, errors):
+    try:
+        results.append(call())
+    except Exception as exc:  # noqa: BLE001 - test reports worker failures explicitly
+        errors.append(exc)
+
+
 def test_active_lease_blocks_resume_and_reconcile(tmp_path, monkeypatch):
     service = AgentService(config_path=_config(tmp_path, monkeypatch), workspace_root=tmp_path)
     first = service.create_session()
@@ -1038,7 +1167,7 @@ def test_create_session_failure_closes_runtime(tmp_path, monkeypatch):
     service = AgentService(config_path=_config(tmp_path, monkeypatch), workspace_root=tmp_path)
     port = _RecordingPort()
 
-    def fail_save(self, session, messages):
+    def fail_save(self, session, messages, **_kwargs):
         raise OSError("disk full")
 
     monkeypatch.setattr(SessionStore, "save", fail_save)

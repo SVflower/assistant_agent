@@ -20,7 +20,13 @@ if TYPE_CHECKING:
 class SessionRepository(Protocol):
     def new_session(self, provider: str = "", model: str = "") -> Session: ...
 
-    def save(self, session: Session, messages: list[dict] | None = None) -> None: ...
+    def save(
+        self,
+        session: Session,
+        messages: list[dict] | None = None,
+        *,
+        must_exist: bool = True,
+    ) -> None: ...
 
     def load(self, session_id: str) -> Session: ...
 
@@ -37,6 +43,8 @@ class RunCatalogRepository(RunCheckpointRepository, Protocol):
     def delete(self, run_id: str) -> bool: ...
 
     def prune(self, max_terminal_runs: int) -> builtins.list[str]: ...
+
+    def delete_session_runs(self, session_id: str) -> builtins.list[str]: ...
 
 
 class SessionExecutionLease(Protocol):

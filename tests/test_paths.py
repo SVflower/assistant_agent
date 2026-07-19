@@ -71,7 +71,7 @@ def test_default_stores_use_isolated_home(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     session_store = SessionStore()
     session = session_store.new_session()
-    session_store.save(session, [])
+    session_store.save(session, [], must_exist=False)
     run_store = RunStore()
     assert Path(session_store._dir).is_relative_to((tmp_path / "home").resolve())
     assert Path(run_store._dir).is_relative_to((tmp_path / "home").resolve())

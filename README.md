@@ -285,8 +285,9 @@ M25-AGENT-02 进一步支持 paused Run 跨 Runtime 指定取消，并由 Agent 
 终态，API 不再复制终态状态机。第十七阶段 M22 增加跨进程 Session execution lease、checkpoint v6、
 遗留 running Run 协调和 failed Run 安全幂等重试。M23-R1 Agent 侧进一步提供 Session schema v1、
 自动标题、用户 rename CAS、服务端搜索/keyset catalog 和权威 last_run；所有 Session 写路径使用短时
-跨进程文档锁和 fresh merge，终态同步不覆盖并发 rename。整个 R1 仍待 API/Web 接入。当前 705 个测试
-通过（6 个平台能力测试跳过）、覆盖率 84%、19,405 行/129 文件生产 Python 源码 + 1,617 行 eval
+跨进程 lifecycle 锁、tombstone 和 fresh merge，终态同步不覆盖并发 rename，删除后旧 Runtime 不复活
+Session/Run；旧 naive 时间固定解释为 UTC。整个 R1 仍待 API/Web 接入。当前 726 个测试通过
+（6 个平台能力测试跳过）、覆盖率 84%、19,673 行/131 文件生产 Python 源码 + 1,617 行 eval
 基础设施；scripted 19/19、
 recovery 4/4；剩余 7 项技术债（4 中/3 低，无高优先级）。详见
 [架构事实源](docs/ARCHITECTURE.md)和[通用服务调用指南](docs/agent-service-integration-guide.md)。

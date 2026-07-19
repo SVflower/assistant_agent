@@ -315,9 +315,17 @@ Token 或 Artifact 内容。
 Session schema v1 在首次读取时于文档锁内幂等迁移并原子替换。未知未来 schema fail closed。自动标题
 来自第一条 Unicode 空白折叠后非空的公开 user 文本，截断到 80 code points；无该消息时为
 `（空会话）`。首条非空 user 首次持久化时自动标题与 metadata_version 同步更新；用户 rename 永不被
-后续 Run 保存覆盖。所有 Session 写路径共用短时跨进程文档锁、锁内 fresh load/合并和原子替换。
-新写时间为 UTC `Z`；基线遗留的无时区 Session/Run 时间只在公共 summary 边界按本机历史时区转换为
-UTC，不改写 Session/Run 持久事实。公共 DTO 拒绝无时区或非 UTC 时间。
+后续 Run 保存覆盖。缺失 `schema_version`、显式 v0 或缺失 v1 元数据字段的旧文档都在锁内原子迁移为
+v1；非法类型、负数和未来版本 fail closed。
+
+所有 Session 更新和带 Session 的 Run checkpoint 共用短时跨进程 lifecycle 文件锁，并在锁内检查持久
+tombstone；Session 更新默认要求目标已存在。删除先发布 tombstone 再级联清理 Run，因此旧 Runtime 的
+checkpoint 或终态同步不能复活 Session/Run。普通删除还持有 M22 execution lease 覆盖“检查无活动 Run
+到删除提交”的窗口，避免检查后并发启动。锁顺序固定为 lifecycle -> Session 文档或 Run 文件锁。
+
+新 Session/Run 时间统一写为 UTC RFC3339 `Z`。旧无时区时间冻结解释为 UTC，不读取机器本地时区；
+带 offset 时间先换算为 UTC。Session v1 读取时会原子规范化其持久时间，Run 历史只在公共读取边界
+规范化。catalog 排序、cursor key 和 last_run 选择均比较解析后的 UTC instant，不比较混合格式字符串。
 
 ### 5.3 删除
 
@@ -326,8 +334,9 @@ deleted = service.delete_session(session_id)
 ```
 
 Session 存在 running/paused Run 时，默认抛出 `SessionRunConflictError`。服务不应为方便删除而隐式
-取消或丢弃可恢复 Run。`force=True` 只适合已由产品策略明确确认的数据清理流程。删除成功后会级联
-删除该 Session 所属 Run，内联 Artifact 随之不可读取。
+取消或丢弃可恢复 Run。`force=True` 只适合已由产品策略明确确认的数据清理流程；它会先发布持久
+tombstone，再级联删除该 Session 所属 Run。已持有旧 Runtime 的调用方可能在继续消费事件时收到
+`FileNotFoundError`，但其 Session/Run 写入会 fail closed，内联 Artifact 也随 Run 删除而不可读取。
 
 ### 5.4 关闭
 

@@ -22,6 +22,12 @@ from assistant_agent.application.models import (
     automatic_session_title,
     public_message_count,
 )
+from assistant_agent.contracts.time import (
+    normalize_utc_timestamp,
+    parse_utc_timestamp,
+    utc_now_rfc3339,
+)
+from assistant_agent.persistence.session_lifecycle import SessionLifecycle
 
 _SESSION_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$")
 _THREAD_LOCKS_GUARD = threading.Lock()
@@ -33,7 +39,7 @@ class UnsupportedSessionSchemaError(ValueError):
 
 
 def _now_iso() -> str:
-    return datetime.now(UTC).isoformat(timespec="seconds").replace("+00:00", "Z")
+    return utc_now_rfc3339()
 
 
 def new_session_id() -> str:
@@ -51,7 +57,13 @@ def _valid_title(value: Any) -> bool:
 
 def _migrate_document(data: dict[str, Any]) -> tuple[dict[str, Any], bool]:
     version = data.get("schema_version")
-    if version is None:
+    if version is not None and type(version) is not int:
+        raise UnsupportedSessionSchemaError(f"不支持的 Session schema_version：{version!r}")
+    missing_v1_metadata = any(
+        field not in data for field in ("title", "title_source", "metadata_version")
+    )
+    is_v0 = version is None or version == 0 or (version == 1 and missing_v1_metadata)
+    if is_v0:
         migrated = dict(data)
         source = migrated.get("title_source")
         title = migrated.get("title")
@@ -63,9 +75,11 @@ def _migrate_document(data: dict[str, Any]) -> tuple[dict[str, Any], bool]:
             title=title,
             title_source=source,
             metadata_version=1,
+            created_at=normalize_utc_timestamp(str(migrated.get("created_at") or "")),
+            updated_at=normalize_utc_timestamp(str(migrated.get("updated_at") or "")),
         )
         return migrated, True
-    if type(version) is not int or version != SESSION_SCHEMA_VERSION:
+    if version != SESSION_SCHEMA_VERSION:
         raise UnsupportedSessionSchemaError(f"不支持的 Session schema_version：{version!r}")
     if not _valid_title(data.get("title")):
         raise ValueError("Session title 不合法")
@@ -74,7 +88,10 @@ def _migrate_document(data: dict[str, Any]) -> tuple[dict[str, Any], bool]:
     metadata_version = data.get("metadata_version")
     if type(metadata_version) is not int or metadata_version < 1:
         raise ValueError("Session metadata_version 不合法")
-    return data, False
+    normalized = dict(data)
+    normalized["created_at"] = normalize_utc_timestamp(str(data.get("created_at") or ""))
+    normalized["updated_at"] = normalize_utc_timestamp(str(data.get("updated_at") or ""))
+    return normalized, normalized != data
 
 
 def _lock_file(handle: BinaryIO) -> None:
@@ -106,12 +123,18 @@ def _unlock_file(handle: BinaryIO) -> None:
 class SessionStore:
     """会话文件的存取；每次文档读改写都持有短时跨进程锁。"""
 
-    def __init__(self, base_dir: str | Path | None = None) -> None:
+    def __init__(
+        self,
+        base_dir: str | Path | None = None,
+        *,
+        lifecycle_dir: str | Path | None = None,
+    ) -> None:
         if base_dir is None:
             from assistant_agent.config.paths import state_paths
 
             base_dir = state_paths().sessions
         self._dir = Path(base_dir)
+        self._lifecycle = SessionLifecycle(lifecycle_dir or self._dir.parent / "session-lifecycle")
 
     def _path(self, session_id: str) -> Path:
         if not isinstance(session_id, str) or not _SESSION_ID.fullmatch(session_id):
@@ -184,62 +207,81 @@ class SessionStore:
             temp_path.unlink(missing_ok=True)
             raise
 
-    def save(self, session: Session, messages: list[dict[str, Any]] | None = None) -> None:
+    def save(
+        self,
+        session: Session,
+        messages: list[dict[str, Any]] | None = None,
+        *,
+        must_exist: bool = True,
+    ) -> None:
         """锁内 fresh load，并把内容变化合并到最新元数据后原子替换。"""
-        with self._document_lock(session.id):
-            try:
-                fresh, _ = self._read_locked(session.id)
-            except FileNotFoundError:
-                fresh = None
-            if messages is not None:
-                session.messages = messages
-            if fresh is not None:
-                session.title = fresh.title
-                session.title_source = fresh.title_source
-                session.metadata_version = fresh.metadata_version
-                session.schema_version = fresh.schema_version
-                session.created_at = fresh.created_at
-            generated = automatic_session_title(session.messages)
-            if (
-                session.title_source == "auto"
-                and session.title == EMPTY_SESSION_TITLE
-                and generated != EMPTY_SESSION_TITLE
-            ):
-                session.title = generated
-                session.metadata_version += 1
-            session.updated_at = _now_iso()
-            self._atomic_write_locked(session)
+        with self._lifecycle.lock(session.id):
+            if self._lifecycle.is_deleted_locked(session.id):
+                raise FileNotFoundError(f"会话已删除：{session.id}")
+            with self._document_lock(session.id):
+                try:
+                    fresh, _ = self._read_locked(session.id)
+                except FileNotFoundError:
+                    fresh = None
+                if must_exist and fresh is None:
+                    raise FileNotFoundError(f"会话不存在：{session.id}")
+                if not must_exist and fresh is not None:
+                    raise FileExistsError(f"会话已存在：{session.id}")
+                if messages is not None:
+                    session.messages = messages
+                if fresh is not None:
+                    session.title = fresh.title
+                    session.title_source = fresh.title_source
+                    session.metadata_version = fresh.metadata_version
+                    session.schema_version = fresh.schema_version
+                    session.created_at = fresh.created_at
+                generated = automatic_session_title(session.messages)
+                if (
+                    session.title_source == "auto"
+                    and session.title == EMPTY_SESSION_TITLE
+                    and generated != EMPTY_SESSION_TITLE
+                ):
+                    session.title = generated
+                    session.metadata_version += 1
+                session.updated_at = _now_iso()
+                self._atomic_write_locked(session)
 
     def load(self, session_id: str) -> Session:
         """载入并在锁内幂等迁移旧 Session；未知未来版本拒绝读取。"""
-        with self._document_lock(session_id):
-            session, migrated = self._read_locked(session_id)
-            if migrated:
-                self._atomic_write_locked(session)
-            return session
+        with self._lifecycle.lock(session_id):
+            if self._lifecycle.is_deleted_locked(session_id):
+                raise FileNotFoundError(f"会话已删除：{session_id}")
+            with self._document_lock(session_id):
+                session, migrated = self._read_locked(session_id)
+                if migrated:
+                    self._atomic_write_locked(session)
+                return session
 
     def update_metadata(self, session_id: str, title: str, expected_version: int) -> Session:
         if not _valid_title(title):
             raise ValueError("Session title 不合法")
         if type(expected_version) is not int or expected_version < 1:
             raise ValueError("expected_metadata_version 不合法")
-        with self._document_lock(session_id):
-            session, migrated = self._read_locked(session_id)
-            if migrated:
-                self._atomic_write_locked(session)
-            if session.metadata_version != expected_version:
-                from assistant_agent.contracts.errors import SessionMetadataConflictError
+        with self._lifecycle.lock(session_id):
+            if self._lifecycle.is_deleted_locked(session_id):
+                raise FileNotFoundError(f"会话已删除：{session_id}")
+            with self._document_lock(session_id):
+                session, migrated = self._read_locked(session_id)
+                if migrated:
+                    self._atomic_write_locked(session)
+                if session.metadata_version != expected_version:
+                    from assistant_agent.contracts.errors import SessionMetadataConflictError
 
-                raise SessionMetadataConflictError(
-                    "Session 元数据版本冲突",
-                    current_metadata_version=session.metadata_version,
-                )
-            session.title = title
-            session.title_source = "user"
-            session.metadata_version += 1
-            session.updated_at = _now_iso()
-            self._atomic_write_locked(session)
-            return session
+                    raise SessionMetadataConflictError(
+                        "Session 元数据版本冲突",
+                        current_metadata_version=session.metadata_version,
+                    )
+                session.title = title
+                session.title_source = "user"
+                session.metadata_version += 1
+                session.updated_at = _now_iso()
+                self._atomic_write_locked(session)
+                return session
 
     def list(self) -> list[SessionMeta]:
         if not self._dir.is_dir():
@@ -264,16 +306,20 @@ class SessionStore:
                     preview=session.preview,
                 )
             )
-        metas.sort(key=lambda item: (item.updated_at, item.id), reverse=True)
+        metas.sort(key=lambda item: (parse_utc_timestamp(item.updated_at), item.id), reverse=True)
         return metas
 
     def delete(self, session_id: str) -> bool:
-        with self._document_lock(session_id):
-            path = self._path(session_id)
-            if not path.is_file():
+        with self._lifecycle.lock(session_id):
+            if self._lifecycle.is_deleted_locked(session_id):
                 return False
-            path.unlink()
-            return True
+            with self._document_lock(session_id):
+                path = self._path(session_id)
+                if not path.is_file():
+                    return False
+                self._lifecycle.mark_deleted_locked(session_id)
+                path.unlink()
+                return True
 
     def _fsync_directory(self) -> None:
         if os.name == "nt":

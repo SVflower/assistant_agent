@@ -86,17 +86,17 @@ def test_filename_id_mismatch_is_rejected(tmp_path):
 
 def test_list_uses_fallback_and_sorts(tmp_path):
     store = RunStore(tmp_path)
-    store.save("run-1", _document("run-1", updated="1"))
-    store.save("run-1", _document("run-1", updated="2"))
+    store.save("run-1", _document("run-1", updated="2026-01-01T00:00:01Z"))
+    store.save("run-1", _document("run-1", updated="2026-01-01T00:00:02Z"))
     (tmp_path / "run-1.json").write_text("bad", encoding="utf-8")
-    store.save("run-2", _document("run-2", updated="3"))
+    store.save("run-2", _document("run-2", updated="2026-01-01T00:00:03Z"))
 
     assert [item.id for item in store.list()] == ["run-2", "run-1"]
 
 
 def test_list_includes_run_when_only_previous_slot_remains(tmp_path):
     store = RunStore(tmp_path)
-    store.save("run-1", _document("run-1", updated="1"))
+    store.save("run-1", _document("run-1", updated="2026-01-01T00:00:01Z"))
     (tmp_path / "run-1.json").replace(tmp_path / "run-1.prev.json")
     assert [item.id for item in store.list()] == ["run-1"]
 
@@ -134,10 +134,10 @@ def test_delete_removes_both_slots(tmp_path):
 
 def test_prune_only_synced_terminal_runs(tmp_path):
     store = RunStore(tmp_path)
-    store.save("old", _document("old", updated="1", status="completed"))
-    store.save("new", _document("new", updated="2", status="failed"))
-    store.save("active", _document("active", updated="3"))
-    unsynced = _document("unsynced", updated="4", status="completed")
+    store.save("old", _document("old", updated="2026-01-01T00:00:01Z", status="completed"))
+    store.save("new", _document("new", updated="2026-01-01T00:00:02Z", status="failed"))
+    store.save("active", _document("active", updated="2026-01-01T00:00:03Z"))
+    unsynced = _document("unsynced", updated="2026-01-01T00:00:04Z", status="completed")
     unsynced["session_synced"] = False
     store.save("unsynced", unsynced)
 

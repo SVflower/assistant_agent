@@ -141,7 +141,7 @@ def chat(
             session = store.new_session(
                 provider=rt.config.active, model=rt.config.active_provider.model
             )
-            store.save(session, [])
+            store.save(session, [], must_exist=False)
             console.info(f"新会话 {session.id}。输入 / 查看命令，exit/quit 退出。")
 
         unfinished = [

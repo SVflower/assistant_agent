@@ -12,6 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from assistant_agent.contracts.charts import ChartArtifact
 from assistant_agent.contracts.failures import BudgetResource, RunFailure
+from assistant_agent.contracts.time import utc_now_rfc3339
 
 RunStatus = Literal["running", "paused", "cancelled", "completed", "failed"]
 RunPhase = Literal[
@@ -37,7 +38,7 @@ _SCHEMA_VERSION: Literal[6] = 6
 
 
 def now_iso() -> str:
-    return datetime.now().isoformat(timespec="seconds")
+    return utc_now_rfc3339()
 
 
 def new_run_id() -> str:

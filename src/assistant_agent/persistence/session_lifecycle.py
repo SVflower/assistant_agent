@@ -6,6 +6,7 @@ import errno
 import hashlib
 import os
 import re
+import sys
 import tempfile
 import threading
 import time
@@ -17,15 +18,16 @@ from typing import BinaryIO
 _SESSION_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$")
 _LOCK_SHARDS = 64
 _WINDOWS_LOCK_POLL_SECONDS = 0.05
-_WINDOWS_LOCK_ERRNOS = {
-    errno.EACCES,
-    errno.EAGAIN,
-    errno.EDEADLK,
-}
-_WINDOWS_LOCK_WINERRORS = {33, 36}
-_THREAD_LOCKS_GUARD = threading.Lock()
-_THREAD_LOCKS: dict[Path, threading.RLock] = {}
-_THREAD_HELD_PATHS = threading.local()
+_THREAD_LOCKS_GUARD = globals().get("_THREAD_LOCKS_GUARD", threading.Lock())
+_THREAD_LOCKS: dict[Path, threading.RLock] = globals().get("_THREAD_LOCKS", {})
+_THREAD_HELD_PATHS = globals().get("_THREAD_HELD_PATHS", threading.local())
+_AT_FORK_ACQUIRED_LOCKS: list[threading.RLock] = globals().get("_AT_FORK_ACQUIRED_LOCKS", [])
+_FORK_HOOKS_REGISTERED = globals().get("_FORK_HOOKS_REGISTERED", False)
+
+
+def _is_windows_lock_contention(exc: OSError) -> bool:
+    """Python msvcrt.locking 以无 winerror 的 EACCES 表示锁冲突。"""
+    return exc.errno == errno.EACCES and getattr(exc, "winerror", None) is None
 
 
 def _lock_file(handle: BinaryIO) -> None:
@@ -38,10 +40,7 @@ def _lock_file(handle: BinaryIO) -> None:
                 msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
                 return
             except OSError as exc:
-                if (
-                    exc.errno not in _WINDOWS_LOCK_ERRNOS
-                    and getattr(exc, "winerror", None) not in _WINDOWS_LOCK_WINERRORS
-                ):
+                if not _is_windows_lock_contention(exc):
                     raise
                 time.sleep(_WINDOWS_LOCK_POLL_SECONDS)
     else:
@@ -63,6 +62,74 @@ def _unlock_file(handle: BinaryIO) -> None:
             fcntl.flock(handle.fileno(), fcntl.LOCK_UN)  # type: ignore[attr-defined]
     except OSError:
         pass
+
+
+def _current_thread_held_paths() -> set[Path]:
+    held_paths = getattr(_THREAD_HELD_PATHS, "paths", None)
+    if held_paths is None:
+        held_paths = set()
+        _THREAD_HELD_PATHS.paths = held_paths
+    return held_paths
+
+
+def _fork_audit_hook(event: str, _args: tuple[object, ...]) -> None:
+    if event == "os.fork" and _current_thread_held_paths():
+        raise RuntimeError("当前线程持有 lifecycle 锁，禁止 fork")
+
+
+def _before_fork() -> None:
+    global _AT_FORK_ACQUIRED_LOCKS
+    if _current_thread_held_paths():
+        raise RuntimeError("当前线程持有 lifecycle 锁，禁止 fork")
+    _THREAD_LOCKS_GUARD.acquire()
+    acquired: list[threading.RLock] = []
+    try:
+        for path in sorted(_THREAD_LOCKS, key=str):
+            lock = _THREAD_LOCKS[path]
+            lock.acquire()
+            acquired.append(lock)
+    except BaseException:
+        for lock in reversed(acquired):
+            lock.release()
+        _THREAD_LOCKS_GUARD.release()
+        raise
+    _AT_FORK_ACQUIRED_LOCKS = acquired
+
+
+def _after_fork_parent() -> None:
+    global _AT_FORK_ACQUIRED_LOCKS
+    for lock in reversed(_AT_FORK_ACQUIRED_LOCKS):
+        lock.release()
+    _AT_FORK_ACQUIRED_LOCKS = []
+    _THREAD_LOCKS_GUARD.release()
+
+
+def _after_fork_child() -> None:
+    global _AT_FORK_ACQUIRED_LOCKS
+    global _THREAD_HELD_PATHS
+    global _THREAD_LOCKS
+    global _THREAD_LOCKS_GUARD
+    _THREAD_LOCKS_GUARD = threading.Lock()
+    _THREAD_LOCKS = {}
+    _THREAD_HELD_PATHS = threading.local()
+    _AT_FORK_ACQUIRED_LOCKS = []
+
+
+def _register_fork_hooks() -> None:
+    global _FORK_HOOKS_REGISTERED
+    register_at_fork = getattr(os, "register_at_fork", None)
+    if register_at_fork is None or _FORK_HOOKS_REGISTERED:
+        return
+    sys.addaudithook(_fork_audit_hook)
+    register_at_fork(
+        before=_before_fork,
+        after_in_parent=_after_fork_parent,
+        after_in_child=_after_fork_child,
+    )
+    _FORK_HOOKS_REGISTERED = True
+
+
+_register_fork_hooks()
 
 
 class PersistentLifecycle:
@@ -94,10 +161,7 @@ class PersistentLifecycle:
         with _THREAD_LOCKS_GUARD:
             thread_lock = _THREAD_LOCKS.setdefault(path, threading.RLock())
         with thread_lock:
-            held_paths = getattr(_THREAD_HELD_PATHS, "paths", None)
-            if held_paths is None:
-                held_paths = set()
-                _THREAD_HELD_PATHS.paths = held_paths
+            held_paths = _current_thread_held_paths()
             if path in held_paths:
                 yield
                 return

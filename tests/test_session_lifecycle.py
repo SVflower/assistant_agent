@@ -2,16 +2,40 @@
 
 from __future__ import annotations
 
+import errno
+import importlib
 import json
+import multiprocessing
+import os
 import subprocess
 import sys
+import threading
 import time
+from pathlib import Path
 
 import pytest
 
+from assistant_agent.persistence import session_lifecycle as lifecycle_module
 from assistant_agent.persistence.run_store import RunStore
 from assistant_agent.persistence.session_lifecycle import SessionLifecycle
 from assistant_agent.persistence.store import SessionStore
+
+
+def _spawn_lifecycle_worker(lifecycle_dir: str, result_path: str) -> None:
+    with SessionLifecycle(lifecycle_dir).lock("session-1"):
+        Path(result_path).write_text("acquired", encoding="ascii")
+
+
+def _waitpid_with_timeout(pid: int, *, timeout: float) -> int:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        completed, status = os.waitpid(pid, os.WNOHANG)
+        if completed == pid:
+            return status
+        time.sleep(0.02)
+    os.kill(pid, 9)
+    os.waitpid(pid, 0)
+    raise AssertionError(f"child process {pid} did not exit within {timeout}s")
 
 
 def _wait_processes(processes: list[subprocess.Popen[str]], *, timeout: float) -> list[str]:
@@ -217,6 +241,228 @@ def test_lifecycle_lock_is_reentrant_in_the_same_thread(tmp_path):
     with lifecycle.lock("session-1"):
         with lifecycle.lock("session-1"):
             assert not lifecycle.is_deleted_locked("session-1")
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows msvcrt error contract")
+def test_windows_lock_retries_only_bare_eacces_contention(tmp_path, monkeypatch):
+    import msvcrt
+
+    calls: list[int] = []
+    sleeps: list[float] = []
+
+    def locking(_fd: int, mode: int, _length: int) -> None:
+        calls.append(mode)
+        if len(calls) == 1:
+            raise OSError(errno.EACCES, "Permission denied")
+
+    monkeypatch.setattr(msvcrt, "locking", locking)
+    monkeypatch.setattr(lifecycle_module.time, "sleep", sleeps.append)
+    path = tmp_path / "lock"
+    path.write_bytes(b"0")
+
+    with path.open("r+b") as handle:
+        lifecycle_module._lock_file(handle)
+
+    assert calls == [msvcrt.LK_NBLCK, msvcrt.LK_NBLCK]
+    assert sleeps == [0.05]
+
+
+def _os_error(err: int | None, *, winerror: int | None = None) -> OSError:
+    exc = OSError(err, "injected")
+    if winerror is not None:
+        exc.winerror = winerror
+    return exc
+
+
+@pytest.mark.parametrize(
+    ("error", "expected"),
+    [
+        (_os_error(errno.EACCES), True),
+        (_os_error(errno.EACCES, winerror=5), False),
+        (_os_error(errno.EACCES, winerror=36), False),
+        (_os_error(errno.EAGAIN), False),
+        (_os_error(errno.EDEADLK), False),
+        (_os_error(None, winerror=36), False),
+        (_os_error(errno.EBADF), False),
+        (_os_error(errno.ENOSPC), False),
+    ],
+    ids=[
+        "contention",
+        "access-denied",
+        "eacces-winerror-36",
+        "eagain",
+        "edeadlk",
+        "winerror-36",
+        "ebadf",
+        "enospc",
+    ],
+)
+def test_windows_lock_contention_predicate_fails_closed(error, expected):
+    assert lifecycle_module._is_windows_lock_contention(error) is expected
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows msvcrt error contract")
+@pytest.mark.parametrize(
+    "error",
+    [
+        _os_error(errno.EACCES, winerror=5),
+        _os_error(errno.EACCES, winerror=36),
+        _os_error(errno.EAGAIN),
+        _os_error(errno.EDEADLK),
+        _os_error(None, winerror=36),
+        _os_error(errno.EBADF),
+        _os_error(errno.ENOSPC),
+    ],
+    ids=[
+        "access-denied",
+        "eacces-winerror-36",
+        "eagain",
+        "edeadlk",
+        "winerror-36",
+        "ebadf",
+        "enospc",
+    ],
+)
+def test_windows_lock_fails_closed_for_non_contention_errors(tmp_path, monkeypatch, error):
+    import msvcrt
+
+    calls = 0
+    sleeps: list[float] = []
+
+    def locking(_fd: int, _mode: int, _length: int) -> None:
+        nonlocal calls
+        calls += 1
+        raise error
+
+    monkeypatch.setattr(msvcrt, "locking", locking)
+    monkeypatch.setattr(lifecycle_module.time, "sleep", sleeps.append)
+    path = tmp_path / "lock"
+    path.write_bytes(b"0")
+
+    with path.open("r+b") as handle, pytest.raises(OSError) as raised:
+        lifecycle_module._lock_file(handle)
+
+    assert raised.value is error
+    assert calls == 1
+    assert sleeps == []
+
+
+@pytest.mark.skipif(not hasattr(os, "register_at_fork"), reason="POSIX fork contract")
+def test_current_thread_cannot_fork_while_holding_lifecycle_lock(tmp_path):
+    lifecycle = SessionLifecycle(tmp_path / "lifecycle")
+
+    with lifecycle.lock("session-1"):
+        with pytest.raises(RuntimeError, match="持有 lifecycle 锁，禁止 fork"):
+            pid = os.fork()
+            if pid == 0:
+                os._exit(91)
+            os.waitpid(pid, 0)
+
+
+@pytest.mark.skipif(not hasattr(os, "register_at_fork"), reason="POSIX fork contract")
+def test_fork_waits_for_lifecycle_lock_held_by_another_thread(tmp_path):
+    lifecycle = SessionLifecycle(tmp_path / "lifecycle")
+    entered = threading.Event()
+    release = threading.Event()
+
+    def hold_lock() -> None:
+        with lifecycle.lock("session-1"):
+            entered.set()
+            assert release.wait(timeout=10)
+
+    holder = threading.Thread(target=hold_lock)
+    holder.start()
+    assert entered.wait(timeout=5)
+    releaser = threading.Timer(0.4, release.set)
+    releaser.start()
+    started = time.monotonic()
+    pid = os.fork()
+    if pid == 0:
+        try:
+            with lifecycle.lock("session-1"):
+                pass
+        except BaseException:
+            os._exit(92)
+        os._exit(0)
+    status = _waitpid_with_timeout(pid, timeout=10)
+    elapsed = time.monotonic() - started
+    holder.join(timeout=5)
+    releaser.join(timeout=5)
+
+    assert not holder.is_alive()
+    assert os.waitstatus_to_exitcode(status) == 0
+    assert elapsed >= 0.3
+
+
+@pytest.mark.skipif(not hasattr(os, "register_at_fork"), reason="POSIX fork contract")
+def test_parent_and_child_serialize_on_file_lock_after_fork(tmp_path):
+    lifecycle_dir = tmp_path / "lifecycle"
+    result = tmp_path / "child-elapsed"
+    read_fd, write_fd = os.pipe()
+    pid = os.fork()
+    if pid == 0:
+        os.close(write_fd)
+        try:
+            os.read(read_fd, 1)
+            started = time.monotonic()
+            with SessionLifecycle(lifecycle_dir).lock("session-1"):
+                elapsed = time.monotonic() - started
+            result.write_text(str(elapsed), encoding="ascii")
+        except BaseException:
+            os._exit(93)
+        finally:
+            os.close(read_fd)
+        os._exit(0)
+
+    os.close(read_fd)
+    try:
+        with SessionLifecycle(lifecycle_dir).lock("session-1"):
+            os.write(write_fd, b"1")
+            time.sleep(0.5)
+    finally:
+        os.close(write_fd)
+    status = _waitpid_with_timeout(pid, timeout=10)
+
+    assert os.waitstatus_to_exitcode(status) == 0
+    assert float(result.read_text(encoding="ascii")) >= 0.3
+
+
+def test_spawn_process_uses_cross_process_lifecycle_lock(tmp_path):
+    lifecycle_dir = tmp_path / "lifecycle"
+    result = tmp_path / "spawn-result"
+    context = multiprocessing.get_context("spawn")
+    process = context.Process(
+        target=_spawn_lifecycle_worker,
+        args=(str(lifecycle_dir), str(result)),
+    )
+
+    with SessionLifecycle(lifecycle_dir).lock("session-1"):
+        process.start()
+        time.sleep(0.2)
+        assert process.is_alive()
+        assert not result.exists()
+    try:
+        process.join(timeout=15)
+    finally:
+        if process.is_alive():
+            process.kill()
+            process.join(timeout=5)
+
+    assert process.exitcode == 0
+    assert result.read_text(encoding="ascii") == "acquired"
+
+
+@pytest.mark.skipif(not hasattr(os, "register_at_fork"), reason="POSIX fork contract")
+def test_reload_keeps_single_fork_guard_and_rejects_held_lock(tmp_path):
+    reloaded = importlib.reload(lifecycle_module)
+    lifecycle = reloaded.SessionLifecycle(tmp_path / "lifecycle")
+
+    with lifecycle.lock("session-1"):
+        with pytest.raises(RuntimeError, match="持有 lifecycle 锁，禁止 fork"):
+            pid = os.fork()
+            if pid == 0:
+                os._exit(94)
+            os.waitpid(pid, 0)
 
 
 @pytest.mark.skipif(sys.platform != "win32", reason="Windows msvcrt contention regression")

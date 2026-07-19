@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import builtins
+import hashlib
 import json
 import os
 import re
 import shutil
 import tempfile
+import threading
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
@@ -20,6 +22,8 @@ from assistant_agent.persistence.session_lifecycle import RunLifecycle, SessionL
 _RUN_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$")
 _INDEX_VERSION = 1
 _INDEX_LOCK_ID = "session-index-v1"
+_VERIFIED_INDEX_EPOCHS_GUARD = threading.Lock()
+_VERIFIED_INDEX_EPOCHS: dict[Path, tuple[str, int, int]] = {}
 
 
 @dataclass(frozen=True)
@@ -90,9 +94,34 @@ class RunStore:
                 handle.flush()
                 os.fsync(handle.fileno())
             os.replace(temp_path, target)
+            RunStore._fsync_file(target)
+            RunStore._fsync_directory_path(target.parent)
+            RunStore._fsync_directory_path(target.parent.parent)
         except BaseException:
             temp_path.unlink(missing_ok=True)
             raise
+
+    @staticmethod
+    def _fsync_file(path: Path) -> None:
+        with path.open("r+b") as handle:
+            os.fsync(handle.fileno())
+
+    @staticmethod
+    def _fsync_directory_path(path: Path) -> None:
+        """尽力刷目录项；Windows 不提供可移植的目录 fsync。"""
+        if os.name == "nt":
+            return
+        flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
+        try:
+            fd = os.open(path, flags)
+        except OSError:
+            return
+        try:
+            os.fsync(fd)
+        except OSError:
+            pass
+        finally:
+            os.close(fd)
 
     def _write_session_ref(self, generation: str, session_id: str, run_id: str) -> None:
         target = self._session_ref_path(generation, session_id, run_id)
@@ -228,7 +257,7 @@ class RunStore:
             for temp_path in generation_dir.rglob("*.tmp"):
                 temp_path.unlink(missing_ok=True)
 
-    def _rebuild_session_index_locked(self) -> tuple[str, dict[str, set[str]]]:
+    def _authoritative_sessions_locked(self) -> dict[str, set[str]]:
         sessions: dict[str, set[str]] = {}
         if self._dir.is_dir():
             run_ids = {
@@ -246,13 +275,26 @@ class RunStore:
                     session_id = document.get("session_id")
                     if isinstance(session_id, str) and _RUN_ID.fullmatch(session_id):
                         sessions.setdefault(session_id, set()).add(run_id)
+        return sessions
+
+    def _build_session_index_locked(
+        self, sessions: dict[str, set[str]]
+    ) -> tuple[str, dict[str, set[str]]]:
         generation = f"g-{uuid.uuid4().hex}"
         (self._session_index / generation).mkdir(parents=True, exist_ok=False)
+        self._fsync_directory_path(self._session_index)
         for session_id, run_ids in sessions.items():
             for run_id in run_ids:
                 self._write_session_ref(generation, session_id, run_id)
         self._write_manifest_locked(generation, sessions)
         self._cleanup_index_locked(keep_generation=generation)
+        return generation, sessions
+
+    def _rebuild_session_index_locked(self) -> tuple[str, dict[str, set[str]]]:
+        generation, sessions = self._build_session_index_locked(
+            self._authoritative_sessions_locked()
+        )
+        self._mark_index_epoch_verified_locked()
         return generation, sessions
 
     def _index_locked(self, *, session_id: str | None = None) -> tuple[str, dict[str, set[str]]]:
@@ -266,8 +308,41 @@ class RunStore:
 
     def _ensure_session_index(self) -> None:
         with self._index_lifecycle.lock(_INDEX_LOCK_ID):
-            generation, _ = self._index_locked()
+            generation, sessions = self._index_locked()
+            generation, sessions = self._verify_index_epoch_locked(generation, sessions)
             self._cleanup_index_locked(keep_generation=generation)
+
+    def _verify_index_epoch_locked(
+        self, generation: str, sessions: dict[str, set[str]]
+    ) -> tuple[str, dict[str, set[str]]]:
+        epoch = self._index_epoch_locked()
+        with _VERIFIED_INDEX_EPOCHS_GUARD:
+            already_verified = _VERIFIED_INDEX_EPOCHS.get(epoch[0]) == epoch[1:]
+        if already_verified:
+            return generation, sessions
+        authoritative = self._authoritative_sessions_locked()
+        if sessions != authoritative:
+            generation, sessions = self._build_session_index_locked(authoritative)
+        self._validate_refs_locked(generation, sessions)
+        self._mark_index_epoch_verified_locked()
+        return generation, sessions
+
+    def _mark_index_epoch_verified_locked(self) -> None:
+        epoch = self._index_epoch_locked()
+        with _VERIFIED_INDEX_EPOCHS_GUARD:
+            _VERIFIED_INDEX_EPOCHS[epoch[0]] = epoch[1:]
+
+    def _index_epoch_locked(self) -> tuple[Path, str, int, int]:
+        manifest_digest = hashlib.sha256(self._manifest_path.read_bytes()).hexdigest()
+        try:
+            stat = self._dir.stat()
+        except FileNotFoundError:
+            directory_mtime_ns = 0
+            directory_size = 0
+        else:
+            directory_mtime_ns = stat.st_mtime_ns
+            directory_size = stat.st_size
+        return self._dir.resolve(), manifest_digest, directory_mtime_ns, directory_size
 
     @staticmethod
     def _encode(run_id: str, document: dict[str, Any]) -> bytes:
@@ -297,6 +372,7 @@ class RunStore:
                 raise FileNotFoundError(f"Session 已删除：{session_id}")
             with self._index_lifecycle.lock(_INDEX_LOCK_ID):
                 generation, sessions = self._index_locked(session_id=session_id)
+                generation, sessions = self._verify_index_epoch_locked(generation, sessions)
                 indexed_session = next(
                     (candidate for candidate, run_ids in sessions.items() if run_id in run_ids),
                     None,
@@ -307,6 +383,7 @@ class RunStore:
                 self._write_session_ref(generation, session_id, run_id)
                 self._write_manifest_locked(generation, sessions)
                 self._save_with_run_lock(run_id, payload)
+                self._mark_index_epoch_verified_locked()
 
     def _save_with_run_lock(self, run_id: str, payload: bytes) -> None:
         with self._run_lifecycle.lock(run_id):
@@ -346,6 +423,7 @@ class RunStore:
                 else:
                     os.replace(current, previous)
             os.replace(temp_path, current)
+            self._fsync_file(current)
             self._fsync_directory()
         except BaseException:
             temp_path.unlink(missing_ok=True)
@@ -428,6 +506,7 @@ class RunStore:
             raise FileNotFoundError(f"Session 已删除：{session_id}")
         with self._index_lifecycle.lock(_INDEX_LOCK_ID):
             generation, sessions = self._index_locked(session_id=session_id)
+            generation, sessions = self._verify_index_epoch_locked(generation, sessions)
             run_ids = sessions.get(session_id, set())
             try:
                 return self._last_indexed_run_locked(session_id, run_ids)
@@ -481,6 +560,7 @@ class RunStore:
                         if self._delete_locked(run_id):
                             removed.append(run_id)
                 self._remove_session_refs_locked(generation, sessions, session_id)
+                self._mark_index_epoch_verified_locked()
         return removed
 
     def _remove_session_refs_locked(
@@ -491,24 +571,13 @@ class RunStore:
         self._write_manifest_locked(generation, sessions)
 
     def _fsync_directory(self) -> None:
-        if os.name == "nt":
-            return
-        flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
-        try:
-            fd = os.open(self._dir, flags)
-        except OSError:
-            return
-        try:
-            os.fsync(fd)
-        except OSError:
-            pass
-        finally:
-            os.close(fd)
+        self._fsync_directory_path(self._dir)
 
     def delete(self, run_id: str) -> bool:
         """存在双槽时先发布 tombstone 再清理；不存在或已删除返回 False。"""
         with self._index_lifecycle.lock(_INDEX_LOCK_ID):
             generation, sessions = self._index_locked()
+            generation, sessions = self._verify_index_epoch_locked(generation, sessions)
             session_id = next(
                 (candidate for candidate, run_ids in sessions.items() if run_id in run_ids),
                 None,
@@ -525,6 +594,7 @@ class RunStore:
                         sessions.pop(session_id)
                         shutil.rmtree(ref.parent, ignore_errors=True)
                     self._write_manifest_locked(generation, sessions)
+            self._mark_index_epoch_verified_locked()
             return deleted
 
     def _delete_locked(self, run_id: str) -> bool:

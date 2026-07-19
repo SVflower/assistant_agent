@@ -288,6 +288,119 @@ def test_checkpoint_failure_leaves_detectable_ref_and_rebuilds(tmp_path, monkeyp
     assert manifest["sessions"] == {"session-1": ["existing"]}
 
 
+def test_startup_rebuilds_self_consistent_index_missing_committed_checkpoint(tmp_path):
+    store = RunStore(tmp_path)
+    store.save("run-old", _session_document("run-old", updated="2026-01-01T00:00:01Z"))
+    store.save("run-new", _session_document("run-new", updated="2026-01-01T00:00:02Z"))
+    manifest, generation = _active_index(store)
+    manifest["sessions"]["session-1"].remove("run-new")
+    (generation / "session-1" / "run-new.ref").unlink()
+    store._manifest_path.write_text(
+        json.dumps(manifest, sort_keys=True, separators=(",", ":")), encoding="ascii"
+    )
+
+    restarted = RunStore(tmp_path)
+    with restarted._lifecycle.lock("session-1"):
+        last = restarted.last_for_session_locked("session-1")
+
+    assert last is not None and last.id == "run-new"
+    assert [item.id for item in restarted.list()] == ["run-new", "run-old"]
+    repaired, _ = _active_index(restarted)
+    assert repaired["sessions"] == {"session-1": ["run-new", "run-old"]}
+
+
+def test_direct_revalidates_a_changed_self_consistent_index_epoch(tmp_path):
+    store = RunStore(tmp_path)
+    store.save("run-old", _session_document("run-old", updated="2026-01-01T00:00:01Z"))
+    store.save("run-new", _session_document("run-new", updated="2026-01-01T00:00:02Z"))
+    manifest, generation = _active_index(store)
+    manifest["sessions"]["session-1"].remove("run-new")
+    (generation / "session-1" / "run-new.ref").unlink()
+    store._manifest_path.write_text(
+        json.dumps(manifest, sort_keys=True, separators=(",", ":")), encoding="ascii"
+    )
+
+    with store._lifecycle.lock("session-1"):
+        last = store.last_for_session_locked("session-1")
+
+    assert last is not None and last.id == "run-new"
+
+
+def test_startup_rebuilds_valid_ref_whose_checkpoint_was_deleted(tmp_path):
+    store = RunStore(tmp_path)
+    store.save("run-old", _session_document("run-old", updated="2026-01-01T00:00:01Z"))
+    store.save("run-new", _session_document("run-new", updated="2026-01-01T00:00:02Z"))
+    store._path("run-new").unlink()
+    store._path("run-new", previous=True).unlink(missing_ok=True)
+
+    restarted = RunStore(tmp_path)
+    with restarted._lifecycle.lock("session-1"):
+        last = restarted.last_for_session_locked("session-1")
+
+    assert last is not None and last.id == "run-old"
+    assert [item.id for item in restarted.list()] == ["run-old"]
+    repaired, _ = _active_index(restarted)
+    assert repaired["sessions"] == {"session-1": ["run-old"]}
+
+
+def test_restart_repairs_crash_after_ref_and_manifest_replace(tmp_path, monkeypatch):
+    store = RunStore(tmp_path)
+    store.save("existing", _session_document("existing"))
+
+    def crash_before_checkpoint(_run_id, _payload):
+        raise SystemExit("simulated process crash")
+
+    monkeypatch.setattr(store, "_save_with_run_lock", crash_before_checkpoint)
+    with pytest.raises(SystemExit, match="process crash"):
+        store.save("crashed", _session_document("crashed"))
+
+    restarted = RunStore(tmp_path)
+    with restarted._lifecycle.lock("session-1"):
+        last = restarted.last_for_session_locked("session-1")
+    assert last is not None and last.id == "existing"
+    assert [item.id for item in restarted.list()] == ["existing"]
+    repaired, _ = _active_index(restarted)
+    assert repaired["sessions"] == {"session-1": ["existing"]}
+
+
+def test_authoritative_scan_runs_once_per_process_index_epoch(tmp_path, monkeypatch):
+    first = RunStore(tmp_path)
+    first.save("run-1", _session_document("run-1"))
+    second = RunStore(tmp_path)
+    scans = 0
+    original_scan = RunStore._authoritative_sessions_locked
+
+    def count_scan(self):
+        nonlocal scans
+        scans += 1
+        return original_scan(self)
+
+    monkeypatch.setattr(RunStore, "_authoritative_sessions_locked", count_scan)
+    RunStore(tmp_path)
+    with second._lifecycle.lock("session-1"):
+        assert second.last_for_session_locked("session-1") is not None
+    assert scans == 0
+
+    manifest = second._manifest_path.read_text(encoding="ascii")
+    second._manifest_path.write_text(manifest + "\n", encoding="ascii")
+    RunStore(tmp_path)
+    assert scans == 1
+
+
+def test_atomic_write_flushes_replaced_file_and_necessary_parent_directories(tmp_path, monkeypatch):
+    files = []
+    directories = []
+    monkeypatch.setattr(RunStore, "_fsync_file", lambda path: files.append(path))
+    monkeypatch.setattr(RunStore, "_fsync_directory_path", lambda path: directories.append(path))
+    target = tmp_path / "generation" / "session" / "run.ref"
+
+    RunStore._atomic_write(target, b"payload", prefix=".run-")
+
+    assert target.read_bytes() == b"payload"
+    assert files == [target]
+    assert directories == [target.parent, target.parent.parent]
+
+
 def test_last_for_session_uses_public_status_filter_before_latest_selection(tmp_path):
     store = RunStore(tmp_path)
     cases = [

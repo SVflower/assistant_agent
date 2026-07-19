@@ -153,6 +153,41 @@ def test_unrepairable_direct_index_failure_is_stable_unavailable(tmp_path, monke
         service.get_session_summary(session.id)
 
 
+@pytest.mark.parametrize(
+    ("damage", "expected_run_id"),
+    [("coherent_omission", "run-new"), ("stale_ref", "run-old")],
+)
+def test_restart_authoritative_index_repair_keeps_direct_and_catalog_consistent(
+    tmp_path, damage, expected_run_id
+):
+    sessions = SessionStore(tmp_path / "sessions")
+    runs = RunStore(tmp_path / "runs")
+    session = sessions.new_session()
+    sessions.save(session, [{"role": "user", "content": "repair"}], must_exist=False)
+    runs.save("run-old", _run_document("run-old", session.id, "2026-01-01T00:00:01Z"))
+    runs.save("run-new", _run_document("run-new", session.id, "2026-01-01T00:00:02Z"))
+    manifest = json.loads(runs._manifest_path.read_text(encoding="ascii"))
+    generation = runs._session_index / manifest["generation"]
+    if damage == "coherent_omission":
+        manifest["sessions"][session.id].remove("run-new")
+        (generation / session.id / "run-new.ref").unlink()
+        runs._manifest_path.write_text(
+            json.dumps(manifest, sort_keys=True, separators=(",", ":")), encoding="ascii"
+        )
+    else:
+        runs._path("run-new").unlink()
+        runs._path("run-new", previous=True).unlink(missing_ok=True)
+
+    restarted = RunStore(tmp_path / "runs")
+    service = _service(tmp_path, session_store=sessions, run_store=restarted)
+    direct = service.get_session_summary(session.id)
+    catalog = service.catalog_sessions().items[0]
+
+    assert direct == catalog
+    assert direct.last_run is not None
+    assert direct.last_run.id == expected_run_id
+
+
 def test_get_session_summary_not_found_and_tombstone(tmp_path):
     service = _service(tmp_path)
     with pytest.raises(SessionNotFoundError):

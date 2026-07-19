@@ -29,13 +29,34 @@ bootstrap -> concrete providers / tools / integrations / execution / persistence
 5. `service` 仅稳定 re-export，不拥有编排、状态转换或资源装配。
 6. 外部调用方只依赖 `assistant_agent.service` 和 `assistant_agent.contracts`。
 
-## 2. 当前迁移状态
+## 2. 当前目录与所有权
 
-M19a 已建立契约基线和依赖护栏，M19b 已迁入稳定公共契约，M19c 已隔离 Provider 与
-Tool 端口，M19d 已收敛 Agent Context/Run/Loop，M19e 已分离 Application、Bootstrap 与 Service。
-M19f 已将基础设施与集成实现迁入目标包，M19g 已完成兼容、正式契约与状态文档收尾。
-旧路径仅作兼容转发，不允许形成双实现。
-完整迁移矩阵见 `docs/archive/phase12/m19-architecture-reconstruction-plan.md`。
+M19 已完成架构迁移和开发期清理。生产包只保留目标结构，不维护迁移前的内部 import 路径，
+也不通过 `sys.modules`、动态别名或薄转发隐藏第二套目录。完整迁移记录见
+`docs/archive/phase12/m19-architecture-reconstruction-plan.md`。
+
+```text
+src/assistant_agent/
+├── contracts/       # 稳定公共 DTO、事件、错误与 Interaction Protocol
+├── agent/           # ReAct 内核、上下文与 Run 状态机
+│   ├── loop.py
+│   ├── context/
+│   └── run/
+├── application/     # Runtime、Session、Run 用例编排
+├── bootstrap/       # 唯一 composition root
+├── providers/       # 模型端口与 LiteLLM adapter
+├── tools/           # 工具模型、端口、上下文、Registry 与内置工具
+├── integrations/    # MCP、Skills、Web Access adapter
+├── execution/       # Workspace、进程监管与 RunControl adapter
+├── persistence/     # Session、Run checkpoint 与 Artifact 存储
+├── observability/   # 日志、审计与脱敏
+├── service/         # 稳定进程内服务根入口，仅 re-export
+├── interaction/     # 稳定同步交互实现根入口
+├── cli/             # 命令与终端输入适配
+├── ui/              # Rich 展示
+├── config/          # 配置 schema、加载和路径
+└── main.py          # CLI 入口
+```
 
 目标所有权：
 
@@ -67,6 +88,8 @@ M19f 已将基础设施与集成实现迁入目标包，M19g 已完成兼容、�
   Application 兼容用例拥有。
 - `tools` 不得反向依赖 Agent 或 UI。
 - 业务 MCP server 始终外置，Agent 仓库只包含通用 client 与接入配置。
+- 禁止恢复 `llm/mcp/obs/runtime/session/skills/web` 等迁移前顶层包，以及
+  Agent/Tool/Service/Interaction 的旧转发文件；架构测试直接检查这些路径不存在。
 
 `agent/run/` 内部 DAG：
 

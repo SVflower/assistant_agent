@@ -264,9 +264,10 @@ M13a 已完成声明式工具适配层；第七阶段 M14 已完成暂停/取消
 InteractionPort、Session/Run 公共服务门面和稳定 StepEvent 契约，可供安装后的 Python 包直接调用。
 第十阶段 M17 已完成部署级 RuntimePolicy、MCP 有界降级启动和脱敏能力快照。第十一阶段 M18
 已完成结构化失败、安全 activity/预算快照，以及可 checkpoint 恢复的三类预算 continuation。
-第十二阶段 M19 已完成 contracts/agent/application/bootstrap/service 与 adapter 包重建，旧路径保持
-薄兼容。当前 606 个测试通过（5 个平台能力测试跳过）、覆盖率 84%、13974 行生产 Python 源码 +
-1366 行 eval 基础设施；scripted 18/18、recovery 4/4。详见
+第十二阶段 M19 已完成 contracts/agent/application/bootstrap/service 与 adapter 包重建，并删除
+全部迁移前内部包和转发文件。开发期只维护目标结构；服务调用方固定使用 `service/contracts/interaction`
+公共根入口。当前 604 个测试通过（5 个平台能力测试跳过）、覆盖率 84%、13,467 行/120 文件
+生产 Python 源码 + 1,404 行 eval 基础设施；scripted 18/18、recovery 4/4。详见
 [M19 架构](docs/ARCHITECTURE.md)和[通用服务调用指南](docs/agent-service-integration-guide.md)。
 
 详见 [DESIGN.md](DESIGN.md)。

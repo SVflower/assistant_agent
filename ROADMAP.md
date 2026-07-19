@@ -25,7 +25,7 @@
   工具、权限和依赖错误提供稳定机器分类，failed run_terminal 不再依赖文本推断。
 - **架构重建（M19）**：contracts 单一所有权、Agent Context/Run 内聚、Application 用例、Bootstrap
   唯一装配和 Service 稳定转发；execution/persistence/observability/integrations 适配器归位，
-  依赖方向由 12 条 import-linter contract 强制。
+  迁移前内部包和转发文件全部删除，依赖方向由 12 条 import-linter contract 强制。
 - **工具**：读/写/局部编辑/列目录/shell/代码检索/git 只读/用户澄清，以及带来源的
   `web_search`/`fetch_url`；搜索 backend 可替换，抓取含 SSRF、重定向和响应上限防护。
 - **命令层**：slash 命令系统本地拦截不花 token；`/skills` 与 `/mcp` 支持列出、安装、诊断、
@@ -44,8 +44,9 @@
   已完成工具不重放，started 副作用需 retry/skip/abort；预算、重复熔断、权限和摘要状态跨进程恢复；
   trace/session/run/call 标识对齐，还清 D8。
 
-**质量**：606 测试通过（5 个平台能力测试跳过）、覆盖率 84%、13974 行生产 Python 源码 +
-1366 行 eval 基础设施，Ruff/mypy 全绿。架构适应度测试（声明式依赖契约 + 600 行非阻断评审）、技术债册、
+**质量**：604 测试通过（5 个平台能力测试跳过）、覆盖率 84%、13,467 行/120 文件生产 Python 源码 +
+1,404 行 eval 基础设施，Ruff/mypy 全绿。架构适应度测试（12 条声明式依赖契约 + 旧路径防回归 +
+600 行非阻断评审）、技术债册、
 DoD 和里程碑工作流全在；CI 已加入 format/lint/mypy/coverage/scripted eval/recovery eval 与
 Windows/Linux、Python 3.11/3.13 矩阵。
 
@@ -264,9 +265,11 @@ D14，M9c 已还清 D9，M10a 已还清 D16，M10b 已还清 D8，M11a 已还清
 
 > **M19 已完成**：公共 DTO 统一归属 contracts；Agent Context/Run、Provider/Tool ports、Application
 > 用例、Bootstrap composition root 与 Service facade 分层落地；基础设施归入 execution、persistence、
-> observability 与 integrations。旧导入保留 identity-compatible 薄转发。606 passed、5 skipped、
-> 覆盖率 84%，12/12 import-linter、Ruff、mypy、scripted 18/18、recovery 4/4 全绿；经用户授权
-> 修改 Loop，StepEvent v1、checkpoint v3、事件顺序、权限、预算和恢复语义保持兼容。
+> observability 与 integrations。开发期不保留旧内部导入：迁移前顶层包、Agent/Tool/Service 转发文件
+> 和对应兼容测试已删除，并增加防回归架构测试。604 passed、5 skipped、覆盖率 84%；12/12
+> import-linter、Ruff、mypy、scripted 18/18、recovery 4/4 全绿。生产 Python 为 13,467 行/120 文件，
+> eval 基础设施 1,404 行。经用户授权修改 Loop，StepEvent v1、
+> checkpoint v3、事件顺序、权限、预算和恢复语义保持不变。
 
 ## 未来方向（P3，信号驱动，暂不做）
 

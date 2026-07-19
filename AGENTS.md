@@ -119,9 +119,10 @@ python -m assistant_agent
 - M18 已完成：结构化 RunFailure/activity/BudgetSnapshot；三类预算 continuation 统一经 InteractionPort
   并在继续前 checkpoint；Provider/工具/权限/依赖稳定分类；RunState v3 兼容迁移。经授权修改 Loop。
 - M19 已完成：稳定 contracts、Provider/Tool ports、Agent Context/Run 收敛、Application/Bootstrap/Service
-  分离，以及 execution/persistence/observability/integrations 适配器归位；旧路径薄兼容，12 条架构契约全绿。
-- 606 个测试通过（5 个平台能力测试跳过），覆盖率 84%，ruff/mypy 全绿；13974 行生产 Python
-  源码 + 1366 行 eval 基础设施。
+  分离，以及 execution/persistence/observability/integrations 适配器归位；迁移前内部路径全部删除，
+  12 条架构契约和旧路径防回归测试共同约束目标结构。
+- 604 个测试通过（5 个平台能力测试跳过），覆盖率 84%，ruff/mypy、12/12 import-linter、
+  scripted 18/18、recovery 4/4 全绿；13,467 行/120 文件生产 Python + 1,404 行 eval 基础设施。
 
 第三阶段总规划及 M9a-M10c 方案/决策已归档到 `docs/archive/phase3/`，还清
 D8/D9/D13/D14/D15/D16/D17。剩余工作按技术债和真实触发信号立项，

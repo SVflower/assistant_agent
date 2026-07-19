@@ -5,7 +5,8 @@
 >
 > 本文是公共服务契约的长期唯一正式入口；里程碑归档和阶段性交接不能替代本文。
 > 当前公共事件契约：`EVENT_CONTRACT_VERSION == 1`；当前 Run checkpoint：schema v3。
-> 最近同步：M19，Agent implementation commit `f6b1bcb39129b1fbb8d75b34f42d8bb8bd5871ae`。
+> 最近同步：M19 最终架构清理，Agent implementation commit
+> `a0d1bbeba224940993d2860b4f9ee0695d93360a`。
 
 ## 1. 集成边界
 
@@ -69,8 +70,8 @@ from assistant_agent.interaction import ...
 from assistant_agent.service import ...
 ```
 
-M19 前从 `assistant_agent.service` 或 `assistant_agent.interaction` 根入口导入的既有公共类型仍保持
-同一 Python 类型身份。新代码优先从 `contracts` 获取 DTO/Protocol，从 `interaction` 获取
+从 `assistant_agent.service` 或 `assistant_agent.interaction` 根入口导入的公共类型保持
+同一 Python 类型身份。DTO/Protocol 优先从 `contracts` 获取，从 `interaction` 获取
 `SafeDefaultInteractionPort` / `BlockingInteractionPort` 实现，从 `service` 获取生命周期门面。
 
 不要导入：
@@ -78,22 +79,33 @@ M19 前从 `assistant_agent.service` 或 `assistant_agent.interaction` 根入口
 ```python
 assistant_agent.cli
 assistant_agent.ui
-assistant_agent.agent.loop
-assistant_agent.cli.recovery
+assistant_agent.agent
+assistant_agent.application
+assistant_agent.bootstrap
+assistant_agent.config
+assistant_agent.execution
+assistant_agent.integrations
+assistant_agent.observability
+assistant_agent.persistence
+assistant_agent.providers
+assistant_agent.tools
 ```
 
 这些模块不是服务集成协议，直接依赖会绕过公共生命周期或造成升级耦合。
 
-### 2.1 M19 兼容说明
+### 2.1 M19 导入策略
 
 - `EVENT_CONTRACT_VERSION` 保持 `1`，StepEvent 字段、默认值和事件顺序未破坏；
 - Run checkpoint 保持 schema v3，旧 checkpoint 无需迁移；
 - `AgentService`、`AgentRuntime`、`SessionRuntime`、`create_runtime` 的公共根导入和构造签名不变；
 - `RuntimeNotice` 等稳定 DTO 可统一从 `assistant_agent.contracts` 根入口导入；
-- `RunExecution` 向后兼容新增可选 `warning: str = ""`，用于 checkpoint 回退等诊断；调用方须
+- `RunExecution` 保留可选 `warning: str = ""`，用于 checkpoint 回退等诊断；调用方须
   自行脱敏，不能直接透传网络；
-- `runtime/session/obs/mcp/skills/web` 等旧内部路径仅作迁移兼容，不属于服务契约，新服务不得导入；
-- API 若已只依赖公共根入口，本次没有强制代码修改；建议增加契约版本和 warning 回归测试。
+- `llm/mcp/obs/runtime/session/skills/web` 等迁移前顶层包，以及 Agent/Tool/Service 的旧转发模块已删除；
+- 这是开发期内部 Python import 的破坏性清理，不提升 `EVENT_CONTRACT_VERSION`，因为 StepEvent/DTO
+  和运行语义没有变化；
+- API/Web 若只依赖三个公共根入口，无运行逻辑修改；若曾穿透内部目录，必须迁回公共入口并增加
+  禁止内部 import 的架构测试。
 
 ## 3. 推荐入口
 

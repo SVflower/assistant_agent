@@ -1,12 +1,13 @@
 # M19 项目架构重建方案
 
 > 状态：已完成并归档。用户已授权 M19d 修改 `agent/loop.py`。
-> 版本：v3（2026-07-19，吸收外部评审并完成实施可行性复审，替代 v2）。核心决策：
+> 版本：v4（2026-07-19，完成开发期旧路径清理，替代 v3）。核心决策：
 > ①砍掉低价值 churn——builtin 工具聚类、`ui/` 合并、测试四象限重排全部出局；
 > ②`service/` 收敛为纯 re-export，允许转发 bootstrap composition root，但自身零逻辑；
 > ③补齐 Run/Application/Tool 消费方端口，`tools/base.py` 不再只改名；
 > ④恢复七阶段小步迁移，机械移动、状态机调整和文档收尾分开；
-> ⑤保留未来能力落位图，但外部项目只依赖 service/contracts，不穿透 application。
+> ⑤保留未来能力落位图，但外部项目只依赖 service/contracts，不穿透 application；
+> ⑥开发期不维护内部旧 import，最终删除全部迁移转发层。
 > 分支：`codex/m19-architecture-reconstruction`
 > 基线：M18，594 passed / 5 skipped，StepEvent contract v1，Run checkpoint v3。
 > 前置条件已核实：M18 代码提交 `0ef635a`、正式契约提交 `fa97f52` 均已进入 `main`，
@@ -510,13 +511,34 @@ Session/Run 生命周期和 CLI 行为无变化。
 
 验收：全部 DoD、CI 矩阵和跨项目契约闭环完成，工作区无旧内部实现或无主模块。
 
-实施记录（2026-07-19）：删除私有临时 `service._runtime_builders`，保留并测试历史公共根与
-identity-compatible 旧路径；同步 AGENTS/CLAUDE/README/DESIGN/ROADMAP/TECH_DEBT、架构事实源、
+实施记录（2026-07-19）：删除私有临时 `service._runtime_builders`，保留并测试正式公共根；
+阶段末曾暂留 identity-compatible 内部旧路径，随后由 M19h 全部清理。同步
+AGENTS/CLAUDE/README/DESIGN/ROADMAP/TECH_DEBT、架构事实源、
 正式 Service 契约和 API AI 交接。D11/D22 已还清，剩余 5 项技术债。公共契约结论：StepEvent v1、
 checkpoint v3、Interaction/Run/Session/failure/生命周期语义无破坏；`RunExecution.warning` 是默认空串的
-向后兼容扩展，API 无阻断性修改。最终验收：606 passed / 5 skipped、coverage 84%、Ruff/mypy、
+向后兼容扩展，API 无阻断性修改。M19g 验收：606 passed / 5 skipped、coverage 84%、Ruff/mypy、
 12/12 import-linter、scripted 18/18、recovery 4/4 全绿；13974 行生产 Python、1366 行 eval，
 无超过 600 行生产模块。
+
+### M19h：开发期旧路径清理
+
+- 删除顶层 `llm/mcp/obs/runtime/session/skills/web` 迁移包；
+- 删除 `agent/`、`tools/`、`service/`、`interaction/` 中所有迁移转发文件；
+- 将错误分类归入 `agent/run/failures.py`，进程输出格式化归入 `tools/process_output.py`；
+- 源码、测试和 eval 全部改用唯一目标路径，测试便利装配移入 `tests/support.py` 与 `evals/support.py`；
+- 删除旧路径 identity 测试，新增“旧包和转发文件不得返回”的架构适应度测试；
+- 保留配置字段、checkpoint schema v1/v2 到 v3 等用户数据迁移，它们不属于代码路径兼容；
+- StepEvent v1、checkpoint v3、Service/Contracts/Interaction 三个正式根入口和运行语义保持不变；
+- API/Web 若穿透过内部路径必须同步迁移；只依赖正式根入口时无需改运行逻辑。
+
+验收：目标源码树无旧目录或 `sys.modules` 别名；pytest、coverage、Ruff、mypy、12 条
+import-linter contract、scripted/recovery eval 全绿；正式契约与 API AI 交接同步。
+
+实施记录（2026-07-19，代码 commit `a0d1bbe`）：旧目录和转发文件全部删除，生产源码由
+153 个文件收敛为 120 个；
+604 passed / 5 skipped、coverage 84%、Ruff/mypy、12/12 import-linter、scripted 18/18（27 calls，
+tokens 120/31）、recovery 4/4 全绿；13,467 行生产 Python、1,404 行 eval，无超过 600 行模块。
+公共事件契约仍为 v1、checkpoint 仍为 v3；正式公共根不变，内部旧 import 明确破坏性删除。
 
 ## 12. 提交策略
 
@@ -529,6 +551,8 @@ checkpoint v3、Interaction/Run/Session/failure/生命周期语义无破坏；`R
 5. `refactor: extract application and composition roots`
 6. `refactor: align infrastructure and integration packages`
 7. `docs: finalize M19 architecture and service contract`
+8. `refactor: remove M19 legacy import paths`
+9. `docs: record final M19 architecture cleanup`
 
 审查 `git diff --summary` 确认 rename 被正确识别；每次提交前审查 `git diff --cached`
 排除密钥与垃圾文件。

@@ -2,8 +2,9 @@
 
 > AI 迭代开发中，债务会隐形复利（LLM 在每个决策点埋入未言明的假设）。
 > 这里显式追踪，防止"上次说的债"下次忘。每次里程碑评审更新本表。
-> 最后更新：2026-07-19（M19 架构重建：606 passed/5 skipped、覆盖率 84%，Ruff/format/mypy、
-> 12 条 import-linter、scripted/recovery eval 全绿；还清 D11/D22，未新增技术债。）
+> 最后更新：2026-07-19（M19 架构重建及旧路径清理：604 passed/5 skipped、覆盖率 84%，
+> Ruff/format/mypy、12 条 import-linter、scripted 18/18、recovery 4/4 全绿；生产源码收敛为
+> 13,467 行/120 文件，还清 D11/D22，未新增技术债。）
 
 ## 状态说明
 - 🔴 高：影响正确性/安全，或脆弱的关键路径

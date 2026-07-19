@@ -101,6 +101,19 @@ def test_list_includes_run_when_only_previous_slot_remains(tmp_path):
     assert [item.id for item in store.list()] == ["run-1"]
 
 
+def test_legacy_run_files_build_persistent_session_index(tmp_path):
+    document = _document("run-1", updated="2026-01-01T00:00:01Z")
+    document["session_id"] = "session-1"
+    tmp_path.mkdir(exist_ok=True)
+    (tmp_path / "run-1.json").write_text(json.dumps(document), encoding="utf-8")
+
+    store = RunStore(tmp_path)
+    with store._lifecycle.lock("session-1"):
+        last = store.last_for_session_locked("session-1")
+    assert last is not None and last.id == "run-1"
+    assert (tmp_path / ".session-index-v1" / "session-1" / "run-1.ref").is_file()
+
+
 def test_save_after_fallback_does_not_rotate_corrupt_current(tmp_path, monkeypatch):
     store = RunStore(tmp_path)
     store.save("run-1", _document("run-1", updated="1"))

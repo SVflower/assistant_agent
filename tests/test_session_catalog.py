@@ -6,6 +6,7 @@ import base64
 import json
 import subprocess
 import sys
+import threading
 
 import pytest
 
@@ -17,6 +18,7 @@ from assistant_agent.contracts.errors import (
     InvalidSessionMetadataError,
     InvalidSessionQueryError,
     SessionMetadataConflictError,
+    SessionNotFoundError,
     SessionUnavailableError,
 )
 from assistant_agent.persistence.execution_lease import FileSessionExecutionLeaseManager
@@ -24,14 +26,249 @@ from assistant_agent.persistence.run_store import RunStore
 from assistant_agent.persistence.store import SessionStore, UnsupportedSessionSchemaError
 
 
-def _service(tmp_path, *, run_store=None):
+def _service(tmp_path, *, run_store=None, session_store=None):
     return AgentService(
         runtime_factory=lambda *_args: None,  # type: ignore[arg-type]
-        session_store=SessionStore(tmp_path / "sessions"),
+        session_store=session_store or SessionStore(tmp_path / "sessions"),
         run_store=run_store or RunStore(tmp_path / "runs"),
         session_leases=FileSessionExecutionLeaseManager(tmp_path / "execution-leases"),
         max_completed_runs=10,
     )
+
+
+def _run_document(run_id: str, session_id: str, updated_at: str, status="completed"):
+    return {
+        "run_id": run_id,
+        "session_id": session_id,
+        "task": "public summary",
+        "status": status,
+        "phase": "terminal" if status in {"completed", "failed", "cancelled"} else "model_pending",
+        "updated_at": updated_at,
+    }
+
+
+def test_get_session_summary_reads_by_id_and_aggregates_last_run(tmp_path, monkeypatch):
+    store = SessionStore(tmp_path / "sessions")
+    runs = RunStore(tmp_path / "runs")
+    session = store.new_session()
+    store.save(
+        session,
+        [
+            {"role": "system", "content": "private"},
+            {"role": "user", "content": "public question"},
+            {"role": "assistant", "content": "public answer"},
+        ],
+        must_exist=False,
+    )
+    runs.save(
+        "run-older",
+        _run_document("run-older", session.id, "2026-07-20T09:00:00Z"),
+    )
+    runs.save(
+        "run-latest",
+        _run_document("run-latest", session.id, "2026-07-20T10:00:00+01:00"),
+    )
+    runs.save(
+        "run-newest",
+        _run_document("run-newest", session.id, "2026-07-20T09:00:00.1Z", "failed"),
+    )
+    original_glob = type(runs._dir).glob
+
+    def reject_full_run_scan(path, pattern):
+        if path == runs._dir and pattern == "*.json":
+            raise AssertionError("按 ID summary 不得扫描全量 Run 目录")
+        return original_glob(path, pattern)
+
+    monkeypatch.setattr(type(runs._dir), "glob", reject_full_run_scan)
+    monkeypatch.setattr(
+        runs, "list", lambda: (_ for _ in ()).throw(AssertionError("不得读取 Run catalog"))
+    )
+    monkeypatch.setattr(
+        runs, "load", lambda _run_id: (_ for _ in ()).throw(AssertionError("不得逐 Run load"))
+    )
+
+    summary = _service(tmp_path, session_store=store, run_store=runs).get_session_summary(
+        session.id
+    )
+    assert summary.id == session.id
+    assert summary.title == "public question"
+    assert summary.title_source == "auto"
+    assert summary.metadata_version == 2
+    assert summary.message_count == 2
+    assert summary.preview == "public question"
+    assert summary.created_at.endswith("Z")
+    assert summary.updated_at.endswith("Z")
+    assert summary.last_run is not None
+    assert summary.last_run.id == "run-newest"
+    assert summary.last_run.status == "failed"
+    assert summary.last_run.updated_at == "2026-07-20T09:00:00.100000Z"
+
+
+def test_get_session_summary_not_found_and_tombstone(tmp_path):
+    service = _service(tmp_path)
+    with pytest.raises(SessionNotFoundError):
+        service.get_session_summary("missing")
+
+    store = service._session_store
+    session = store.new_session()
+    store.save(session, [], must_exist=False)
+    assert store.delete(session.id)
+    with pytest.raises(SessionNotFoundError):
+        service.get_session_summary(session.id)
+
+
+def test_get_session_summary_does_not_scan_catalog_or_issue_n_plus_one(tmp_path):
+    session = SessionStore(tmp_path / "seed").new_session()
+
+    class DirectSessionStore:
+        def __init__(self):
+            self.reads = 0
+
+        def read_locked(self, session_id, reader):
+            self.reads += 1
+            assert session_id == session.id
+            return reader(session)
+
+        def load(self, _session_id):
+            raise AssertionError("不得通过 load 后再做非原子聚合")
+
+        def list(self):
+            raise AssertionError("不得扫描 Session catalog")
+
+    class DirectRunStore:
+        def __init__(self):
+            self.aggregations = 0
+
+        def last_for_session_locked(self, session_id):
+            self.aggregations += 1
+            assert session_id == session.id
+            return None
+
+        def list(self):
+            raise AssertionError("不得读取全量公共 Run catalog")
+
+        def load(self, _run_id):
+            raise AssertionError("不得产生逐 Run N+1")
+
+    sessions = DirectSessionStore()
+    runs = DirectRunStore()
+    service = _service(tmp_path, session_store=sessions, run_store=runs)
+    assert service.get_session_summary(session.id).id == session.id
+    assert sessions.reads == 1
+    assert runs.aggregations == 1
+
+
+@pytest.mark.parametrize("failure_source", ["session", "run"])
+def test_get_session_summary_maps_storage_failures(tmp_path, failure_source):
+    session = SessionStore(tmp_path / "seed").new_session()
+
+    class Sessions:
+        def read_locked(self, _session_id, reader):
+            if failure_source == "session":
+                raise OSError("session unavailable")
+            return reader(session)
+
+    class Runs:
+        def last_for_session_locked(self, _session_id):
+            raise OSError("run unavailable")
+
+    with pytest.raises(SessionUnavailableError):
+        _service(tmp_path, session_store=Sessions(), run_store=Runs()).get_session_summary(
+            session.id
+        )
+
+
+def test_get_session_summary_migrates_legacy_session_without_catalog_scan(tmp_path):
+    store = SessionStore(tmp_path / "sessions")
+    path = store._path("legacy-summary")
+    path.parent.mkdir(parents=True)
+    path.write_text(
+        json.dumps(
+            {
+                "id": "legacy-summary",
+                "created_at": "2026-01-01T00:00:00",
+                "updated_at": "2026-01-02T00:00:00",
+                "messages": [{"role": "user", "content": "legacy title"}],
+            }
+        ),
+        encoding="utf-8",
+    )
+    summary = _service(tmp_path, session_store=store).get_session_summary("legacy-summary")
+    assert summary.title == "legacy title"
+    assert summary.metadata_version == 1
+    assert json.loads(path.read_text(encoding="utf-8"))["schema_version"] == 1
+
+
+def test_get_session_summary_linearizes_before_concurrent_rename(tmp_path):
+    store = SessionStore(tmp_path / "sessions")
+    runs = RunStore(tmp_path / "runs")
+    session = store.new_session()
+    store.save(session, [], must_exist=False)
+    entered = threading.Event()
+    release = threading.Event()
+    original_last = runs.last_for_session_locked
+
+    def blocking_last(session_id):
+        entered.set()
+        assert release.wait(timeout=5)
+        return original_last(session_id)
+
+    runs.last_for_session_locked = blocking_last  # type: ignore[method-assign]
+    service = _service(tmp_path, session_store=store, run_store=runs)
+    summaries = []
+    summary_thread = threading.Thread(
+        target=lambda: summaries.append(service.get_session_summary(session.id))
+    )
+    renamed = []
+    rename_thread = threading.Thread(
+        target=lambda: renamed.append(store.update_metadata(session.id, "renamed", 1))
+    )
+    summary_thread.start()
+    assert entered.wait(timeout=5)
+    rename_thread.start()
+    assert rename_thread.is_alive()
+    release.set()
+    summary_thread.join(timeout=5)
+    rename_thread.join(timeout=5)
+    assert not summary_thread.is_alive() and not rename_thread.is_alive()
+    assert summaries[0].title == "（空会话）"
+    assert renamed[0].title == "renamed"
+    assert service.get_session_summary(session.id).title == "renamed"
+
+
+def test_get_session_summary_linearizes_before_concurrent_delete(tmp_path):
+    store = SessionStore(tmp_path / "sessions")
+    runs = RunStore(tmp_path / "runs")
+    session = store.new_session()
+    store.save(session, [], must_exist=False)
+    entered = threading.Event()
+    release = threading.Event()
+
+    def blocking_last(_session_id):
+        entered.set()
+        assert release.wait(timeout=5)
+        return None
+
+    runs.last_for_session_locked = blocking_last  # type: ignore[method-assign]
+    service = _service(tmp_path, session_store=store, run_store=runs)
+    summaries = []
+    summary_thread = threading.Thread(
+        target=lambda: summaries.append(service.get_session_summary(session.id))
+    )
+    deleted = []
+    delete_thread = threading.Thread(target=lambda: deleted.append(store.delete(session.id)))
+    summary_thread.start()
+    assert entered.wait(timeout=5)
+    delete_thread.start()
+    assert delete_thread.is_alive()
+    release.set()
+    summary_thread.join(timeout=5)
+    delete_thread.join(timeout=5)
+    assert not summary_thread.is_alive() and not delete_thread.is_alive()
+    assert summaries[0].id == session.id
+    assert deleted == [True]
+    with pytest.raises(SessionNotFoundError):
+        service.get_session_summary(session.id)
 
 
 def test_legacy_session_migrates_once_without_changing_messages(tmp_path):

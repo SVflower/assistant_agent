@@ -8,11 +8,11 @@ import re
 import secrets
 import tempfile
 import threading
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, BinaryIO
+from typing import Any, BinaryIO, TypeVar
 
 from assistant_agent.application.models import (
     EMPTY_SESSION_TITLE,
@@ -32,6 +32,7 @@ from assistant_agent.persistence.session_lifecycle import SessionLifecycle
 _SESSION_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$")
 _THREAD_LOCKS_GUARD = threading.Lock()
 _THREAD_LOCKS: dict[Path, threading.Lock] = {}
+_T = TypeVar("_T")
 
 
 class UnsupportedSessionSchemaError(ValueError):
@@ -248,6 +249,10 @@ class SessionStore:
 
     def load(self, session_id: str) -> Session:
         """载入并在锁内幂等迁移旧 Session；未知未来版本拒绝读取。"""
+        return self.read_locked(session_id, lambda session: session)
+
+    def read_locked(self, session_id: str, reader: Callable[[Session], _T]) -> _T:
+        """在 lifecycle/document 锁内读取迁移后的 Session 并执行只读映射。"""
         with self._lifecycle.lock(session_id):
             if self._lifecycle.is_deleted_locked(session_id):
                 raise FileNotFoundError(f"会话已删除：{session_id}")
@@ -255,7 +260,7 @@ class SessionStore:
                 session, migrated = self._read_locked(session_id)
                 if migrated:
                     self._atomic_write_locked(session)
-                return session
+                return reader(session)
 
     def update_metadata(self, session_id: str, title: str, expected_version: int) -> Session:
         if not _valid_title(title):

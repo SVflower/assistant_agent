@@ -42,6 +42,9 @@ class RunStore:
         self._dir = Path(base_dir)
         self._lifecycle = SessionLifecycle(lifecycle_dir or self._dir.parent / "session-lifecycle")
         self._run_lifecycle = RunLifecycle(run_lifecycle_dir or self._dir / ".lifecycle")
+        self._index_lifecycle = RunLifecycle(self._dir / ".index-lifecycle")
+        self._session_index = self._dir / ".session-index-v1"
+        self._ensure_session_index()
 
     def _path(self, run_id: str, *, previous: bool = False) -> Path:
         if not isinstance(run_id, str) or not _RUN_ID.fullmatch(run_id):
@@ -52,6 +55,75 @@ class RunStore:
         if path.parent != root:
             raise ValueError("Run 路径超出存储目录")
         return path
+
+    def _session_index_dir(self, session_id: str) -> Path:
+        if not isinstance(session_id, str) or not _RUN_ID.fullmatch(session_id):
+            raise ValueError("非法 Session ID")
+        root = self._session_index.resolve()
+        path = (root / session_id).resolve()
+        if path.parent != root:
+            raise ValueError("Run Session 索引路径超出存储目录")
+        return path
+
+    def _session_ref_path(self, session_id: str, run_id: str) -> Path:
+        self._path(run_id)
+        return self._session_index_dir(session_id) / f"{run_id}.ref"
+
+    def _write_session_ref(self, session_id: str, run_id: str) -> None:
+        target = self._session_ref_path(session_id, run_id)
+        if target.is_file():
+            return
+        target.parent.mkdir(parents=True, exist_ok=True)
+        fd, temp_name = tempfile.mkstemp(prefix=f".{run_id}-", suffix=".tmp", dir=target.parent)
+        temp_path = Path(temp_name)
+        try:
+            with os.fdopen(fd, "wb") as handle:
+                handle.write(b"run\n")
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(temp_path, target)
+        except BaseException:
+            temp_path.unlink(missing_ok=True)
+            raise
+
+    def _ensure_session_index(self) -> None:
+        ready = self._session_index / ".ready"
+        with self._index_lifecycle.lock("session-index-v1"):
+            if ready.is_file():
+                return
+            if self._dir.is_dir():
+                run_ids = {
+                    path.name.removesuffix(".prev.json").removesuffix(".json")
+                    for path in self._dir.glob("*.json")
+                }
+                for run_id in run_ids:
+                    with self._run_lifecycle.lock(run_id):
+                        if self._run_lifecycle.is_deleted_locked(run_id):
+                            continue
+                        try:
+                            document = self._load_unchecked(run_id).document
+                        except (FileNotFoundError, ValueError):
+                            continue
+                        session_id = document.get("session_id")
+                        if isinstance(session_id, str):
+                            try:
+                                self._write_session_ref(session_id, run_id)
+                            except ValueError:
+                                continue
+            self._session_index.mkdir(parents=True, exist_ok=True)
+            fd, temp_name = tempfile.mkstemp(
+                prefix=".ready-", suffix=".tmp", dir=self._session_index
+            )
+            temp_path = Path(temp_name)
+            try:
+                with os.fdopen(fd, "wb") as handle:
+                    handle.write(b"1\n")
+                    handle.flush()
+                    os.fsync(handle.fileno())
+                os.replace(temp_path, ready)
+            except BaseException:
+                temp_path.unlink(missing_ok=True)
+                raise
 
     @staticmethod
     def _encode(run_id: str, document: dict[str, Any]) -> bytes:
@@ -85,6 +157,10 @@ class RunStore:
         with self._run_lifecycle.lock(run_id):
             if self._run_lifecycle.is_deleted_locked(run_id):
                 raise FileNotFoundError(f"Run 已删除：{run_id}")
+            document = json.loads(payload)
+            session_id = document.get("session_id")
+            if isinstance(session_id, str):
+                self._write_session_ref(session_id, run_id)
             self._save_unchecked(run_id, payload)
 
     def _save_unchecked(self, run_id: str, payload: bytes) -> None:
@@ -181,6 +257,41 @@ class RunStore:
             reverse=True,
         )
         return metas
+
+    def last_for_session_locked(self, session_id: str) -> RunMeta | None:
+        """调用方已持 Session lifecycle 锁时，一次聚合该 Session 的最后 Run。"""
+        if self._lifecycle.is_deleted_locked(session_id):
+            raise FileNotFoundError(f"Session 已删除：{session_id}")
+        index_dir = self._session_index_dir(session_id)
+        if not index_dir.is_dir():
+            return None
+        last: RunMeta | None = None
+        run_ids = {path.stem for path in index_dir.glob("*.ref")}
+        for run_id in run_ids:
+            with self._run_lifecycle.lock(run_id):
+                if self._run_lifecycle.is_deleted_locked(run_id):
+                    continue
+                try:
+                    document = self._load_unchecked(run_id).document
+                except (FileNotFoundError, ValueError):
+                    continue
+                if document.get("session_id") != session_id:
+                    continue
+                task = str(document.get("task") or "").strip().replace("\n", " ")
+                candidate = RunMeta(
+                    id=run_id,
+                    status=str(document.get("status") or "unknown"),
+                    phase=str(document.get("phase") or "unknown"),
+                    session_id=session_id,
+                    updated_at=str(document.get("updated_at") or ""),
+                    preview=task[:40] + ("…" if len(task) > 40 else ""),
+                )
+                if last is None or (parse_utc_timestamp(candidate.updated_at), candidate.id) > (
+                    parse_utc_timestamp(last.updated_at),
+                    last.id,
+                ):
+                    last = candidate
+        return last
 
     def delete_session_runs(self, session_id: str) -> builtins.list[str]:
         """在 tombstone 后删除该 Session 的所有 Run 槽位。"""

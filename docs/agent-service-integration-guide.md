@@ -4,9 +4,9 @@
 > 或其他上层服务。
 >
 > 本文是公共服务契约的长期唯一正式入口；里程碑归档和阶段性交接不能替代本文。
-> 当前公共事件契约：`EVENT_CONTRACT_VERSION == 1`；当前 Run checkpoint：schema v6；当前
-> Session 文档：schema v1。
-> 最近同步：M23-R1 Session catalog 与元数据 CAS（2026-07-20）。
+> 当前公共事件契约：`EVENT_CONTRACT_VERSION == 1`；Session 服务契约：
+> `SESSION_CONTRACT_VERSION == 1`；当前 Run checkpoint：schema v6；当前 Session 文档：schema v1。
+> 最近同步：M23-R1 Session catalog、按 ID summary 与元数据 CAS（2026-07-20）。
 
 ## 1. 集成边界
 
@@ -276,13 +276,29 @@ Registry，并对加载和淘汰操作加锁。
 
 ### 5.2 Session catalog 与元数据（M23-R1）
 
+```text
+get_session_summary(session_id) -> SessionSummary
+catalog_sessions(query=None, limit=30, cursor=None) -> SessionCatalogPage
+update_session_metadata(session_id, title, expected_metadata_version) -> SessionSummary
+```
+
+`get_session_summary` 直接按 ID 读取权威 Session，并从 RunStore 的目标 Session 索引一次聚合 last_run；
+它不调用 catalog、不扫描 Session 目录、不扫描全量 Run 目录，也不逐 Run 调公共 load。不存在返回
+`SessionNotFoundError`，Session/Run 存储或 schema 故障返回 `SessionUnavailableError`。
+
+该用例在 Session lifecycle 锁和文档锁内完成旧 Session 迁移、Session 字段读取、last_run 聚合和 strict
+DTO 构造。线性化点是锁内 last_run 聚合与 DTO 构造完成的时刻；并发 rename/delete/Session Run save
+只能在线性化点之前完成并被 summary 看见，或在线性化点之后执行，不能返回无法对应任一真实时刻的旧
+summary。RunStore 的 `.session-index-v1/<session_id>/*.ref` 只提供候选 Run ID，最终状态与时间仍从
+Run checkpoint 双槽权威校验；旧 checkpoint 在 RunStore 初始化时锁内建立一次兼容索引。
+
 `catalog_sessions(query=None, limit=30, cursor=None) -> SessionCatalogPage` 是会话目录的唯一权威
 入口。结果按 `(updated_at DESC, id DESC)` 做 keyset 分页；`next_cursor` 是绑定规范化 query 的 opaque
 token，可在下一页使用不同 limit，但不能解析、修改或与其他 query 混用。query 最长 200 Unicode code
 points，匹配时对 query、title、公开 preview 做 NFKC + casefold。缺省和空 query 都表示不过滤。
 
 公共 DTO 均为 strict、`extra=forbid`、frozen 模型，并由 `assistant_agent.service` 与
-`assistant_agent.contracts` 同一对象导出：
+`assistant_agent.contracts` 同一对象导出；两处也导出 `SESSION_CONTRACT_VERSION=1`：
 
 ```text
 LastRunSummary = {id,status,updated_at}

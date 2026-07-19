@@ -8,6 +8,8 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from assistant_agent.contracts.time import parse_utc_timestamp
 
+SESSION_CONTRACT_VERSION = 1
+
 
 class _StrictModel(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True, frozen=True)

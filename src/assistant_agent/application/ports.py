@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import builtins
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol, TypeVar
 
 from assistant_agent.agent.run.ports import RunCheckpointRepository, RunTelemetry
 from assistant_agent.application.models import RunMeta, Session, SessionMeta
@@ -15,6 +15,8 @@ from assistant_agent.tools.ports import ToolTelemetry
 
 if TYPE_CHECKING:
     from assistant_agent.application.runtime import AgentRuntime
+
+_T = TypeVar("_T")
 
 
 class SessionRepository(Protocol):
@@ -29,6 +31,8 @@ class SessionRepository(Protocol):
     ) -> None: ...
 
     def load(self, session_id: str) -> Session: ...
+
+    def read_locked(self, session_id: str, reader: Callable[[Session], _T]) -> _T: ...
 
     def list(self) -> list[SessionMeta]: ...
 
@@ -45,6 +49,8 @@ class RunCatalogRepository(RunCheckpointRepository, Protocol):
     def prune(self, max_terminal_runs: int) -> builtins.list[str]: ...
 
     def delete_session_runs(self, session_id: str) -> builtins.list[str]: ...
+
+    def last_for_session_locked(self, session_id: str) -> RunMeta | None: ...
 
 
 class SessionExecutionLease(Protocol):

@@ -84,6 +84,7 @@ from assistant_agent.contracts.interactions import (
     ScopeInfo,
 )
 from assistant_agent.contracts.sessions import (
+    SESSION_CONTRACT_VERSION,
     LastRunSummary,
     SessionCatalogPage,
     SessionSummary,
@@ -152,6 +153,7 @@ __all__ = [
     "RuntimeStartupPhase",
     "RuntimeStartupStatus",
     "ScopeInfo",
+    "SESSION_CONTRACT_VERSION",
     "SessionBusyError",
     "SessionCatalogPage",
     "SessionMetadataConflictError",

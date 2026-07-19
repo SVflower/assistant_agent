@@ -50,6 +50,7 @@ def test_service_public_exports_baseline():
         "SkillCapability",
         "RuntimeNotice",
         "RuntimeProfile",
+        "SESSION_CONTRACT_VERSION",
         "SessionBusyError",
         "SessionRunConflictError",
         "SessionRuntime",

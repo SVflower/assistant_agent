@@ -13,7 +13,7 @@ from typing import Literal, cast
 
 from pydantic import ValidationError
 
-from assistant_agent.application.models import RunMeta, RunResumeInfo, SessionMeta
+from assistant_agent.application.models import RunMeta, RunResumeInfo, Session, SessionMeta
 from assistant_agent.application.ports import (
     RunCatalogRepository,
     RuntimeFactoryPort,
@@ -47,6 +47,10 @@ from assistant_agent.contracts.time import normalize_utc_timestamp, parse_utc_ti
 _CURSOR_VERSION = 1
 _CURSOR_DOMAIN = b"assistant-agent:m23-r1:session-cursor:"
 _CURSOR_KEY = secrets.token_bytes(32)
+
+
+class _LastRunUnavailableError(Exception):
+    pass
 
 
 def _normalize_query(value: str) -> str:
@@ -165,6 +169,26 @@ class AgentService:
     def list_sessions(self) -> list[SessionMeta]:
         return self._session_store.list()
 
+    def get_session_summary(self, session_id: str) -> SessionSummary:
+        """在线性化的 Session 锁内快照上构造公开 summary。"""
+
+        def build_summary(session: Session) -> SessionSummary:
+            try:
+                last_run = self._run_store.last_for_session_locked(session_id)
+                last_run_summary = self._last_run_summary(last_run)
+            except (OSError, ValueError) as exc:
+                raise _LastRunUnavailableError from exc
+            return self._summary(self._session_meta(session), last_run_summary)
+
+        try:
+            return self._session_store.read_locked(session_id, build_summary)
+        except _LastRunUnavailableError as exc:
+            raise SessionUnavailableError("Session summary 暂不可用") from exc
+        except FileNotFoundError as exc:
+            raise SessionNotFoundError("Session 不存在") from exc
+        except (OSError, ValueError) as exc:
+            raise SessionUnavailableError("Session summary 暂不可用") from exc
+
     def catalog_sessions(
         self,
         query: str | None = None,
@@ -269,19 +293,7 @@ class AgentService:
             raise SessionNotFoundError("Session 不存在") from exc
         except (OSError, ValueError) as exc:
             raise SessionUnavailableError("Session 元数据暂不可用") from exc
-        meta = SessionMeta(
-            id=session.id,
-            title=session.title,
-            title_source=session.title_source,
-            metadata_version=session.metadata_version,
-            created_at=session.created_at,
-            updated_at=session.updated_at,
-            message_count=sum(
-                message.get("role") in {"user", "assistant"} for message in session.messages
-            ),
-            preview=session.preview,
-        )
-        return self._summary(meta, last_run_summary)
+        return self._summary(self._session_meta(session), last_run_summary)
 
     @staticmethod
     def _last_run_summary(run: RunMeta | None) -> LastRunSummary | None:
@@ -309,6 +321,21 @@ class AgentService:
     @staticmethod
     def _session_key(session: SessionMeta) -> tuple[datetime, str]:
         return parse_utc_timestamp(session.updated_at), session.id
+
+    @staticmethod
+    def _session_meta(session: Session) -> SessionMeta:
+        return SessionMeta(
+            id=session.id,
+            title=session.title,
+            title_source=session.title_source,
+            metadata_version=session.metadata_version,
+            created_at=session.created_at,
+            updated_at=session.updated_at,
+            message_count=sum(
+                message.get("role") in {"user", "assistant"} for message in session.messages
+            ),
+            preview=session.preview,
+        )
 
     @staticmethod
     def _summary(meta: SessionMeta, last_run: LastRunSummary | None) -> SessionSummary:

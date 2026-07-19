@@ -62,6 +62,7 @@ from assistant_agent.contracts.events import (
     ToolDisplay,
 )
 from assistant_agent.contracts.sessions import (
+    SESSION_CONTRACT_VERSION,
     LastRunSummary,
     SessionCatalogPage,
     SessionSummary,
@@ -95,6 +96,7 @@ __all__ = [
     "SkillCapability",
     "RuntimeNotice",
     "RuntimeProfile",
+    "SESSION_CONTRACT_VERSION",
     "SessionBusyError",
     "RunStillActiveError",
     "RunNotResumableError",

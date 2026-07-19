@@ -282,7 +282,7 @@ RunState v4 原子 checkpoint 再发布事件，终态同步 Session，公共服
 读取内部文件。第十六阶段 M25 增加服务器 Web Runtime profile：工具注册白名单移除文件、Shell、进程
 与扩展管理能力，安全搜索不再弹审批，Interaction 提供截止时间并可被 pause/cancel 唤醒。
 M25-AGENT-02 进一步支持 paused Run 跨 Runtime 指定取消，并由 Agent 在事件源异常时权威持久化 failed
-终态，API 不再复制终态状态机。第十七阶段 M22 增加跨进程 Session execution lease、checkpoint v5、
+终态，API 不再复制终态状态机。第十七阶段 M22 增加跨进程 Session execution lease、checkpoint v6、
 遗留 running Run 协调和 failed Run 安全幂等重试。当前 679 个测试通过（6 个平台能力测试跳过）、
 覆盖率 84%、16,197 行/128 文件生产 Python 源码 + 1,411 行 eval 基础设施；scripted 19/19、
 recovery 4/4；剩余 7 项技术债（4 中/3 低，无高优先级）。详见

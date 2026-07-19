@@ -134,8 +134,9 @@ python -m assistant_agent
   扩展/MCP 与未证明 DNS 绑定安全的 `fetch_url` 不注册；Interaction 提供截止时间并可被 pause/cancel
   唤醒。M25-AGENT-02 增加 paused Run 跨 Runtime 指定取消和事件源异常权威 failed 持久化，Agent
   统一拥有 terminal/Session 同步，未修改 Loop。
-- M22 已完成：单机跨进程 Session execution lease、checkpoint v5、完整 Run snapshot、严格 resume、
-  orphan 协调和 failed Run 安全幂等重试；Event v1 不变，v1-v4 checkpoint fail-closed 迁移。
+- M22 已完成：单机跨进程 Session execution lease、checkpoint v6、完整 Run snapshot、严格 resume、
+  orphan 协调和基于可靠会话基线的 failed Run 安全幂等重试；Event v1 不变，v1-v5 checkpoint
+  fail-closed 迁移。
 - 679 个测试通过（6 个平台能力测试跳过），覆盖率 84%，ruff/mypy、12/12 import-linter、
   scripted 19/19、recovery 4/4 全绿；16,197 行/128 文件生产 Python + 1,411 行 eval 基础设施；
   剩余 7 项技术债（4 中/3 低，无高优先级）。

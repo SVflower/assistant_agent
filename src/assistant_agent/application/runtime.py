@@ -57,6 +57,7 @@ class AgentRuntime:
     capabilities: RuntimeCapabilities | None = None
     _closed: bool = field(default=False, init=False)
     _close_lock: threading.Lock = field(default_factory=threading.Lock, init=False, repr=False)
+    _execution_close: Callable[[], None] | None = field(default=None, init=False, repr=False)
 
     @property
     def closed(self) -> bool:
@@ -103,6 +104,8 @@ class AgentRuntime:
             tool_output_increment=self.config.agent.continuation.tool_output_increment,
             max_tool_output_chars_hard=self.config.agent.continuation.max_tool_output_chars_hard,
             session_id=session_id,
+            baseline_messages=self.loop.export_history(),
+            baseline_compaction_checkpoint=self.loop.export_checkpoint(),
             logger=self.logger,
         )
         self.tool_context.bind_run(coordinator.run_id, session_id)
@@ -110,6 +113,9 @@ class AgentRuntime:
 
     def bind_run(self, coordinator: RunCoordinator) -> None:
         self.tool_context.bind_run(coordinator.run_id, coordinator.state.session_id)
+
+    def bind_execution_close(self, close: Callable[[], None]) -> None:
+        self._execution_close = close
 
     def __enter__(self) -> AgentRuntime:
         return self
@@ -123,6 +129,11 @@ class AgentRuntime:
                 return
             self._closed = True
         self.run_control.request_cancel()
+        if self._execution_close is not None:
+            try:
+                self._execution_close()
+            except Exception as exc:  # noqa: BLE001
+                self.notices.append(RuntimeNotice("execution_close_failed", str(exc)))
         resources: list[Callable[[], None]] = [self.interaction.close]
         if self.process_manager is not None:
             resources.append(self.process_manager.close)

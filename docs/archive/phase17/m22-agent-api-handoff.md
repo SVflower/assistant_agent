@@ -21,8 +21,8 @@ Agent commit：以 M22 分支最终提交为准。
 ## 兼容
 
 - `EVENT_CONTRACT_VERSION` 保持 1，StepEvent 顺序不变。
-- checkpoint 升至 v5；v1-v4 自动迁移，但 `retry_safety=unknown`，默认不开放 retry。
-- v5 checkpoint 不支持旧 Agent 降级读取。
+- checkpoint 升至 v6；v1-v5 自动迁移，但 `retry_safety=unknown` 且无可靠会话基线，默认不开放 retry。
+- v6 checkpoint 不支持旧 Agent 降级读取。
 - 单机文件锁路径不包含业务事实，锁文件可长期存在，不得据其内容判断状态。
 
 ## 联调

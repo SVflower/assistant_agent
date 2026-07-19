@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from copy import deepcopy
 from typing import Any, Literal
 
 from assistant_agent.agent.run.budgets import ContinuationStateMixin
@@ -87,6 +88,8 @@ class RunCoordinator(ContinuationStateMixin, DefinitionStateMixin):
         max_tool_output_chars_hard: int | None = None,
         session_id: str | None = None,
         run_id: str | None = None,
+        baseline_messages: list[dict[str, Any]] | None = None,
+        baseline_compaction_checkpoint: dict[str, Any] | None = None,
         logger: RunTelemetry | None = None,
     ) -> RunCoordinator:
         timestamp = now_iso()
@@ -99,6 +102,9 @@ class RunCoordinator(ContinuationStateMixin, DefinitionStateMixin):
             model=model,
             system_prompt_hash=canonical_hash(system_prompt),
             tool_schema_hash=canonical_hash(tool_schemas),
+            baseline_messages=deepcopy(baseline_messages or []),
+            baseline_compaction_checkpoint=deepcopy(baseline_compaction_checkpoint),
+            retry_baseline_available=True,
             iteration_budget=max_iterations,
             tool_budget=ToolBudgetState(
                 max_calls=max_tool_calls,
@@ -501,6 +507,12 @@ class RunCoordinator(ContinuationStateMixin, DefinitionStateMixin):
         if existing is not None and existing != new_run_id:
             raise ValueError("幂等键已关联其他 Run")
         self.state.retry_requests[idempotency_key_hash] = new_run_id
+        self.checkpoint()
+
+    def remove_retry(self, idempotency_key_hash: str, expected_run_id: str) -> None:
+        if self.state.retry_requests.get(idempotency_key_hash) != expected_run_id:
+            return
+        self.state.retry_requests.pop(idempotency_key_hash)
         self.checkpoint()
 
     def retry(self, call_id: str) -> None:

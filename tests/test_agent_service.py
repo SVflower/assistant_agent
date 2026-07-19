@@ -42,6 +42,18 @@ class _FakeClient:
         yield StreamEvent(kind="content", text="done")
 
 
+class _RetryBaselineClient:
+    def __init__(self, _provider) -> None:
+        self.messages: list[list[dict]] = []
+
+    def complete_stream(self, messages, tools=None) -> Iterator[StreamEvent]:
+        self.messages.append([dict(message) for message in messages])
+        if len(self.messages) == 2:
+            raise RuntimeError("provider failed")
+        text = "seed-answer" if len(self.messages) == 1 else "retry-answer"
+        yield StreamEvent(kind="content", text=text)
+
+
 def _config(tmp_path, monkeypatch):
     monkeypatch.setenv("ASSISTANT_AGENT_HOME", str(tmp_path / "home"))
     path = tmp_path / "config.yaml"
@@ -106,6 +118,56 @@ def test_active_lease_blocks_resume_and_reconcile(tmp_path, monkeypatch):
         first.close()
 
 
+def test_execution_close_releases_unstarted_lease(tmp_path, monkeypatch):
+    service = AgentService(config_path=_config(tmp_path, monkeypatch), workspace_root=tmp_path)
+    first = service.create_session()
+    execution = first.start_run("never-started")
+    execution.close()
+    assert first.active_run_id is None
+    assert first.run_snapshot(execution.run_id).status == "cancelled"
+
+    second = service.load_session(first.session.id)
+    try:
+        follow_up = second.start_run("next")
+        follow_up.close()
+    finally:
+        second.close()
+        first.close()
+
+
+def test_execution_close_releases_partially_iterated_lease(tmp_path, monkeypatch):
+    service = AgentService(config_path=_config(tmp_path, monkeypatch), workspace_root=tmp_path)
+    first = service.create_session()
+    execution = first.start_run("partial")
+    next(execution.events)
+    execution.close()
+    assert first.run_snapshot(execution.run_id).status == "paused"
+
+    second = service.load_session(first.session.id)
+    try:
+        resumed = second.resume_run(execution.run_id)
+        resumed.close()
+    finally:
+        second.close()
+        first.close()
+
+
+def test_runtime_close_releases_unstarted_execution_lease(tmp_path, monkeypatch):
+    service = AgentService(config_path=_config(tmp_path, monkeypatch), workspace_root=tmp_path)
+    first = service.create_session()
+    execution = first.start_run("runtime-close")
+    first.runtime.close("test")
+    assert first.run_snapshot(execution.run_id).status == "cancelled"
+
+    second = service.load_session(first.session.id)
+    try:
+        follow_up = second.start_run("next")
+        follow_up.close()
+    finally:
+        second.close()
+        first.close()
+
+
 def test_reconcile_is_idempotent_and_pauses_orphan(tmp_path, monkeypatch):
     service = AgentService(config_path=_config(tmp_path, monkeypatch), workspace_root=tmp_path)
     first = service.create_session()
@@ -162,6 +224,112 @@ def test_retry_failed_run_creates_one_linked_run_for_same_key(tmp_path, monkeypa
         assert list(duplicate.events) == []
         snapshot = session_runtime.run_snapshot(retried.new_run_id)
         assert snapshot.retry_of_run_id == original.run_id
+    finally:
+        session_runtime.close()
+
+
+def test_retry_rebuilds_original_session_baseline_without_duplicate_user_message(
+    tmp_path, monkeypatch
+):
+    config = _config(tmp_path, monkeypatch)
+    monkeypatch.setattr(runtime_module, "LLMClient", _RetryBaselineClient)
+    service = AgentService(config_path=config, workspace_root=tmp_path)
+    session_runtime = service.create_session()
+    try:
+        seed = session_runtime.start_run("seed")
+        list(seed.events)
+        failed = session_runtime.start_run("analyze")
+        assert list(failed.events)[-1].terminal_status == "failed"
+        original = session_runtime.runtime.run_store.load(failed.run_id).document
+        assert original["baseline_messages"] == [
+            {"role": "user", "content": "seed"},
+            {"role": "assistant", "content": "seed-answer"},
+        ]
+
+        retried = session_runtime.retry_failed_run(failed.run_id, "retry-baseline")
+        assert list(retried.events)[-1].terminal_status == "completed"
+        client = session_runtime.runtime.loop._client  # noqa: SLF001
+        assert isinstance(client, _RetryBaselineClient)
+        assert client.messages[2] == client.messages[1]
+        assert [
+            message
+            for message in client.messages[2]
+            if message == {"role": "user", "content": "analyze"}
+        ] == [{"role": "user", "content": "analyze"}]
+    finally:
+        session_runtime.close()
+
+
+def test_retry_rebuilds_when_recorded_target_was_pruned(tmp_path, monkeypatch):
+    service = AgentService(config_path=_config(tmp_path, monkeypatch), workspace_root=tmp_path)
+    session_runtime = service.create_session()
+    try:
+        original = session_runtime.runtime.new_run("task", session_runtime.session.id)
+        assert original is not None
+        original.initialize([], None, ToolBudget(max_calls=10))
+        original.terminal(
+            success=False,
+            text="timeout",
+            messages=[],
+            compaction_checkpoint=None,
+            failure=RunFailure(
+                code="provider_timeout",
+                safe_message="模型请求超时。",
+                retryable=True,
+                allowed_actions=("retry_run",),
+                terminal_status="failed",
+                phase="calling_model",
+            ),
+        )
+        first = session_runtime.retry_failed_run(original.run_id, "retry-pruned")
+        list(first.events)
+        assert session_runtime.runtime.run_store.delete(first.new_run_id) is True
+
+        rebuilt = session_runtime.retry_failed_run(original.run_id, "retry-pruned")
+        assert rebuilt.created is True
+        assert rebuilt.new_run_id != first.new_run_id
+        list(rebuilt.events)
+        saved = session_runtime.runtime.run_store.load(original.run_id).document
+        assert set(saved["retry_requests"].values()) == {rebuilt.new_run_id}
+    finally:
+        session_runtime.close()
+
+
+@pytest.mark.parametrize(
+    ("failure_point", "notice_code"),
+    [
+        ("session", "session_sync_deferred"),
+        ("prune", "run_prune_deferred"),
+    ],
+)
+def test_terminal_is_published_once_when_finalization_fails(
+    tmp_path, monkeypatch, failure_point, notice_code
+):
+    service = AgentService(config_path=_config(tmp_path, monkeypatch), workspace_root=tmp_path)
+    session_runtime = service.create_session()
+    if failure_point == "session":
+        monkeypatch.setattr(
+            session_runtime.runtime.session_store,
+            "save",
+            lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError("disk full")),
+        )
+    else:
+        monkeypatch.setattr(
+            session_runtime.runtime.run_store,
+            "prune",
+            lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError("prune failed")),
+        )
+    try:
+        execution = session_runtime.start_run("task")
+        events = list(execution.events)
+        terminals = [event for event in events if event.kind == "run_terminal"]
+        assert len(terminals) == 1
+        assert terminals[0].terminal_status == "completed"
+        assert any(event.kind == "notice" and event.result_code == notice_code for event in events)
+        persisted = session_runtime.runtime.run_store.load(execution.run_id).document
+        assert persisted["status"] == "completed"
+        if failure_point == "session":
+            assert persisted["session_synced"] is False
     finally:
         session_runtime.close()
 

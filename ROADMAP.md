@@ -40,7 +40,7 @@
   Shell、进程、扩展和任意 MCP，安全搜索免审批；Interaction 提供权威截止时间并支持 pause/cancel
   解除等待；M25-AGENT-02 支持 paused Run 跨 Runtime 指定取消，并统一事件异常的 Agent 权威 failed
   终态。CLI 原权限语义不变。
-- **M22 故障恢复收口**：单机 OS 文件锁保证跨进程 Session 单执行者；checkpoint v5 累计副作用安全，
+- **M22 故障恢复收口**：单机 OS 文件锁保证跨进程 Session 单执行者；checkpoint v6 累计副作用安全，
   遗留 running Run 可幂等协调为 paused；安全 failed Run 以新 Run ID 幂等重试；公共快照和错误码完整。
 - **工具**：读/写/局部编辑/列目录/shell/代码检索/git 只读/用户澄清，以及带来源的
   `web_search`/`fetch_url`；搜索 backend 可替换，抓取含 SSRF、重定向和响应上限防护。
@@ -75,7 +75,7 @@ Web GUI、rewind/recap、非交互 init、PyPI 分发。
 
 **当前进展**：M22 已完成。Session execution lease 覆盖跨进程 start/resume/cancel-paused/reconcile/retry；
 遗留 running Run 不再直接恢复，先由 Agent 权威协调为 paused；failed Run 只有累计 retry_safety=safe
-时才能显式创建新 Run。Event v1 不变，checkpoint 升至 v5并兼容迁移 v1-v4。公共调用继续只依赖
+时才能显式创建新 Run。Event v1 不变，checkpoint 升至 v6并兼容迁移 v1-v5。公共调用继续只依赖
 `assistant_agent.service` / `contracts` / `interaction`。见
 [架构事实源](docs/ARCHITECTURE.md)与[正式服务契约](docs/agent-service-integration-guide.md)。
 
@@ -347,8 +347,8 @@ D14，M9c 已还清 D9，M10a 已还清 D16，M10b 已还清 D8，M11a 已还清
 |--------|------|------|
 | M22 | 跨进程 Run 稳定性与安全重试 | ✅ · [方案](docs/archive/phase17/m22-stability-plan.md) |
 
-> **M22 已完成**：Session execution lease 使用单机 OS 文件锁；checkpoint v5 保存累计
-> retry_safety、重试关联和幂等哈希，v1-v4 fail-closed 迁移为 unknown。公共服务新增完整 RunSnapshot、
+> **M22 已完成**：Session execution lease 使用单机 OS 文件锁；checkpoint v6 保存累计
+> retry_safety、可靠会话基线、重试关联和幂等哈希，v1-v5 fail-closed 迁移为 unknown。公共服务新增完整 RunSnapshot、
 > strict resume、reconcile_orphaned_run 和 retry_failed_run；事件源异常保留 uncertain side effect。
 > 679 passed、6 skipped、覆盖率 84%；Ruff、mypy、12/12 import-linter、scripted 19/19、recovery 4/4
 > 全绿；生产 Python 16,197 行/128 文件，未修改 Loop。

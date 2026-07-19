@@ -33,7 +33,7 @@ ReplayPolicy = Literal["safe_readonly", "safe_idempotent", "requires_decision"]
 RetrySafety = Literal["safe", "unsafe", "uncertain", "unknown"]
 
 _RESOLVED_TOOL_STATUSES = {"completed", "failed", "skipped"}
-_SCHEMA_VERSION: Literal[5] = 5
+_SCHEMA_VERSION: Literal[6] = 6
 
 
 def now_iso() -> str:
@@ -140,7 +140,7 @@ class ToolCallState(StrictStateModel):
 
 
 class RunState(StrictStateModel):
-    schema_version: Literal[5] = _SCHEMA_VERSION
+    schema_version: Literal[6] = _SCHEMA_VERSION
     run_id: str = Field(min_length=1)
     session_id: str | None = None
     task: str
@@ -153,6 +153,9 @@ class RunState(StrictStateModel):
     tool_schema_hash: str = Field(min_length=64, max_length=64)
     messages: list[dict[str, Any]] = Field(default_factory=list)
     compaction_checkpoint: dict[str, Any] | None = None
+    baseline_messages: list[dict[str, Any]] = Field(default_factory=list)
+    baseline_compaction_checkpoint: dict[str, Any] | None = None
+    retry_baseline_available: bool = True
     iteration: int = Field(default=0, ge=0)
     iteration_budget: int = Field(ge=1)
     tool_budget: ToolBudgetState
@@ -265,7 +268,7 @@ def migrate_run_document(document: dict[str, Any]) -> dict[str, Any]:
     version = document.get("schema_version")
     if version == _SCHEMA_VERSION:
         return document
-    if version in {1, 2, 3, 4}:
+    if version in {1, 2, 3, 4, 5}:
         migrated = dict(document)
         migrated["schema_version"] = _SCHEMA_VERSION
         iteration_limit = max(int(migrated.get("iteration_budget", 1)), 1)
@@ -304,6 +307,9 @@ def migrate_run_document(document: dict[str, Any]) -> dict[str, Any]:
         )
         migrated.setdefault("continuation_decisions", [])
         migrated.setdefault("presentations", [])
+        migrated["baseline_messages"] = []
+        migrated["baseline_compaction_checkpoint"] = None
+        migrated["retry_baseline_available"] = False
         migrated["retry_safety"] = "unknown"
         migrated["retry_of_run_id"] = None
         migrated["retry_idempotency_key_hash"] = None

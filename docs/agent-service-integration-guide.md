@@ -764,7 +764,7 @@ DTO，不能重新迭代 Agent 或重新执行工具。
 M22 控制语义：`resume_run()` 只接受 paused；API 重启遗留的 running Run 先以 Idempotency-Key 调用
 `reconcile_orphaned_run()`，成功后变为 paused。`retry_failed_run()` 只接受 Agent 明确判定为 safe 的
 failed Run，始终创建新 Run ID并返回 `RetryRunExecution`；相同原 Run和幂等键返回同一新 Run。
-v1-v4 checkpoint 迁移为 `retry_safety=unknown`，因此旧 Run 默认不允许普通重试。
+v1-v5 checkpoint 迁移为 `retry_safety=unknown` 且无可靠会话基线，因此旧 Run 默认不允许普通重试。
 
 M24 REST/事件映射：
 

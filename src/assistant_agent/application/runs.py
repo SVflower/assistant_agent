@@ -3,14 +3,14 @@
 from __future__ import annotations
 
 import threading
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 
 from assistant_agent.agent.run.coordinator import RecoveryChoice as LoopRecoveryChoice
 from assistant_agent.agent.run.coordinator import RunCoordinator
 from assistant_agent.agent.run.ports import ControlState
 from assistant_agent.agent.run.recovery import DefinitionDifference
-from assistant_agent.agent.run.state import ToolCallState, canonical_hash
+from assistant_agent.agent.run.state import RunState, ToolCallState, canonical_hash
 from assistant_agent.application.models import RunMeta, RunResumeInfo, Session
 from assistant_agent.application.ports import (
     RunCatalogRepository,
@@ -48,11 +48,63 @@ from assistant_agent.contracts.interactions import (
 )
 
 
+class _ExecutionEvents(Iterator[StepEvent]):
+    def __init__(
+        self,
+        source: Iterator[StepEvent],
+        on_close: Callable[[bool], None],
+    ) -> None:
+        self._source = source
+        self._on_close = on_close
+        self._started = False
+        self._closed = False
+
+    def __iter__(self) -> _ExecutionEvents:
+        return self
+
+    def __next__(self) -> StepEvent:
+        if self._closed:
+            raise StopIteration
+        self._started = True
+        try:
+            return next(self._source)
+        except BaseException:
+            self._finish()
+            raise
+
+    def close(self) -> None:
+        if self._closed:
+            return
+        close = getattr(self._source, "close", None)
+        try:
+            if callable(close):
+                close()
+        finally:
+            self._finish()
+
+    def _finish(self) -> None:
+        if self._closed:
+            return
+        self._closed = True
+        self._on_close(self._started)
+
+
 @dataclass(frozen=True)
 class RunExecution:
     run_id: str
     events: Iterator[StepEvent]
     warning: str = ""
+
+    def close(self) -> None:
+        close = getattr(self.events, "close", None)
+        if callable(close):
+            close()
+
+    def __enter__(self) -> RunExecution:
+        return self
+
+    def __exit__(self, *_exc: object) -> None:
+        self.close()
 
 
 @dataclass(frozen=True)
@@ -62,6 +114,23 @@ class RetryRunExecution:
     created: bool
     events: Iterator[StepEvent]
     warning: str = ""
+
+    def close(self) -> None:
+        close = getattr(self.events, "close", None)
+        if callable(close):
+            close()
+
+    def __enter__(self) -> RetryRunExecution:
+        return self
+
+    def __exit__(self, *_exc: object) -> None:
+        self.close()
+
+
+@dataclass(frozen=True)
+class _FinalizationResult:
+    status: TerminalStatus
+    notice_codes: tuple[str, ...] = ()
 
 
 def inspect_run(store: RunCatalogRepository, run_id: str) -> RunResumeInfo:
@@ -226,7 +295,9 @@ class SessionRuntime:
         self._lock = threading.Lock()
         self._active_run_id: str | None = None
         self._execution_lease: SessionExecutionLease | None = None
+        self._active_execution: RunExecution | None = None
         self._closed = False
+        self.runtime.bind_execution_close(self._close_active_execution)
 
     @property
     def active_run_id(self) -> str | None:
@@ -332,8 +403,8 @@ class SessionRuntime:
                 raise SessionRunConflictError("公共服务运行要求启用 agent.recovery")
             self._set_active_id(coordinator.run_id)
             self.runtime.logger.task(task)
-            return RunExecution(
-                coordinator.run_id,
+            return self._owned_execution(
+                coordinator,
                 self._stream(coordinator, self.runtime.loop.run(task, coordinator=coordinator)),
             )
         except BaseException:
@@ -364,11 +435,7 @@ class SessionRuntime:
             if state.status in {"completed", "failed"}:
                 raise SessionRunConflictError(f"已结束的 {state.status} Run 不能改写为 cancelled")
             if state.status == "cancelled":
-                synced = sync_terminal_session(
-                    coordinator, self.runtime.session_store, self.session
-                )
-                if synced is not None:
-                    self.session = synced
+                self._finish_run(coordinator)
                 return RunExecution(run_id, iter(()), _load_warning(coordinator))
 
             coordinator.cancel(
@@ -376,16 +443,14 @@ class SessionRuntime:
                 messages=state.messages,
                 compaction_checkpoint=state.compaction_checkpoint,
             )
-            synced = sync_terminal_session(coordinator, self.runtime.session_store, self.session)
-            if synced is not None:
-                self.session = synced
-            self.runtime.run_store.prune(self.runtime.config.agent.recovery.max_completed_runs)
+            finalized = self._finish_run(coordinator)
             terminal = StepEvent(
                 kind="run_terminal",
                 text=coordinator.state.terminal_text,
                 terminal_status="cancelled",
             )
-            return RunExecution(run_id, iter((terminal,)), _load_warning(coordinator))
+            notices = tuple(self._finalization_notice(code) for code in finalized.notice_codes)
+            return RunExecution(run_id, iter((*notices, terminal)), _load_warning(coordinator))
         finally:
             self._end_run()
 
@@ -431,14 +496,14 @@ class SessionRuntime:
                             messages=self.runtime.loop.export_history(),
                             compaction_checkpoint=self.runtime.loop.export_checkpoint(),
                         )
-                        return RunExecution(
-                            run_id,
+                        return self._owned_execution(
+                            coordinator,
                             self._stream(coordinator, iter(())),
                             _load_warning(coordinator),
                         )
                     coordinator.pause("Run 定义变化未获确认，保持暂停。")
-                    return RunExecution(
-                        run_id,
+                    return self._owned_execution(
+                        coordinator,
                         self._paused_stream(coordinator),
                         _load_warning(coordinator),
                     )
@@ -449,8 +514,8 @@ class SessionRuntime:
                     tool_schemas=self.runtime.loop.tool_schemas,
                 )
             coordinator.note_resume()
-            return RunExecution(
-                run_id,
+            return self._owned_execution(
+                coordinator,
                 self._stream(
                     coordinator,
                     self.runtime.loop.resume(
@@ -511,10 +576,13 @@ class SessionRuntime:
                 raise SessionRunConflictError("Run 不属于当前 Session")
             existing_id = state.retry_requests.get(key_hash)
             if existing_id is not None:
-                self._end_run()
-                return RetryRunExecution(
-                    run_id, existing_id, False, iter(()), _load_warning(original)
-                )
+                target = self._retry_target(original, existing_id, key_hash, request_hash)
+                if target is not None:
+                    self._end_run()
+                    return RetryRunExecution(
+                        run_id, target.run_id, False, iter(()), _load_warning(original)
+                    )
+                original.remove_retry(key_hash, existing_id)
             self._ensure_retryable(original)
             unfinished = [item for item in self.unfinished_runs() if item.id != run_id]
             if unfinished:
@@ -527,12 +595,18 @@ class SessionRuntime:
                 candidate = RunCoordinator.load(self.runtime.run_store, meta.id).state
                 if candidate.retry_idempotency_key_hash != key_hash:
                     continue
-                if candidate.retry_request_hash != request_hash:
+                if (
+                    candidate.session_id != self.session.id
+                    or candidate.retry_of_run_id != run_id
+                    or candidate.retry_request_hash != request_hash
+                ):
                     raise IdempotencyConflictError("幂等键已用于其他重试请求")
                 original.record_retry(key_hash, candidate.run_id)
                 self._end_run()
                 return RetryRunExecution(run_id, candidate.run_id, False, iter(()))
 
+            self.runtime.loop.load_history(state.baseline_messages)
+            self.runtime.loop.load_checkpoint(state.baseline_compaction_checkpoint)
             coordinator = self.runtime.new_run(state.task, self.session.id)
             if coordinator is None:
                 raise SessionRunConflictError("公共服务运行要求启用 agent.recovery")
@@ -545,14 +619,18 @@ class SessionRuntime:
             original.record_retry(key_hash, coordinator.run_id)
             self._set_active_id(coordinator.run_id)
             self.runtime.logger.task(state.task)
-            return RetryRunExecution(
-                run_id,
-                coordinator.run_id,
-                True,
+            execution = self._owned_execution(
+                coordinator,
                 self._stream(
                     coordinator,
                     self.runtime.loop.run(state.task, coordinator=coordinator),
                 ),
+            )
+            return RetryRunExecution(
+                run_id,
+                coordinator.run_id,
+                True,
+                execution.events,
             )
         except BaseException:
             self._end_run()
@@ -563,6 +641,8 @@ class SessionRuntime:
         state = coordinator.state
         if state.status != "failed" or state.failure is None:
             raise RunNotRetryableError("只有 failed Run 可以重新运行")
+        if not state.retry_baseline_available:
+            raise RunNotRetryableError("Run 未保存可靠的会话基线，不能安全重试")
         failure = state.failure
         if failure.unknown_side_effect or state.retry_safety == "uncertain":
             raise RunRecoveryRequiredError("Run 存在结果未知的副作用，必须先恢复")
@@ -572,6 +652,26 @@ class SessionRuntime:
             or state.retry_safety != "safe"
         ):
             raise RunNotRetryableError("Run 不满足安全重试条件")
+
+    def _retry_target(
+        self,
+        original: RunCoordinator,
+        target_run_id: str,
+        key_hash: str,
+        request_hash: str,
+    ) -> RunState | None:
+        try:
+            target = RunCoordinator.load(self.runtime.run_store, target_run_id).state
+        except FileNotFoundError:
+            return None
+        if (
+            target.session_id != self.session.id
+            or target.retry_of_run_id != original.run_id
+            or target.retry_idempotency_key_hash != key_hash
+            or target.retry_request_hash != request_hash
+        ):
+            raise IdempotencyConflictError("重试幂等记录指向无效 Run")
+        return target
 
     @staticmethod
     def _idempotency_hash(operation: str, run_id: str, key: str) -> str:
@@ -655,6 +755,40 @@ class SessionRuntime:
             lease.release()
         with self._lock:
             self._active_run_id = None
+            self._active_execution = None
+
+    def _owned_execution(
+        self,
+        coordinator: RunCoordinator,
+        source: Iterator[StepEvent],
+        warning: str = "",
+    ) -> RunExecution:
+        events = _ExecutionEvents(
+            source,
+            lambda started: self._execution_finished(coordinator, started),
+        )
+        execution = RunExecution(coordinator.run_id, events, warning)
+        with self._lock:
+            self._active_execution = execution
+        return execution
+
+    def _execution_finished(self, coordinator: RunCoordinator, started: bool) -> None:
+        try:
+            if not started and coordinator.state.status == "running":
+                coordinator.cancel(
+                    "任务在执行开始前关闭。",
+                    messages=coordinator.state.baseline_messages,
+                    compaction_checkpoint=coordinator.state.baseline_compaction_checkpoint,
+                )
+                self._finish_run(coordinator)
+        finally:
+            self._end_run()
+
+    def _close_active_execution(self) -> None:
+        with self._lock:
+            execution = self._active_execution
+        if execution is not None:
+            execution.close()
 
     def _acquire_execution_lease(self) -> None:
         try:
@@ -715,17 +849,27 @@ class SessionRuntime:
                 # GeneratorExit。改动上面的控制流时须维持这一点，否则 finally 内 yield 会抛错。
                 if exhausted:
                     yield StepEvent(kind="activity", phase="syncing_session")
-                    status = self._finish_run(coordinator)
+                    finalized = self._finish_run(coordinator)
+                    for code in finalized.notice_codes:
+                        yield self._finalization_notice(code)
                     yield StepEvent(
                         kind="run_terminal",
                         text=coordinator.state.terminal_text,
-                        terminal_status=status,
+                        terminal_status=finalized.status,
                         failure=coordinator.state.failure,
                     )
             finally:
                 self._end_run()
 
-    def _finish_run(self, coordinator: RunCoordinator) -> TerminalStatus:
+    @staticmethod
+    def _finalization_notice(code: str) -> StepEvent:
+        messages = {
+            "session_sync_deferred": "Run 终态已保存，会话同步将在后续重试。",
+            "run_prune_deferred": "Run 终态已保存，历史清理将在后续重试。",
+        }
+        return StepEvent(kind="notice", text=messages[code], result_code=code)
+
+    def _finish_run(self, coordinator: RunCoordinator) -> _FinalizationResult:
         status = coordinator.state.status
         if status == "running":
             coordinator.pause(
@@ -734,8 +878,18 @@ class SessionRuntime:
             )
             status = "paused"
         if status in {"completed", "failed", "cancelled"}:
-            synced = sync_terminal_session(coordinator, self.runtime.session_store, self.session)
-            if synced is not None:
-                self.session = synced
-            self.runtime.run_store.prune(self.runtime.config.agent.recovery.max_completed_runs)
-        return status
+            notices: list[str] = []
+            try:
+                synced = sync_terminal_session(
+                    coordinator, self.runtime.session_store, self.session
+                )
+                if synced is not None:
+                    self.session = synced
+            except Exception:  # noqa: BLE001
+                notices.append("session_sync_deferred")
+            try:
+                self.runtime.run_store.prune(self.runtime.config.agent.recovery.max_completed_runs)
+            except Exception:  # noqa: BLE001
+                notices.append("run_prune_deferred")
+            return _FinalizationResult(status, tuple(notices))
+        return _FinalizationResult(status)

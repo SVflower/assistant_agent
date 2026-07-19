@@ -29,7 +29,7 @@ def test_m22_public_service_exports_are_stable():
     assert contracts.RunRecoveryRequiredError is service.RunRecoveryRequiredError
 
 
-def test_v4_migration_is_fail_closed_for_retry():
+def test_v5_migration_is_fail_closed_for_retry_and_baseline():
     current = RunState(
         run_id="run-1",
         session_id="session-1",
@@ -49,7 +49,8 @@ def test_v4_migration_is_fail_closed_for_retry():
         created_at="2026-01-01T00:00:00",
         updated_at="2026-01-01T00:00:00",
     ).model_dump(mode="python")
-    current["schema_version"] = 4
+    current["schema_version"] = 5
     migrated = migrate_run_document(current)
-    assert migrated["schema_version"] == 5
+    assert migrated["schema_version"] == 6
     assert migrated["retry_safety"] == "unknown"
+    assert migrated["retry_baseline_available"] is False

@@ -10,11 +10,12 @@
 - 第二轮复审最终实现：`4f932196a9e68269c5d1aaf1ab8320d4895d9632`
 - 按 ID summary 补齐基线：`2caa0cc0bcdc09ae92f89837185a38453eaf89f3`
 - 按 ID summary 精确实现：`f6bf10bd21d62a32e8f4a641f44c67bef8c42de7`
-- 索引完整性复审最终实现：`ad3550ef6513475970c5b70291c72f2e00443010`
+- 索引完整性复审实现：`ad3550ef6513475970c5b70291c72f2e00443010`
+- 索引提交窗口最终实现：`b658371a4322edeec897db31b2937bb7579e4cf4`
 - 分支：`codex/m23-r1-summary-by-id`
 - `SESSION_CONTRACT_VERSION=1`、`EVENT_CONTRACT_VERSION=1`、RunState schema v6，未修改 Agent Loop
 
-本文件之后的纯文档提交不改变 API 应集成的 Agent 行为；等待中的 API 应基于上述索引完整性复审最终
+本文件之后的纯文档提交不改变 API 应集成的 Agent 行为；等待中的 API 应基于上述索引提交窗口最终
 实现 commit 集成和验证。
 
 ## API 必改项
@@ -62,6 +63,8 @@
   独立 Run tombstone 防止复活。
 - lifecycle 锁使用固定 64 分片，锁文件数量有界；按 ID tombstone 仍持久保留。锁顺序固定为
   `Session lifecycle（如适用） -> index lifecycle -> Run lifecycle -> checkpoint 双槽`。
+- save 先原子提交 ref + manifest，再写权威 checkpoint；索引提交失败不会留下未索引 Run，checkpoint
+  失败只留下可检测 stale ref，并在下次 direct/startup 重建，不存在静默漏 Run 的崩溃窗口。
 - 公共 DTO 字段保持 M23-R1 冻结契约；新增 `SESSION_CONTRACT_VERSION=1` 公共导出。Event v1、
   Session schema v1、RunState v6、M22/M24/M25 行为不变。
 
@@ -98,7 +101,7 @@
 - Ruff format/check：通过
 - mypy：131 source files，通过
 - import-linter：12/12
-- pytest coverage：751 passed、6 skipped、84%
+- pytest coverage：753 passed、6 skipped、84%
 - scripted eval：19/19
 - recovery eval：4/4
 - 测试/eval 子进程：无残留；仓库相关监听端口：无

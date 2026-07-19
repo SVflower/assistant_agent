@@ -294,6 +294,8 @@ Session 的完整 Run ID 集合，ref 记录可校验的 Session/Run 身份，�
 双槽权威校验。启动时完整校验索引；健康索引的按 ID 查询只校验目标 Session，不扫描全量 Run 目录。
 缺 ref/目录、坏 manifest/ref 或 stale ref 会在索引锁内从权威双槽原子重建；重建失败映射
 `SessionUnavailableError`，不得返回错误的 `last_run=None`。
+Run save 先提交 ref + manifest，再写 checkpoint：索引提交失败不会生成未索引 checkpoint，checkpoint
+失败只留下可检测 stale ref，后续查询或重启会重建，不会静默遗漏 Run。
 
 `catalog_sessions(query=None, limit=30, cursor=None) -> SessionCatalogPage` 是会话目录的唯一权威
 入口。结果按 `(updated_at DESC, id DESC)` 做 keyset 分页；`next_cursor` 是绑定规范化 query 的 opaque

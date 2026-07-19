@@ -8,25 +8,31 @@
 - M23-R1 初始实现：`5724bfe0c8541ee0a8f9565c7ba314f65d9f93e8`
 - 独立复审修复实现：`919627b942eabc4ac03811334b6c2b73468fa76c`
 - 第二轮复审最终实现：`4f932196a9e68269c5d1aaf1ab8320d4895d9632`
-- 分支：`codex/m23-r1-conversation-catalog`
-- `EVENT_CONTRACT_VERSION=1`、RunState schema v6，未修改 Agent Loop
+- 按 ID summary 补齐基线：`2caa0cc0bcdc09ae92f89837185a38453eaf89f3`
+- 按 ID summary 精确实现：`f6bf10bd21d62a32e8f4a641f44c67bef8c42de7`
+- 分支：`codex/m23-r1-summary-by-id`
+- `SESSION_CONTRACT_VERSION=1`、`EVENT_CONTRACT_VERSION=1`、RunState schema v6，未修改 Agent Loop
 
-本文件之后的纯文档提交不改变 API 应集成的 Agent 行为；API 应基于上述第二轮最终实现验证。
+本文件之后的纯文档提交不改变 API 应集成的 Agent 行为；等待中的 API 应基于上述按 ID summary 精确
+实现 commit 集成和验证。
 
 ## API 必改项
 
-1. `GET /api/v1/sessions` 必须原样调用
+1. Session detail/get 必须调用 `get_session_summary(session_id)` 取得公开 summary，不得通过 catalog
+   分页、Session 文件或 API 自建索引模拟。`SessionNotFoundError` 映射 `404 session_not_found`，
+   `SessionUnavailableError` 映射 `503 session_unavailable`。
+2. `GET /api/v1/sessions` 必须原样调用
    `catalog_sessions(query=None, limit=30, cursor=None)`，不得自行扫描、排序、搜索或解析 cursor。
-2. `PATCH /api/v1/sessions/{session_id}` 必须使用 strict、`extra=forbid` 的
+3. `PATCH /api/v1/sessions/{session_id}` 必须使用 strict、`extra=forbid` 的
    `{title, expected_metadata_version}`，并调用 `update_session_metadata`；CAS 冲突不得自动重试。
-3. 公开响应只映射 `SessionSummary`、`LastRunSummary`、`SessionCatalogPage` 白名单字段。不得暴露路径、
+4. 公开响应只映射 `SessionSummary`、`LastRunSummary`、`SessionCatalogPage` 白名单字段。不得暴露路径、
    prompt、reasoning、工具参数/结果、checkpoint、Token 或 Artifact 内容。
-4. 稳定映射以下错误：`invalid_session_query`、`invalid_session_limit`、`invalid_session_cursor`、
+5. 稳定映射以下错误：`invalid_session_query`、`invalid_session_limit`、`invalid_session_cursor`、
    `invalid_session_metadata`、`session_not_found`、`session_metadata_conflict`、
    `session_unavailable`。PATCH 非 JSON 仍由 API 返回 `415 unsupported_media_type`。
-5. API 不得假设 `force=True` 会等待活动 Run 正常结束。force 删除先发布 tombstone，旧事件消费者可能收到
+6. API 不得假设 `force=True` 会等待活动 Run 正常结束。force 删除先发布 tombstone，旧事件消费者可能收到
    `FileNotFoundError`；API 应停止消费并清理 Runtime，不得把它映射成 Session/Run 重新创建。
-6. Run 单删同样持久 tombstone。默认删除 running/paused Run 必须返回冲突；force 单删后，API 不得
+7. Run 单删同样持久 tombstone。默认删除 running/paused Run 必须返回冲突；force 单删后，API 不得
    重试同 run_id 的 checkpoint、resume 或 create。
 
 ## 兼容与持久化影响
@@ -44,32 +50,42 @@
   相同的 Session/Run tombstone 和级联语义。
 - metadata CAS 的 last_run 聚合在提交前完成。RunStore/SessionStore 异常稳定映射
   `SessionUnavailableError`；成功提交后不再执行可能失败的 RunStore 读取。
-- 公共 DTO 和方法签名保持 M23-R1 冻结契约；Event v1、RunState v6、M22/M24/M25 行为不变。
+- `get_session_summary` 在 Session lifecycle/document 锁内完成迁移、字段读取、目标 Session last_run 聚合
+  和 DTO 构造。DTO 构造完成是线性化点，并发 rename/delete 只能发生在线性化点前或后。
+- RunStore 新增持久 `.session-index-v1` 候选索引；首次打开旧 RunStore 时一次迁移，之后按 ID summary
+  只扫描目标 Session 引用，并从权威 checkpoint 校验，不扫描全量 Run 目录或产生公共 load N+1。
+- 公共 DTO 字段保持 M23-R1 冻结契约；新增 `SESSION_CONTRACT_VERSION=1` 公共导出。Event v1、
+  Session schema v1、RunState v6、M22/M24/M25 行为不变。
 
 ## 联调测试
 
-1. catalog 同秒数据按 `(parsed updated_at DESC, id DESC)` 跨页无重复/遗漏；cursor 可换 limit，换 query
+1. 按 ID get 对存在、缺失、tombstone、旧 Session 迁移分别返回正确 summary/错误；last_run 使用
+   `(parsed updated_at DESC, id DESC)`，字段与 catalog 完全一致。
+2. spy 禁止 catalog、Session list、Run list/load 和 Run 根目录扫描；get 只能执行一次锁内 Session 读取与
+   一次目标 Session last_run 聚合。
+3. 屏障测试证明 summary 构造期间 rename/delete 被 Session 锁阻塞；写先完成时读取新值或 NotFound。
+4. catalog 同秒数据按 `(parsed updated_at DESC, id DESC)` 跨页无重复/遗漏；cursor 可换 limit，换 query
    或篡改必须返回 `invalid_session_cursor`。
-2. NFKC + casefold 仅搜索 title 和公开 preview；内部消息、工具数据和路径不得命中或出现在响应。
-3. 两个并发 PATCH 使用同一 `metadata_version` 时仅一个成功，另一个返回
+5. NFKC + casefold 仅搜索 title 和公开 preview；内部消息、工具数据和路径不得命中或出现在响应。
+6. 两个并发 PATCH 使用同一 `metadata_version` 时仅一个成功，另一个返回
    `session_metadata_conflict`，且用户标题不被随后 Run 终态覆盖。
-4. RunStore 在 CAS 提交前失败时返回 `session_unavailable` 且标题/version 不变；成功提交后不得因额外
+7. RunStore 在 CAS 提交前失败时返回 `session_unavailable` 且标题/version 不变；成功提交后不得因额外
    RunStore 读取返回未知失败。
-5. 删除检查与并发 Run 启动互斥；force 删除活动 Run 后 Session 文件、Run 双槽和公共列表均消失，旧
+8. 删除检查与并发 Run 启动互斥；force 删除活动 Run 后 Session 文件、Run 双槽和公共列表均消失，旧
    Runtime 的 checkpoint/终态同步不能复活数据。
-6. force 单删活动 Run 后放行迟到 checkpoint，必须稳定失败且不生成 current/previous；重复删除、重启
+9. force 单删活动 Run 后放行迟到 checkpoint，必须稳定失败且不生成 current/previous；重复删除、重启
    后 save、Session tombstone 与 Run tombstone 组合均不得复活。
-7. 使用 fractional naive、`Z` 和正负 offset 的历史 Session/Run 验证 last_run、catalog 排序和分页在
+10. 使用 fractional naive、`Z` 和正负 offset 的历史 Session/Run 验证 last_run、catalog 排序和分页在
    不同时区进程环境中结果一致，`.1` 与 `.9` 保持不同 instant，所有 wire 时间均为 UTC `Z`。
-8. CLI 默认拒绝含活动 Run 的 Session 删除；force 成功后 Session 与 Run 双槽消失且迟到写失败。
-9. 回归 M22 resume/reconcile/retry、M24 Artifact 删除级联、M25 paused cancel 和 Web Runtime profile。
+11. CLI 默认拒绝含活动 Run 的 Session 删除；force 成功后 Session 与 Run 双槽消失且迟到写失败。
+12. 回归 M22 resume/reconcile/retry、M24 Artifact 删除级联、M25 paused cancel 和 Web Runtime profile。
 
 ## Agent 验证结果
 
 - Ruff format/check：通过
 - mypy：131 source files，通过
 - import-linter：12/12
-- pytest coverage：732 passed、6 skipped、84%
+- pytest coverage：741 passed、6 skipped、84%
 - scripted eval：19/19
 - recovery eval：4/4
 - 测试/eval 子进程：无残留；仓库相关监听端口：无
@@ -81,5 +97,7 @@
 - force 删除的消费者错误是删除后的 fail-closed 信号，不是可重试写入信号。API 必须结束对应 Runtime。
 - Run 历史时间在读取边界规范化，不回写 checkpoint；Session v1 时间会随迁移原子规范化。运维比较原始
   文件时需考虑这一差异。
+- 旧 RunStore 首次创建本版实例时会锁内扫描一次 checkpoint 建立 Session 引用索引；后续按 ID get 不再
+  做全目录扫描。索引只保存候选 ID，checkpoint 仍是权威事实。
 - 本 handoff 不授权修改 Agent 持久文件，也不替代正式契约
   `docs/agent-service-integration-guide.md` 和协调仓库冻结契约。

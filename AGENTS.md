@@ -132,9 +132,10 @@ python -m assistant_agent
   低上下文/关闭 recovery 安全省略能力，未修改 Loop。
 - M25 已完成：`RuntimePolicy.web()` 以注册白名单隔离服务器能力；安全搜索免审批，文件/Shell/进程/
   扩展/MCP 与未证明 DNS 绑定安全的 `fetch_url` 不注册；Interaction 提供截止时间并可被 pause/cancel
-  唤醒，未修改 Loop。
-- 664 个测试通过（6 个平台能力测试跳过），覆盖率 84%，ruff/mypy、12/12 import-linter、
-  scripted 19/19、recovery 4/4 全绿；15,684 行/127 文件生产 Python + 1,411 行 eval 基础设施；
+  唤醒。M25-AGENT-02 增加 paused Run 跨 Runtime 指定取消和事件源异常权威 failed 持久化，Agent
+  统一拥有 terminal/Session 同步，未修改 Loop。
+- 668 个测试通过（6 个平台能力测试跳过），覆盖率 84%，ruff/mypy、12/12 import-linter、
+  scripted 19/19、recovery 4/4 全绿；15,740 行/127 文件生产 Python + 1,411 行 eval 基础设施；
   剩余 6 项技术债（3 中/3 低，无高优先级）。
 
 第三阶段总规划及 M9a-M10c 方案/决策已归档到 `docs/archive/phase3/`，还清

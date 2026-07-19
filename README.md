@@ -280,9 +280,11 @@ InteractionPort、Session/Run 公共服务门面和稳定 StepEvent 契约，可
 第十五阶段 M24 已增加受控 `ChartSpecV1`/不可变 Chart Artifact 与声明式 `present_chart`；图表先进入
 RunState v4 原子 checkpoint 再发布事件，终态同步 Session，公共服务提供 list/get/snapshot，API 无需
 读取内部文件。第十六阶段 M25 增加服务器 Web Runtime profile：工具注册白名单移除文件、Shell、进程
-与扩展管理能力，安全搜索不再弹审批，Interaction 提供截止时间并可被 pause/cancel 唤醒。当前 664 个
-测试通过（6 个平台能力测试跳过）、覆盖率 84%、15,684 行/127 文件生产 Python 源码 + 1,411 行 eval
-基础设施；scripted 19/19、recovery 4/4；剩余 6 项技术债（3 中/3 低，无高优先级）。详见
+与扩展管理能力，安全搜索不再弹审批，Interaction 提供截止时间并可被 pause/cancel 唤醒。
+M25-AGENT-02 进一步支持 paused Run 跨 Runtime 指定取消，并由 Agent 在事件源异常时权威持久化 failed
+终态，API 不再复制终态状态机。当前 668 个测试通过（6 个平台能力测试跳过）、覆盖率 84%、
+15,740 行/127 文件生产 Python 源码 + 1,411 行 eval 基础设施；scripted 19/19、recovery 4/4；
+剩余 6 项技术债（3 中/3 低，无高优先级）。详见
 [架构事实源](docs/ARCHITECTURE.md)和[通用服务调用指南](docs/agent-service-integration-guide.md)。
 
 详见 [DESIGN.md](DESIGN.md)。

@@ -29,6 +29,7 @@ from assistant_agent.contracts.errors import (
     SessionRunConflictError,
 )
 from assistant_agent.contracts.events import StepEvent, TerminalStatus
+from assistant_agent.contracts.failures import RunFailure
 from assistant_agent.contracts.interactions import (
     DefinitionChangeRequest,
     DefinitionDifferenceInfo,
@@ -299,6 +300,46 @@ class SessionRuntime:
             self.runtime.run_control.request_cancel()
             self._interrupt_interaction()
 
+    def cancel_run(self, run_id: str) -> RunExecution:
+        """取消 worker 已退出的 paused Run，并返回唯一的新终态事件。"""
+        self._begin_run(run_id)
+        try:
+            coordinator = RunCoordinator.load(
+                self.runtime.run_store, run_id, logger=self.runtime.logger
+            )
+            state = coordinator.state
+            if state.session_id != self.session.id:
+                raise SessionRunConflictError("Run 不属于当前 Session")
+            if state.status == "running":
+                raise SessionBusyError("Run 仍由执行 worker 管理，请通过 cancel() 请求取消")
+            if state.status in {"completed", "failed"}:
+                raise SessionRunConflictError(f"已结束的 {state.status} Run 不能改写为 cancelled")
+            if state.status == "cancelled":
+                synced = sync_terminal_session(
+                    coordinator, self.runtime.session_store, self.session
+                )
+                if synced is not None:
+                    self.session = synced
+                return RunExecution(run_id, iter(()), _load_warning(coordinator))
+
+            coordinator.cancel(
+                "任务已取消",
+                messages=state.messages,
+                compaction_checkpoint=state.compaction_checkpoint,
+            )
+            synced = sync_terminal_session(coordinator, self.runtime.session_store, self.session)
+            if synced is not None:
+                self.session = synced
+            self.runtime.run_store.prune(self.runtime.config.agent.recovery.max_completed_runs)
+            terminal = StepEvent(
+                kind="run_terminal",
+                text=coordinator.state.terminal_text,
+                terminal_status="cancelled",
+            )
+            return RunExecution(run_id, iter((terminal,)), _load_warning(coordinator))
+        finally:
+            self._end_run()
+
     def _interrupt_interaction(self) -> None:
         interrupt = getattr(self.runtime.interaction, "interrupt_pending", None)
         if callable(interrupt):
@@ -420,6 +461,23 @@ class SessionRuntime:
         exhausted = False
         try:
             yield from source
+            exhausted = True
+        except Exception:
+            if coordinator.state.status == "running":
+                coordinator.terminal(
+                    success=False,
+                    text="Agent 运行异常终止。",
+                    messages=self.runtime.loop.export_history(),
+                    compaction_checkpoint=self.runtime.loop.export_checkpoint(),
+                    failure=RunFailure(
+                        code="internal_error",
+                        safe_message="Agent 运行异常终止。",
+                        retryable=True,
+                        allowed_actions=("retry_run", "start_new_run", "stop"),
+                        terminal_status="failed",
+                        phase="saving_checkpoint",
+                    ),
+                )
             exhausted = True
         finally:
             try:

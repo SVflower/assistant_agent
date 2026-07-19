@@ -199,6 +199,11 @@ Interaction 的有界等待仍由公共 Blocking port 单一拥有。入队时�
 pause/cancel interrupt 和异常均默认拒绝。Application 只负责在 Session 控制动作中唤醒 port，不复制
 Interaction 状态机。M25 未修改 Loop，Event v1 和 checkpoint v4 不变。
 
+M25-AGENT-02 收紧 Application 的终态所有权：`SessionRuntime` 负责事件 Iterator 边界和指定 paused Run
+取消，所有状态推进仍委托唯一的 `RunCoordinator`；Application 不直接改写 RunState。普通事件源异常先
+checkpoint failed，再同步 Session，最后发布唯一 terminal；消费者主动关闭仍 paused。API 不得合成终态
+或复制 checkpoint/Session 同步状态机。该修复未修改 Loop，Event v1 和 checkpoint v4 不变。
+
 ## 9. 复杂度基线
 
 Ruff C901 是循环检查而非机械拆分指标。M19a 的最高复杂度基线为 35；M19d 提取单轮模型流后

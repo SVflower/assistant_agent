@@ -5,7 +5,7 @@
 >
 > 本文是公共服务契约的长期唯一正式入口；里程碑归档和阶段性交接不能替代本文。
 > 当前公共事件契约：`EVENT_CONTRACT_VERSION == 1`；当前 Run checkpoint：schema v4。
-> 最近同步：M25 Web Runtime 部署边界（2026-07-19）。
+> 最近同步：M25-AGENT-02 Run 终态一致性修复（2026-07-19）。
 
 ## 1. 集成边界
 
@@ -166,6 +166,19 @@ assistant_agent.tools
   晚到响应均 fail closed。port 保持可用于 pause 后的恢复。
 - Event contract 仍为 v1，checkpoint 仍为 v4；Interaction 是调用方网络事件，不是 StepEvent。
 
+### 2.6 M25-AGENT-02 Run 终态所有权
+
+- `SessionRuntime.cancel_run(run_id) -> RunExecution` 是 additive 公共能力，用于 worker 已退出后的 paused
+  Run；首次取消原子保存 cancelled/terminal、同步 Session，并返回一个真实
+  `run_terminal(cancelled)`。
+- 已 cancelled 的重复取消幂等并返回空事件流；completed/failed、错误 Session 归属和仍由 worker 管理
+  的 running Run 不允许改写。active Run 继续使用 `cancel()` 并由原 worker 消费 terminal。
+- 公共事件 Iterator 内的未分类普通异常由 Agent 保存为脱敏 `internal_error` failed terminal，再同步
+  Session 并发布唯一 `run_terminal`。调用方不得合成 terminal、解析 checkpoint 或复制 Session 同步状态机。
+- 消费者主动关闭 Iterator 仍保存 paused；`GeneratorExit`、`KeyboardInterrupt` 和 `SystemExit` 不会被误记
+  为内部 failed。
+- Event contract 保持 v1，checkpoint 保持 v4；方法与异常所有权属于向后兼容扩展。
+
 ## 3. 推荐入口
 
 业务服务优先使用 `AgentService`。它收编了 Session、Run、恢复和终态同步，不要求调用方复制状态机。
@@ -314,6 +327,11 @@ for event in execution.events:
 session.pause()
 session.cancel()
 
+# worker 已退出、checkpoint 为 paused 时：
+cancelled = session.cancel_run(run_id)
+for event in cancelled.events:
+    publish(event)
+
 resumed = session.resume_run(run_id)
 assert resumed.run_id == run_id
 for event in resumed.events:
@@ -322,12 +340,17 @@ for event in resumed.events:
 
 - pause：保存可恢复状态；
 - cancel：进入不可继续的 cancelled 终态；
+- cancel_run：按指定 `run_id` 取消 worker 已退出的 paused Run；重复调用不重复发送 terminal；
 - resume：沿用原 `run_id`，校验 provider/model/system prompt/tool schema 变化；
 - 定义变化未经 InteractionPort 接受时保持 paused；
 - `tool_uncertain` 必须由用户选择 retry/skip/abort，不能默认重放可能有副作用的工具。
 
 Run 达到 completed/failed/cancelled 后，公共门面会先同步 Session，再设置 `session_synced=True`。同步
 失败时保留未同步 checkpoint，调用方不要自行伪造成功状态。
+
+Run 的终态和 Session 同步由 Agent 唯一拥有。即使事件源出现未分类异常，API 也不得发布 synthetic
+terminal；应继续消费 Agent 返回的结构化 failed terminal。若 Iterator 因调用方自身网络/worker 故障
+中断，应重新读取公共 snapshot/恢复 Run，而不是根据 Python 异常文本猜测状态。
 
 ## 7. StepEvent 契约
 

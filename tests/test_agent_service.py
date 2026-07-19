@@ -8,6 +8,7 @@ from collections.abc import Iterator
 import pytest
 
 from assistant_agent.bootstrap import runtime as runtime_module
+from assistant_agent.contracts.events import StepEvent
 from assistant_agent.interaction import (
     BlockingInteractionPort,
     ContinueDecision,
@@ -487,6 +488,105 @@ def test_cancel_through_public_session_runtime(tmp_path, monkeypatch):
         saved = session_runtime.runtime.run_store.load(execution.run_id).document
         assert saved["status"] == "cancelled"
         assert saved["session_synced"] is True
+    finally:
+        session_runtime.close()
+
+
+def _pause_run(session_runtime):
+    execution = session_runtime.start_run("task")
+    iterator = execution.events
+    next(iterator)
+    session_runtime.pause()
+    assert list(iterator)[-1].terminal_status == "paused"
+    return execution
+
+
+def test_cancel_paused_run_persists_terminal_syncs_and_allows_session_delete(tmp_path, monkeypatch):
+    service = AgentService(config_path=_config(tmp_path, monkeypatch), workspace_root=tmp_path)
+    session_runtime = service.create_session()
+    session_id = session_runtime.session.id
+    execution = _pause_run(session_runtime)
+    session_runtime.close()
+
+    recovered_runtime = service.load_session(session_id)
+    cancelled = recovered_runtime.cancel_run(execution.run_id)
+    events = list(cancelled.events)
+    assert len(events) == 1
+    assert events[0].kind == "run_terminal"
+    assert events[0].terminal_status == "cancelled"
+    saved = recovered_runtime.runtime.run_store.load(execution.run_id).document
+    assert saved["status"] == "cancelled"
+    assert saved["phase"] == "terminal"
+    assert saved["session_synced"] is True
+
+    assert list(recovered_runtime.cancel_run(execution.run_id).events) == []
+    recovered_runtime.close()
+    assert service.delete_session(session_id) is True
+
+
+def test_cancel_run_rejects_wrong_session_active_and_completed_runs(tmp_path, monkeypatch):
+    service = AgentService(config_path=_config(tmp_path, monkeypatch), workspace_root=tmp_path)
+    first = service.create_session()
+    second = service.create_session()
+    try:
+        active = first.start_run("active")
+        with pytest.raises(SessionBusyError):
+            first.cancel_run(active.run_id)
+        first.cancel()
+        assert list(active.events)[-1].terminal_status == "cancelled"
+
+        completed = second.start_run("complete")
+        assert list(completed.events)[-1].terminal_status == "completed"
+        with pytest.raises(SessionRunConflictError, match="completed"):
+            second.cancel_run(completed.run_id)
+        with pytest.raises(SessionRunConflictError, match="不属于"):
+            first.cancel_run(completed.run_id)
+    finally:
+        first.close()
+        second.close()
+
+
+def test_event_source_exception_is_persisted_as_unique_failed_terminal(tmp_path, monkeypatch):
+    service = AgentService(config_path=_config(tmp_path, monkeypatch), workspace_root=tmp_path)
+    session_runtime = service.create_session()
+    session_id = session_runtime.session.id
+
+    def broken_source(*_args, **_kwargs):
+        yield StepEvent(kind="content_delta", text="partial")
+        raise RuntimeError("api_key=secret-value")
+
+    monkeypatch.setattr(session_runtime.runtime.loop, "run", broken_source)
+    execution = session_runtime.start_run("task")
+    events = list(execution.events)
+    terminals = [event for event in events if event.kind == "run_terminal"]
+    assert len(terminals) == 1
+    assert terminals[0].terminal_status == "failed"
+    assert terminals[0].failure is not None
+    assert terminals[0].failure.code == "internal_error"
+    assert "secret-value" not in terminals[0].text
+    assert "secret-value" not in terminals[0].failure.safe_message
+    saved = session_runtime.runtime.run_store.load(execution.run_id).document
+    assert saved["status"] == "failed"
+    assert saved["phase"] == "terminal"
+    assert saved["session_synced"] is True
+    assert "secret-value" not in str(saved)
+
+    session_runtime.close()
+    assert service.delete_session(session_id) is True
+
+
+def test_closing_event_consumer_still_safely_pauses_run(tmp_path, monkeypatch):
+    session_runtime = AgentService(
+        config_path=_config(tmp_path, monkeypatch), workspace_root=tmp_path
+    ).create_session()
+    try:
+        execution = session_runtime.start_run("task")
+        iterator = execution.events
+        next(iterator)
+        iterator.close()
+        saved = session_runtime.runtime.run_store.load(execution.run_id).document
+        assert saved["status"] == "paused"
+        assert saved["phase"] != "terminal"
     finally:
         session_runtime.close()
 

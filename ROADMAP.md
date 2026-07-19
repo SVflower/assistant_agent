@@ -38,7 +38,8 @@
   无需解析内部文件。事件 v1 保持 additive 兼容。
 - **Web Runtime 部署边界（M25）**：可信调用方显式选择 `web` profile；注册 allowlist 移除服务器文件、
   Shell、进程、扩展和任意 MCP，安全搜索免审批；Interaction 提供权威截止时间并支持 pause/cancel
-  解除等待。CLI 原权限语义不变。
+  解除等待；M25-AGENT-02 支持 paused Run 跨 Runtime 指定取消，并统一事件异常的 Agent 权威 failed
+  终态。CLI 原权限语义不变。
 - **工具**：读/写/局部编辑/列目录/shell/代码检索/git 只读/用户澄清，以及带来源的
   `web_search`/`fetch_url`；搜索 backend 可替换，抓取含 SSRF、重定向和响应上限防护。
 - **命令层**：slash 命令系统本地拦截不花 token；`/skills` 与 `/mcp` 支持列出、安装、诊断、
@@ -57,7 +58,7 @@
   已完成工具不重放，started 副作用需 retry/skip/abort；预算、重复熔断、权限和摘要状态跨进程恢复；
   trace/session/run/call 标识对齐，还清 D8。
 
-**质量**：664 测试通过（6 个平台能力测试跳过）、覆盖率 84%、15,684 行/127 文件生产 Python 源码 +
+**质量**：668 测试通过（6 个平台能力测试跳过）、覆盖率 84%、15,740 行/127 文件生产 Python 源码 +
 1,411 行 eval 基础设施，Ruff/mypy 全绿。架构适应度测试（12 条声明式依赖契约 + 旧路径防回归 +
 600 行非阻断评审）、技术债册、
 DoD 和里程碑工作流全在；CI 已加入 format/lint/mypy/coverage/scripted eval/recovery eval 与
@@ -72,6 +73,8 @@ Web GUI、rewind/recap、非交互 init、PyPI 分发。
 
 **当前进展**：M25 已完成。Web Runtime 由可信调用方选择固定工具 allowlist，普通搜索不再等待审批，
 服务器管理能力不可见且不可按名称调用；Interaction 截止时间与 pause/cancel 中断进入公共契约。
+M25-AGENT-02 由 Agent 统一拥有离线 paused 取消、事件异常终态持久化和 Session 同步，API 不再合成
+terminal。
 Event v1 与 checkpoint v4 不变。公共调用继续只依赖
 `assistant_agent.service` / `contracts` / `interaction`。见
 [架构事实源](docs/ARCHITECTURE.md)与[正式服务契约](docs/agent-service-integration-guide.md)。
@@ -334,8 +337,9 @@ D14，M9c 已还清 D9，M10a 已还清 D16，M10b 已还清 D8，M11a 已还清
 > **M25 已完成**：`RuntimePolicy.web()` 在唯一 composition root 对所有工具来源执行 allowlist，
 > `web_search` 在 strict 配置下也不产生 approval；服务器文件、Git、Shell、进程、扩展、任意 MCP 和
 > `fetch_url` 不注册且按名称调用返回 unknown_tool。RuntimeCapabilities additive 暴露 profile；
-> Interaction 增加 expires_at，pause/cancel 可中断等待并保持 fail closed。StepEvent v1/checkpoint v4
-> 不变。664 passed、6 skipped、覆盖率 84%；生产 Python 15,684 行/127 文件，未修改 Loop。
+> Interaction 增加 expires_at，pause/cancel 可中断等待并保持 fail closed。M25-AGENT-02 增加
+> `cancel_run(run_id)` 和异常终态所有权。Event v1/checkpoint v4 不变。
+> 668 passed、6 skipped、覆盖率 84%；生产 Python 15,740 行/127 文件，未修改 Loop。
 
 ## 未来方向（P3，信号驱动，暂不做）
 

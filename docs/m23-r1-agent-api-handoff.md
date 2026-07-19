@@ -7,10 +7,11 @@
 - Agent `main` 基线：`fceb2d49d49f2a816d78675e2d16b06275590461`
 - M23-R1 初始实现：`5724bfe0c8541ee0a8f9565c7ba314f65d9f93e8`
 - 独立复审修复实现：`919627b942eabc4ac03811334b6c2b73468fa76c`
+- 第二轮复审最终实现：`4f932196a9e68269c5d1aaf1ab8320d4895d9632`
 - 分支：`codex/m23-r1-conversation-catalog`
 - `EVENT_CONTRACT_VERSION=1`、RunState schema v6，未修改 Agent Loop
 
-本文件之后的纯文档提交不改变 API 应集成的 Agent 行为；API 应至少基于上述复审修复实现验证。
+本文件之后的纯文档提交不改变 API 应集成的 Agent 行为；API 应基于上述第二轮最终实现验证。
 
 ## API 必改项
 
@@ -25,15 +26,22 @@
    `session_unavailable`。PATCH 非 JSON 仍由 API 返回 `415 unsupported_media_type`。
 5. API 不得假设 `force=True` 会等待活动 Run 正常结束。force 删除先发布 tombstone，旧事件消费者可能收到
    `FileNotFoundError`；API 应停止消费并清理 Runtime，不得把它映射成 Session/Run 重新创建。
+6. Run 单删同样持久 tombstone。默认删除 running/paused Run 必须返回冲突；force 单删后，API 不得
+   重试同 run_id 的 checkpoint、resume 或 create。
 
 ## 兼容与持久化影响
 
 - Session schema v1 现在把缺失版本、显式 `schema_version=0`、缺失 v1 元数据字段视作 v0，并在共享锁内
   原子迁移。非法版本类型、负数、未知未来版本 fail closed。
 - 新 Session/Run 时间统一为 UTC RFC3339 `Z`。旧 naive 时间冻结解释为 UTC，与机器本地时区无关；
-  offset 时间换算为 UTC。catalog、cursor 和 last_run 都按解析后的 UTC instant 比较。
+  offset 时间换算为 UTC，合法小数秒不会截断为整秒。catalog、cursor 和 last_run 都按解析后的真实
+  UTC instant 比较。
 - Session 更新默认具有 `must_exist` 语义。删除发布持久 tombstone 后，旧 Runtime 不能重建 Session 或
   Run checkpoint。普通删除还以 M22 execution lease 封闭“检查后启动”窗口。
+- RunStore 首次 save 创建 Run，后续 save 轮转 current/previous。单删先发布独立 Run tombstone 再清理
+  双槽；load/list 隐藏、重复删除返回 false、迟到 save 和进程重启后的同 ID save 均稳定失败。
+- CLI `sessions --delete` 已改为调用 AgentService 完整删除用例；默认拒绝活动 Run，`--force` 使用与 API
+  相同的 Session/Run tombstone 和级联语义。
 - metadata CAS 的 last_run 聚合在提交前完成。RunStore/SessionStore 异常稳定映射
   `SessionUnavailableError`；成功提交后不再执行可能失败的 RunStore 读取。
 - 公共 DTO 和方法签名保持 M23-R1 冻结契约；Event v1、RunState v6、M22/M24/M25 行为不变。
@@ -49,24 +57,27 @@
    RunStore 读取返回未知失败。
 5. 删除检查与并发 Run 启动互斥；force 删除活动 Run 后 Session 文件、Run 双槽和公共列表均消失，旧
    Runtime 的 checkpoint/终态同步不能复活数据。
-6. 使用 naive、`Z` 和正负 offset 的历史 Session/Run 验证 last_run、catalog 排序和分页在不同时区进程
-   环境中结果一致，所有 wire 时间均为 UTC `Z`。
-7. 回归 M22 resume/reconcile/retry、M24 Artifact 删除级联、M25 paused cancel 和 Web Runtime profile。
+6. force 单删活动 Run 后放行迟到 checkpoint，必须稳定失败且不生成 current/previous；重复删除、重启
+   后 save、Session tombstone 与 Run tombstone 组合均不得复活。
+7. 使用 fractional naive、`Z` 和正负 offset 的历史 Session/Run 验证 last_run、catalog 排序和分页在
+   不同时区进程环境中结果一致，`.1` 与 `.9` 保持不同 instant，所有 wire 时间均为 UTC `Z`。
+8. CLI 默认拒绝含活动 Run 的 Session 删除；force 成功后 Session 与 Run 双槽消失且迟到写失败。
+9. 回归 M22 resume/reconcile/retry、M24 Artifact 删除级联、M25 paused cancel 和 Web Runtime profile。
 
 ## Agent 验证结果
 
 - Ruff format/check：通过
 - mypy：131 source files，通过
 - import-linter：12/12
-- pytest coverage：726 passed、6 skipped、84%
+- pytest coverage：732 passed、6 skipped、84%
 - scripted eval：19/19
 - recovery eval：4/4
 - 测试/eval 子进程：无残留；仓库相关监听端口：无
 
 ## 风险与边界
 
-- tombstone 持久保留，依赖 Session ID 不复用；当前 ID 生成规则满足该不变量。未来若引入 Session ID
-  导入/恢复，必须先定义 tombstone 清理或 generation 协议。
+- tombstone 持久保留，依赖 Session ID 与 Run ID 不复用；当前 ID 生成规则满足该不变量。未来若引入
+  ID 导入/恢复，必须先定义 tombstone 清理或 generation 协议。
 - force 删除的消费者错误是删除后的 fail-closed 信号，不是可重试写入信号。API 必须结束对应 Runtime。
 - Run 历史时间在读取边界规范化，不回写 checkpoint；Session v1 时间会随迁移原子规范化。运维比较原始
   文件时需考虑这一差异。

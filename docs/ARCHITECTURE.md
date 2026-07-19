@@ -223,10 +223,13 @@ lifecycle 锁内重建，无法重建则 fail closed。锁顺序统一为 Sessio
 -> Run lifecycle -> checkpoint，delete/prune/cascade 同锁序清 ref 并保留 tombstone。lifecycle 锁采用
 固定 64 分片限制锁文件数量；哈希碰撞只增加短时串行，不改变按实体 tombstone 或线性化语义。
 Windows shard 锁用非阻塞探测加 50ms 可中断等待替代 `LK_LOCK` 的固定重试窗口，正常持续争用最终等待
-持有者释放；进程内 `RLock` 负责线程串行和同线程重入，只有最外层上下文拥有 OS 锁。POSIX 继续使用
-阻塞 `flock`，锁顺序不变。
+持有者释放；只将 `msvcrt.locking` 的裸 `EACCES` 识别为争用，任何带 `winerror` 的权限/锁错误、
+`EAGAIN`、`EDEADLK` 和未知错误均立即透传。进程内 `RLock` 负责线程串行和同线程重入，只有最外层
+上下文拥有 OS 锁。POSIX 继续使用阻塞 `flock`，锁顺序不变。POSIX Python `os.fork` 由 audit hook 禁止
+当前持锁线程 fork，并由 at-fork 回调等待其他线程、恢复 parent、重建 child 线程锁状态；Windows spawn
+不依赖该回调，继续由文件锁串行。
 
-`application/runs.py` 当前 934 行，超过 600 行非阻断评审线。它仍只拥有 SessionRuntime、事件 Iterator
+`application/runs.py` 当前 928 行，超过 600 行非阻断评审线。它仍只拥有 SessionRuntime、事件 Iterator
 边界、Session terminal 同步和跨 Run 用例编排；所有 RunState 改写继续委托 RunCoordinator，依赖方向由
 import-linter 约束，事件 Iterator 的并发 close 只请求取消并由迭代线程完成 lease 释放；租约/重试/orphan/
 唯一 terminal 有直接测试，因此本期不为行数机械拆分。若再新增一种

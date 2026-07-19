@@ -13,12 +13,13 @@
 - 索引完整性复审实现：`ad3550ef6513475970c5b70291c72f2e00443010`
 - 索引提交窗口最终实现：`b658371a4322edeec897db31b2937bb7579e4cf4`
 - 权威双槽核对最终实现：`9691b177e2ba408e7c2bf875d793518b71c502c1`
-- Windows lifecycle 锁最终实现：`5f90c21bea3ca397a728c273b84e61e1f23fc51b`
+- Windows lifecycle 持续争用实现：`5f90c21bea3ca397a728c273b84e61e1f23fc51b`
+- Windows 错误分类与 fork 安全最终实现：`d65e103df53a30713562211e09063cfc5cb054ec`
 - 分支：`codex/m23-r1-summary-by-id`
 - `SESSION_CONTRACT_VERSION=1`、`EVENT_CONTRACT_VERSION=1`、RunState schema v6，未修改 Agent Loop
 
-本文件之后的纯文档提交不改变 API 应集成的 Agent 行为；等待中的 API 应基于上述 Windows lifecycle
-锁最终实现 commit 集成和验证。
+本文件之后的纯文档提交不改变 API 应集成的 Agent 行为；等待中的 API 应基于上述错误分类与 fork
+安全最终实现 commit 集成和验证。
 
 ## API 必改项
 
@@ -68,9 +69,16 @@
 - lifecycle 锁使用固定 64 分片，锁文件数量有界；按 ID tombstone 仍持久保留。锁顺序固定为
   `Session lifecycle（如适用） -> index lifecycle -> Run lifecycle -> checkpoint 双槽`。
 - Windows lifecycle 锁不使用 `LK_LOCK` 的固定短重试窗口；改用 `LK_NBLCK` 检测正常锁冲突，并以
-  50ms 可中断休眠持续等待持有者释放，不设置正常短临界区 timeout。未知 OS 错误仍原样 fail closed。
+  50ms 可中断休眠持续等待持有者释放，不设置正常短临界区 timeout。CPython `msvcrt.locking` 实测以
+  `errno=EACCES` 且无 `winerror` 表示争用；只有该精确形态重试。`EAGAIN`、`EDEADLK`、WinError 5/36、
+  `EBADF`、`ENOSPC` 及未知组合立即原样 fail closed。
   进程内按 shard 使用 `RLock`，同线程重入只由最外层上下文持有 OS 锁；上下文退出、Ctrl-C 异常展开
   或进程终止均释放句柄，Windows/POSIX 既有锁顺序不变。
+- 支持 `os.register_at_fork` 的平台还注册 Python `os.fork` audit guard 与 at-fork 回调：当前线程持有任一
+  lifecycle 锁时，audit guard 在系统调用前稳定抛 `RuntimeError`；其他线程持锁时，fork 前等待其退出
+  临界区。parent 释放 fork 准备锁，child 重建 `RLock` 表和 thread-local，不能继承重入捷径或永久锁。
+  注册带模块级幂等标记，reload 不重复注册。该保证只覆盖 Python `os.fork`；Windows 无
+  `register_at_fork` 时不注册，`spawn` 仍依赖同一 OS 文件锁正常串行。
 - save 先替换 ref，再以 manifest 单文件替换提交索引可见性，最后写权威 checkpoint；这不是跨文件事务。
   索引阶段失败不会留下已提交 checkpoint，checkpoint 失败只留下可检测 stale ref。下一次 direct/startup
   依据 epoch 和权威双槽核对重建，因此已覆盖的进程崩溃点不会永久静默漏 Run。
@@ -113,13 +121,18 @@
 16. Windows 原生执行 2 进程各 120 次连续 Session save、8 进程持续竞争以及 direct/save/delete 混合；
     所有操作不得出现 `EDEADLK` 或固定窗口 timeout。持有者 `os._exit` 后等待者必须取得锁，等待期间 CPU
     时间保持低水平；所有压力测试由父进程设置 15..90 秒防挂死 timeout 并在 finally 清理子进程。
+17. Windows 注入裸 `EACCES`、`EACCES+WinError5/36`、`EAGAIN`、`EDEADLK`、WinError36、`EBADF`、
+    `ENOSPC`；仅第一种允许重试，其他异常对象必须原样透传且不得 sleep。
+18. POSIX 验证当前线程持锁时 `os.fork` 被拒、其他线程持锁时 fork 等待、fork 后 parent/child 继续由
+    文件锁串行，以及 reload 后 guard 不重复；Windows/跨平台验证 `spawn` 不回退。所有 child wait 都有
+    明确 timeout 和清理路径。
 
 ## Agent 验证结果
 
 - Ruff format/check：通过
 - mypy：131 source files，通过
 - import-linter：12/12
-- pytest coverage：766 passed、6 skipped、84%
+- pytest coverage：783 passed、10 skipped、84%
 - scripted eval：19/19
 - recovery eval：4/4
 - 测试/eval 子进程：无残留；仓库相关监听端口：无

@@ -352,9 +352,16 @@ checkpoint 或终态同步不能复活 Session/Run。普通删除还持有 M22 e
 tombstone 不分片并持续保留删除事实。
 
 Windows lifecycle 锁使用 `LK_NBLCK` 识别正常争用，并以 50ms 可中断休眠等待最终取得，不依赖
-`LK_LOCK` 的固定短重试窗口，也不为正常短临界区设置 timeout。进程内同 shard 由 `RLock` 串行，同线程
-重入只在最外层取得/释放 OS 锁；上下文异常退出或进程终止由句柄关闭释放。POSIX `flock` 和全局锁序
-保持不变。调用方不应把正常锁等待映射成冲突或存储失败。
+`LK_LOCK` 的固定短重试窗口，也不为正常短临界区设置 timeout。只有 CPython `msvcrt.locking` 实际返回的
+`errno=EACCES` 且无 `winerror` 形态视为争用；`EAGAIN`、`EDEADLK`、WinError 5/36、资源/句柄错误及
+未知组合立即原样透传。进程内同 shard 由 `RLock` 串行，同线程重入只在最外层取得/释放 OS 锁；上下文
+异常退出或进程终止由句柄关闭释放。POSIX `flock` 和全局锁序保持不变。调用方不应把正常锁等待映射成
+冲突或存储失败。
+
+支持 `os.register_at_fork` 的平台在 Python `os.fork` 前冻结 lifecycle 线程锁表：当前线程已持任一锁时
+稳定抛 `RuntimeError` 并阻止 fork，其他线程持锁时等待其退出临界区。parent 随后恢复原锁状态，child
+重建进程内 `RLock`/thread-local，不能继承重入状态。模块 reload 不重复注册 hook。此保证不扩展到绕过
+Python `os.fork` 的原生扩展；Windows 没有该 API，使用 `spawn` 时仍由 OS 文件锁提供跨进程串行。
 
 Run 还有独立的短时跨进程 lifecycle 锁和持久 tombstone。首次 `RunStore.save` 创建 Run，后续 save
 轮转 current/previous；单删先发布 Run tombstone 再清理两个槽。此后同 run_id 的 save/create 和 load

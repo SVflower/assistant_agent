@@ -261,6 +261,44 @@ def test_catalog_mixed_time_formats_use_utc_keyset_order(tmp_path):
     assert all(item.updated_at.endswith("Z") for item in service.catalog_sessions().items)
 
 
+def test_catalog_fractional_instants_remain_distinct_across_cursor_pages(tmp_path):
+    store = SessionStore(tmp_path / "sessions")
+    documents = (
+        ("fraction-low", "2026-01-01T00:00:00.1"),
+        ("fraction-high", "2026-01-01T01:00:00.9+01:00"),
+        ("fraction-mid", "2026-01-01T00:00:00.5Z"),
+    )
+    for session_id, updated_at in documents:
+        path = store._path(session_id)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "id": session_id,
+                    "title": session_id,
+                    "title_source": "auto",
+                    "metadata_version": 1,
+                    "created_at": updated_at,
+                    "updated_at": updated_at,
+                    "messages": [],
+                }
+            ),
+            encoding="utf-8",
+        )
+
+    service = _service(tmp_path)
+    seen = []
+    cursor = None
+    while True:
+        page = service.catalog_sessions(limit=1, cursor=cursor)
+        seen.extend(item.id for item in page.items)
+        cursor = page.next_cursor
+        if cursor is None:
+            break
+    assert seen == ["fraction-high", "fraction-mid", "fraction-low"]
+
+
 def test_catalog_only_searches_public_preview_and_aggregates_last_run_once(tmp_path):
     store = SessionStore(tmp_path / "sessions")
     session = store.new_session()

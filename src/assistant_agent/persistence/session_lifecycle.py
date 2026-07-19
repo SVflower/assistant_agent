@@ -42,18 +42,19 @@ def _unlock_file(handle: BinaryIO) -> None:
         pass
 
 
-class SessionLifecycle:
-    """所有 Session/Run 更新先短时取得该锁，再检查持久 tombstone。"""
+class PersistentLifecycle:
+    """为一个受约束 ID 提供跨进程锁与持久 tombstone。"""
 
-    def __init__(self, base_dir: str | Path) -> None:
+    def __init__(self, base_dir: str | Path, *, entity: str) -> None:
         self._dir = Path(base_dir).resolve()
+        self._entity = entity
 
     def _path(self, session_id: str, suffix: str) -> Path:
         if not isinstance(session_id, str) or not _SESSION_ID.fullmatch(session_id):
-            raise ValueError("非法 Session ID")
+            raise ValueError(f"非法 {self._entity} ID")
         path = (self._dir / f"{session_id}.{suffix}").resolve()
         if path.parent != self._dir:
-            raise ValueError("Session lifecycle 路径超出存储目录")
+            raise ValueError(f"{self._entity} lifecycle 路径超出存储目录")
         return path
 
     @contextmanager
@@ -97,3 +98,17 @@ class SessionLifecycle:
         except BaseException:
             temp_path.unlink(missing_ok=True)
             raise
+
+
+class SessionLifecycle(PersistentLifecycle):
+    """所有 Session 更新先短时取得该锁，再检查持久 tombstone。"""
+
+    def __init__(self, base_dir: str | Path) -> None:
+        super().__init__(base_dir, entity="Session")
+
+
+class RunLifecycle(PersistentLifecycle):
+    """所有 Run 双槽更新先短时取得该锁，再检查持久 tombstone。"""
+
+    def __init__(self, base_dir: str | Path) -> None:
+        super().__init__(base_dir, entity="Run")

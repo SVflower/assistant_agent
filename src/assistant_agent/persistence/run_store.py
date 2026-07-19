@@ -13,7 +13,7 @@ from typing import Any, Literal
 
 from assistant_agent.application.models import RunMeta
 from assistant_agent.contracts.time import parse_utc_timestamp
-from assistant_agent.persistence.session_lifecycle import SessionLifecycle
+from assistant_agent.persistence.session_lifecycle import RunLifecycle, SessionLifecycle
 
 _RUN_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$")
 
@@ -26,13 +26,14 @@ class LoadedRun:
 
 
 class RunStore:
-    """不依赖 agent 类型的版本化 JSON 文档存储。"""
+    """双槽 Run 文档存储；删除后以持久 tombstone 禁止同 ID 再创建或保存。"""
 
     def __init__(
         self,
         base_dir: str | Path | None = None,
         *,
         lifecycle_dir: str | Path | None = None,
+        run_lifecycle_dir: str | Path | None = None,
     ) -> None:
         if base_dir is None:
             from assistant_agent.config.paths import state_paths
@@ -40,6 +41,7 @@ class RunStore:
             base_dir = state_paths().runs
         self._dir = Path(base_dir)
         self._lifecycle = SessionLifecycle(lifecycle_dir or self._dir.parent / "session-lifecycle")
+        self._run_lifecycle = RunLifecycle(run_lifecycle_dir or self._dir / ".lifecycle")
 
     def _path(self, run_id: str, *, previous: bool = False) -> Path:
         if not isinstance(run_id, str) or not _RUN_ID.fullmatch(run_id):
@@ -66,19 +68,26 @@ class RunStore:
         return text.encode("utf-8", errors="strict")
 
     def save(self, run_id: str, document: dict[str, Any]) -> None:
+        """首次保存创建 Run；后续保存轮转槽位；tombstone 后永久拒写同 ID。"""
+        payload = self._encode(run_id, document)
         session_id = document.get("session_id")
         if session_id is None:
-            self._save_unchecked(run_id, document)
+            self._save_with_run_lock(run_id, payload)
             return
         if not isinstance(session_id, str):
             raise ValueError("Run checkpoint session_id 必须是字符串或 null")
         with self._lifecycle.lock(session_id):
             if self._lifecycle.is_deleted_locked(session_id):
                 raise FileNotFoundError(f"Session 已删除：{session_id}")
-            self._save_unchecked(run_id, document)
+            self._save_with_run_lock(run_id, payload)
 
-    def _save_unchecked(self, run_id: str, document: dict[str, Any]) -> None:
-        payload = self._encode(run_id, document)
+    def _save_with_run_lock(self, run_id: str, payload: bytes) -> None:
+        with self._run_lifecycle.lock(run_id):
+            if self._run_lifecycle.is_deleted_locked(run_id):
+                raise FileNotFoundError(f"Run 已删除：{run_id}")
+            self._save_unchecked(run_id, payload)
+
+    def _save_unchecked(self, run_id: str, payload: bytes) -> None:
         self._dir.mkdir(parents=True, exist_ok=True)
         current = self._path(run_id)
         previous = self._path(run_id, previous=True)
@@ -132,13 +141,18 @@ class RunStore:
         raise FileNotFoundError(f"Run 不存在：{run_id}")
 
     def load(self, run_id: str) -> LoadedRun:
-        loaded = self._load_unchecked(run_id)
+        """读取 live Run；已 tombstone 的 Run 即使残留槽位也按不存在处理。"""
+        with self._run_lifecycle.lock(run_id):
+            if self._run_lifecycle.is_deleted_locked(run_id):
+                raise FileNotFoundError(f"Run 不存在：{run_id}")
+            loaded = self._load_unchecked(run_id)
         session_id = loaded.document.get("session_id")
         if isinstance(session_id, str) and self._lifecycle.is_deleted(session_id):
             raise FileNotFoundError(f"Run 不存在：{run_id}")
         return loaded
 
     def list(self) -> list[RunMeta]:
+        """仅列出可 load 的 live Run，并按规范 UTC instant 排序。"""
         if not self._dir.is_dir():
             return []
         metas: list[RunMeta] = []
@@ -181,12 +195,14 @@ class RunStore:
                 for path in self._dir.glob("*.json")
             }
             for run_id in run_ids:
-                try:
-                    loaded = self._load_unchecked(run_id)
-                except (FileNotFoundError, ValueError):
-                    continue
-                if loaded.document.get("session_id") == session_id and self.delete(run_id):
-                    removed.append(run_id)
+                with self._run_lifecycle.lock(run_id):
+                    try:
+                        loaded = self._load_unchecked(run_id)
+                    except (FileNotFoundError, ValueError):
+                        continue
+                    if loaded.document.get("session_id") == session_id:
+                        if self._delete_locked(run_id):
+                            removed.append(run_id)
         return removed
 
     def _fsync_directory(self) -> None:
@@ -205,12 +221,22 @@ class RunStore:
             os.close(fd)
 
     def delete(self, run_id: str) -> bool:
-        removed = False
-        for path in (self._path(run_id), self._path(run_id, previous=True)):
-            if path.is_file():
-                path.unlink()
-                removed = True
-        return removed
+        """存在双槽时先发布 tombstone 再清理；不存在或已删除返回 False。"""
+        with self._run_lifecycle.lock(run_id):
+            return self._delete_locked(run_id)
+
+    def _delete_locked(self, run_id: str) -> bool:
+        paths = (self._path(run_id), self._path(run_id, previous=True))
+        if self._run_lifecycle.is_deleted_locked(run_id):
+            for path in paths:
+                path.unlink(missing_ok=True)
+            return False
+        if not any(path.is_file() for path in paths):
+            return False
+        self._run_lifecycle.mark_deleted_locked(run_id)
+        for path in paths:
+            path.unlink(missing_ok=True)
+        return True
 
     def prune(self, max_terminal_runs: int) -> builtins.list[str]:
         if max_terminal_runs < 0:

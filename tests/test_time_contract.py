@@ -23,3 +23,11 @@ def test_mixed_legacy_and_rfc3339_times_normalize_deterministically(monkeypatch)
 def test_new_run_timestamps_are_utc_rfc3339_z():
     assert now_iso().endswith("Z")
     assert RunState.model_fields["schema_version"].default == 6
+
+
+def test_fractional_seconds_preserve_distinct_instants_and_normalize_offsets():
+    assert normalize_utc_timestamp("2026-01-01T00:00:00.1") == ("2026-01-01T00:00:00.100000Z")
+    assert normalize_utc_timestamp("2026-01-01T01:00:00.9+01:00") == ("2026-01-01T00:00:00.900000Z")
+    assert parse_utc_timestamp("2026-01-01T00:00:00.1Z") < parse_utc_timestamp(
+        "2026-01-01T00:00:00.9Z"
+    )

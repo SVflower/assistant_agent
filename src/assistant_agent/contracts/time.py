@@ -21,4 +21,4 @@ def parse_utc_timestamp(value: str) -> datetime:
 
 
 def normalize_utc_timestamp(value: str) -> str:
-    return parse_utc_timestamp(value).isoformat(timespec="seconds").replace("+00:00", "Z")
+    return parse_utc_timestamp(value).isoformat(timespec="auto").replace("+00:00", "Z")

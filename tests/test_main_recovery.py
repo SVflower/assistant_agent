@@ -8,7 +8,9 @@ import pytest
 from typer.testing import CliRunner
 
 from assistant_agent.agent.run.coordinator import RunCoordinator
+from assistant_agent.config.paths import state_paths
 from assistant_agent.main import app
+from assistant_agent.persistence.execution_lease import FileSessionExecutionLeaseManager
 from assistant_agent.persistence.run_store import RunStore
 from assistant_agent.persistence.store import SessionStore
 from assistant_agent.service import sync_terminal_session
@@ -83,6 +85,70 @@ def test_runs_command_lists_checkpoint(tmp_path):
     assert result.exit_code == 0
     assert "run-1" in result.output
     assert "completed/terminal" in result.output
+
+
+def test_sessions_delete_uses_service_lifecycle_and_force_cascade(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("ASSISTANT_AGENT_HOME", str(tmp_path / "home"))
+    config = tmp_path / "config.yaml"
+    config.write_text(
+        "active: p\nproviders:\n  p:\n    model: openai/fake\n",
+        encoding="utf-8",
+    )
+    paths = state_paths(tmp_path)
+    lifecycle = paths.workspace / "session-lifecycle"
+    sessions = SessionStore(paths.sessions, lifecycle_dir=lifecycle)
+    runs = RunStore(paths.runs, lifecycle_dir=lifecycle)
+    session = sessions.new_session(provider="p", model="openai/fake")
+    sessions.save(session, [{"role": "user", "content": "active"}], must_exist=False)
+    document = {
+        "run_id": "run-active",
+        "session_id": session.id,
+        "task": "active",
+        "status": "running",
+        "phase": "model_pending",
+        "updated_at": "2026-01-01T00:00:00Z",
+    }
+    runs.save("run-active", document)
+    runs.save("run-active", document)
+    lease = FileSessionExecutionLeaseManager(paths.workspace / "execution-leases").acquire(
+        session.id
+    )
+    try:
+        refused = CliRunner().invoke(
+            app,
+            ["sessions", "--config", str(config), "--delete", session.id],
+            input="y\n",
+        )
+        assert refused.exit_code == 2
+        assert "活跃 Run" in refused.output
+        assert sessions.load(session.id).id == session.id
+        assert runs.load("run-active").document["status"] == "running"
+
+        deleted = CliRunner().invoke(
+            app,
+            [
+                "sessions",
+                "--config",
+                str(config),
+                "--delete",
+                session.id,
+                "--force",
+            ],
+            input="y\n",
+        )
+        assert deleted.exit_code == 0
+        assert f"已删除会话 {session.id}" in deleted.output
+    finally:
+        lease.release()
+
+    with pytest.raises(FileNotFoundError):
+        sessions.load(session.id)
+    with pytest.raises(FileNotFoundError):
+        runs.load("run-active")
+    with pytest.raises(FileNotFoundError):
+        runs.save("run-active", document)
+    assert not list(paths.runs.glob("run-active*.json"))
 
 
 def test_chat_reports_current_session_when_exiting_after_clear(tmp_path, monkeypatch):

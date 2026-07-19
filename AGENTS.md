@@ -138,10 +138,10 @@ python -m assistant_agent
   orphan 协调和基于可靠会话基线的 failed Run 安全幂等重试；Event v1 不变，v1-v5 checkpoint
   fail-closed 迁移。
 - M23-R1 Agent 侧已完成：Session schema v1 锁内迁移、自动/用户标题、metadata CAS、服务端
-  catalog/search/HMAC cursor 和权威 last_run；lifecycle tombstone 阻止删除后复活，混合历史时间按
-  规范 UTC 排序，终态同步不覆盖并发 rename。Event v1/RunState v6 不变；整个 R1 待 API/Web 接入。
-- 726 个测试通过（6 个平台能力测试跳过），覆盖率 84%，ruff/mypy、12/12 import-linter、
-  scripted 19/19、recovery 4/4 全绿；19,673 行/131 文件生产 Python + 1,617 行 eval 基础设施；
+  catalog/search/HMAC cursor 和权威 last_run；Session/Run tombstone 阻止删除后复活，CLI 删除走服务
+  用例，小数历史时间按真实 UTC instant 排序。Event v1/RunState v6 不变；整个 R1 待 API/Web 接入。
+- 732 个测试通过（6 个平台能力测试跳过），覆盖率 84%，ruff/mypy、12/12 import-linter、
+  scripted 19/19、recovery 4/4 全绿；19,716 行/131 文件生产 Python + 1,617 行 eval 基础设施；
   剩余 7 项技术债（4 中/3 低，无高优先级）。
 
 第三阶段总规划及 M9a-M10c 方案/决策已归档到 `docs/archive/phase3/`，还清

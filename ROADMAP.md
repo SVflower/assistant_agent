@@ -44,8 +44,9 @@
   遗留 running Run 可幂等协调为 paused；安全 failed Run 以新 Run ID 幂等重试；公共快照和错误码完整。
 - **M23-R1 Agent 会话目录**：Session schema v1 锁内迁移、确定性自动标题和用户 rename CAS；公共
   strict SessionSummary/SessionCatalogPage、NFKC+casefold 搜索、绑定 query 的稳定 keyset cursor 和
-  权威 last_run 聚合；共享 lifecycle 锁与 tombstone 阻止删除后 Session/Run 复活，混合历史时间按
-  确定性 UTC instant 排序。Run 终态同步锁内 fresh load，保留并发 rename。Event v1/RunState v6 不变。
+  权威 last_run 聚合；Session 与 Run 独立 lifecycle tombstone 阻止单删或级联删除后复活，CLI 删除
+  统一走服务用例，混合及小数历史时间按确定性 UTC instant 排序。Run 终态同步锁内 fresh load，保留
+  并发 rename。Event v1/RunState v6 不变。
 - **工具**：读/写/局部编辑/列目录/shell/代码检索/git 只读/用户澄清，以及带来源的
   `web_search`/`fetch_url`；搜索 backend 可替换，抓取含 SSRF、重定向和响应上限防护。
 - **命令层**：slash 命令系统本地拦截不花 token；`/skills` 与 `/mcp` 支持列出、安装、诊断、
@@ -64,7 +65,7 @@
   已完成工具不重放，started 副作用需 retry/skip/abort；预算、重复熔断、权限和摘要状态跨进程恢复；
   trace/session/run/call 标识对齐，还清 D8。
 
-**质量**：726 测试通过（6 个平台能力测试跳过）、覆盖率 84%、19,673 行/131 文件生产 Python 源码 +
+**质量**：732 测试通过（6 个平台能力测试跳过）、覆盖率 84%、19,716 行/131 文件生产 Python 源码 +
 1,617 行 eval 基础设施，Ruff/mypy 全绿。架构适应度测试（12 条声明式依赖契约 + 旧路径防回归 +
 600 行非阻断评审）、技术债册、
 DoD 和里程碑工作流全在；CI 已加入 format/lint/mypy/coverage/scripted eval/recovery eval 与
@@ -81,7 +82,8 @@ Web GUI、rewind/recap、非交互 init、PyPI 分发。
 **当前进展**：M23-R1 Agent 侧已完成。Session schema v1、自动/用户标题、metadata CAS、服务端
 catalog/search/cursor 与权威 last_run 已进入公共服务；未知未来 Session schema fail closed，所有 Session
 与 Run checkpoint 写路径以共享 lifecycle 锁、tombstone、`must_exist` 和锁内 fresh merge 防止删除后
-复活或终态同步覆盖 rename；旧 naive 时间固定按 UTC 解释。Event v1 与 RunState v6 不变。
+复活或终态同步覆盖 rename；Run 单删也持久 tombstone，CLI 删除走相同服务用例；旧 naive 时间固定按
+UTC 解释且小数秒不截断。Event v1 与 RunState v6 不变。
 整个 R1 尚待 API/Web 按冻结契约接入。公共调用继续只依赖
 `assistant_agent.service` / `contracts` / `interaction`。见
 [架构事实源](docs/ARCHITECTURE.md)与[正式服务契约](docs/agent-service-integration-guide.md)。
@@ -369,9 +371,10 @@ D14，M9c 已还清 D9，M10a 已还清 D16，M10b 已还清 D8，M11a 已还清
 > **M23-R1 Agent 已完成**：提供 strict `SessionSummary`、`LastRunSummary`、`SessionCatalogPage` 和
 > `UpdateSessionMetadataRequest`，catalog 使用 `(updated_at DESC,id DESC)` keyset、NFKC+casefold
 > 搜索和 HMAC opaque cursor；Session 文档写入统一使用短时跨进程锁、fresh load/merge、原子替换。
-> lifecycle tombstone 阻止删除后 Session/Run 复活；混合历史时间按规范 UTC instant 排序。
-> 726 passed、6 skipped、覆盖率 84%；Ruff、mypy、12/12 import-linter、scripted 19/19、recovery 4/4
-> 全绿；生产 Python 19,673 行/131 文件，未修改 Loop。跨仓 R1 完成状态以 API/Web 联调结果为准。
+> Session/Run lifecycle tombstone 阻止删除后复活；CLI 删除统一走服务用例；混合及小数历史时间按规范
+> UTC instant 排序。732 passed、6 skipped、覆盖率 84%；Ruff、mypy、12/12 import-linter、
+> scripted 19/19、recovery 4/4 全绿；生产 Python 19,716 行/131 文件，未修改 Loop。跨仓 R1 完成状态
+> 以 API/Web 联调结果为准。
 
 ## 未来方向（P3，信号驱动，暂不做）
 

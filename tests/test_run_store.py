@@ -132,6 +132,26 @@ def test_delete_removes_both_slots(tmp_path):
     assert not list(tmp_path.glob("run-1*"))
 
 
+def test_run_tombstone_blocks_late_save_and_survives_restart(tmp_path):
+    store = RunStore(tmp_path)
+    stale = _document("run-1", updated="2026-01-01T00:00:01Z")
+    store.save("run-1", stale)
+    store.save("run-1", _document("run-1", updated="2026-01-01T00:00:02Z"))
+
+    assert store.delete("run-1") is True
+    assert store.delete("run-1") is False
+    with pytest.raises(FileNotFoundError, match="Run 已删除"):
+        store.save("run-1", stale)
+
+    restarted = RunStore(tmp_path)
+    with pytest.raises(FileNotFoundError, match="Run 不存在"):
+        restarted.load("run-1")
+    with pytest.raises(FileNotFoundError, match="Run 已删除"):
+        restarted.save("run-1", stale)
+    assert restarted.list() == []
+    assert not list(tmp_path.glob("run-1*.json"))
+
+
 def test_prune_only_synced_terminal_runs(tmp_path):
     store = RunStore(tmp_path)
     store.save("old", _document("old", updated="2026-01-01T00:00:01Z", status="completed"))

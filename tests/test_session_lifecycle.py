@@ -42,6 +42,23 @@ def test_tombstone_blocks_session_and_run_recreation(tmp_path):
     assert not list((tmp_path / "runs").glob("run-1*.json"))
 
 
+def test_run_tombstone_composes_with_later_session_delete(tmp_path):
+    lifecycle = tmp_path / "lifecycle"
+    sessions = SessionStore(tmp_path / "sessions", lifecycle_dir=lifecycle)
+    runs = RunStore(tmp_path / "runs", lifecycle_dir=lifecycle)
+    session = sessions.new_session()
+    document = _run_document("run-1", session.id)
+    sessions.save(session, [], must_exist=False)
+    runs.save("run-1", document)
+
+    assert runs.delete("run-1") is True
+    assert sessions.delete(session.id) is True
+    assert runs.delete_session_runs(session.id) == []
+    with pytest.raises(FileNotFoundError):
+        runs.save("run-1", document)
+    assert not list((tmp_path / "runs").glob("run-1*.json"))
+
+
 def test_cross_process_run_save_cannot_race_past_delete_tombstone(tmp_path):
     lifecycle = tmp_path / "lifecycle"
     sessions = SessionStore(tmp_path / "sessions", lifecycle_dir=lifecycle)

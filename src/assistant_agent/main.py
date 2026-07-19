@@ -16,12 +16,11 @@ import typer
 
 from assistant_agent.cli.commands import ChatContext, build_default_slash_registry
 from assistant_agent.cli.init import run_init
-from assistant_agent.cli.recovery import resume_command, runs_command
+from assistant_agent.cli.recovery import resume_command, runs_command, sessions_command
 from assistant_agent.cli.setup import build_runtime
 from assistant_agent.config.loader import ConfigError, load_config
 from assistant_agent.contracts.events import StepEvent
 from assistant_agent.execution import RunControl
-from assistant_agent.persistence.store import SessionStore
 from assistant_agent.service import SessionRuntime
 from assistant_agent.ui.console import Console
 
@@ -216,37 +215,12 @@ def chat(
 
 @app.command()
 def sessions(
+    config: Path | None = typer.Option(None, "--config", "-c", help="配置文件路径"),
     delete: str | None = typer.Option(None, "--delete", "-d", help="删除指定会话 id"),
+    force: bool = typer.Option(False, "--force", help="强制删除含活动 Run 的会话"),
 ) -> None:
     """列出历史会话；--delete <id> 删除指定会话。"""
-    console = Console()
-    store = SessionStore()
-
-    if delete:
-        meta = next((m for m in store.list() if m.id == delete), None)
-        if meta is None:
-            console.error(f"会话不存在：{delete}")
-            raise typer.Exit(code=1)
-        # 删除不可逆，先确认
-        answer = (
-            console.input(
-                f"[bold yellow]确认删除会话 {delete}（{meta.preview}）？输入 y 确认: [/bold yellow]"
-            )
-            .strip()
-            .lower()
-        )
-        if answer in ("y", "yes"):
-            store.delete(delete)
-            console.info(f"已删除会话 {delete}。")
-        else:
-            console.info("已取消。")
-        return
-
-    metas = store.list()
-    if not metas:
-        console.info("暂无历史会话。")
-        return
-    console.print_sessions(metas)
+    sessions_command(config, delete, force=force)
 
 
 @app.command()

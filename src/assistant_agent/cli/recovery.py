@@ -69,6 +69,38 @@ def runs_command(config: Path | None, delete: str | None) -> None:
     console.info("\n".join(lines))
 
 
+def sessions_command(config: Path | None, delete: str | None, *, force: bool) -> None:
+    console = Console()
+    service = _build_service(config, console)
+    metas = service.list_sessions()
+    if delete:
+        meta = next((item for item in metas if item.id == delete), None)
+        if meta is None:
+            console.error(f"会话不存在：{delete}")
+            raise typer.Exit(code=1)
+        answer = (
+            console.input(
+                f"[bold yellow]确认删除会话 {delete}（{meta.preview}）？输入 y 确认: [/bold yellow]"
+            )
+            .strip()
+            .lower()
+        )
+        if answer not in {"y", "yes"}:
+            console.info("已取消。")
+            return
+        try:
+            service.delete_session(delete, force=force)
+        except SessionRunConflictError as exc:
+            console.error(str(exc))
+            raise typer.Exit(code=2) from exc
+        console.info(f"已删除会话 {delete}。")
+        return
+    if not metas:
+        console.info("暂无历史会话。")
+        return
+    console.print_sessions(metas)
+
+
 def resume_command(
     run_id: str,
     config: Path | None,

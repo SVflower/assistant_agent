@@ -323,9 +323,17 @@ tombstone；Session 更新默认要求目标已存在。删除先发布 tombston
 checkpoint 或终态同步不能复活 Session/Run。普通删除还持有 M22 execution lease 覆盖“检查无活动 Run
 到删除提交”的窗口，避免检查后并发启动。锁顺序固定为 lifecycle -> Session 文档或 Run 文件锁。
 
+Run 还有独立的短时跨进程 lifecycle 锁和持久 tombstone。首次 `RunStore.save` 创建 Run，后续 save
+轮转 current/previous；单删先发布 Run tombstone 再清理两个槽。此后同 run_id 的 save/create 和 load
+稳定失败，list 隐藏该 Run，重复删除返回 `False`，进程重启也不会丢失删除事实。默认 `_delete_run`
+仍拒绝 running/paused；`force=True` 允许发布 tombstone，使活动执行器的迟到 checkpoint fail closed。
+Session cascade 按 Session lifecycle -> Run lifecycle -> 双槽的固定顺序执行，与 M22 execution lease
+和 recovery checkpoint 兼容。
+
 新 Session/Run 时间统一写为 UTC RFC3339 `Z`。旧无时区时间冻结解释为 UTC，不读取机器本地时区；
 带 offset 时间先换算为 UTC。Session v1 读取时会原子规范化其持久时间，Run 历史只在公共读取边界
-规范化。catalog 排序、cursor key 和 last_run 选择均比较解析后的 UTC instant，不比较混合格式字符串。
+规范化。合法小数秒保留为规范 UTC 小数秒，不能按整秒截断；catalog 排序、cursor key 和 last_run
+选择均比较解析后的真实 UTC instant，不比较混合格式字符串。
 
 ### 5.3 删除
 
@@ -337,6 +345,10 @@ Session 存在 running/paused Run 时，默认抛出 `SessionRunConflictError`�
 取消或丢弃可恢复 Run。`force=True` 只适合已由产品策略明确确认的数据清理流程；它会先发布持久
 tombstone，再级联删除该 Session 所属 Run。已持有旧 Runtime 的调用方可能在继续消费事件时收到
 `FileNotFoundError`，但其 Session/Run 写入会 fail closed，内联 Artifact 也随 Run 删除而不可读取。
+
+CLI `assistant-agent sessions --delete <id>` 也调用本节同一公共删除用例，不直接操作 SessionStore。
+默认遇到活动 Run 返回稳定冲突；明确传入 `--force` 并确认后采用同一 tombstone 与级联语义。`--config`
+可指定用于定位 recovery RunStore 的配置文件。
 
 ### 5.4 关闭
 

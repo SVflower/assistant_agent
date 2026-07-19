@@ -17,6 +17,7 @@ from assistant_agent.interaction import (
     RecoveryDecision,
     SafeDefaultInteractionPort,
 )
+from assistant_agent.persistence.run_store import RunStore
 from assistant_agent.persistence.store import SessionStore
 from assistant_agent.providers.ports import StreamEvent, ToolCall
 from assistant_agent.service import (
@@ -1153,6 +1154,52 @@ def test_service_inspects_and_deletes_terminal_run(tmp_path, monkeypatch):
         session_runtime.close()
     assert service._delete_run(execution.run_id) is True
     assert service.list_runs() == []
+
+
+def test_force_delete_active_run_blocks_delayed_checkpoint_and_restart(tmp_path, monkeypatch):
+    service = AgentService(config_path=_config(tmp_path, monkeypatch), workspace_root=tmp_path)
+    session_runtime = service.create_session()
+    execution = session_runtime.start_run("delete active run")
+    run_id = execution.run_id
+    store = session_runtime.runtime.run_store
+    next(execution.events)
+    stale = store.load(run_id).document
+    with pytest.raises(SessionRunConflictError, match="Run 尚未结束"):
+        service._delete_run(run_id)
+    attempting_save = threading.Event()
+    release_save = threading.Event()
+    original_save = store._save_with_run_lock
+
+    def delayed_save(target_run_id, payload):
+        if target_run_id == run_id:
+            attempting_save.set()
+            assert release_save.wait(timeout=5)
+        return original_save(target_run_id, payload)
+
+    monkeypatch.setattr(store, "_save_with_run_lock", delayed_save)
+    execution_errors = []
+    worker = threading.Thread(
+        target=lambda: _consume_with_errors(execution.events, execution_errors)
+    )
+    worker.start()
+    try:
+        assert attempting_save.wait(timeout=5)
+        assert service._delete_run(run_id, force=True) is True
+    finally:
+        release_save.set()
+        worker.join(timeout=5)
+        session_runtime.close()
+
+    assert not worker.is_alive()
+    assert any(isinstance(error, FileNotFoundError) for error in execution_errors)
+    assert service._delete_run(run_id, force=True) is False
+    assert not list(store._dir.glob(f"{run_id}*.json"))
+    restarted = RunStore(store._dir)
+    with pytest.raises(FileNotFoundError):
+        restarted.load(run_id)
+    with pytest.raises(FileNotFoundError):
+        restarted.save(run_id, stale)
+    assert not list(store._dir.glob(f"{run_id}*.json"))
 
 
 class _RecordingPort(SafeDefaultInteractionPort):

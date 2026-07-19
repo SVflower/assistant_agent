@@ -141,8 +141,8 @@ python -m assistant_agent
   catalog/search/HMAC cursor、按 ID summary 和权威 last_run；Session/Run tombstone 阻止删除后复活，
   CLI 删除走服务用例，小数历史时间按真实 UTC instant 排序。Session contract v1/Event v1/RunState v6
   不变；整个 R1 待 API/Web 接入。
-- 761 个测试通过（6 个平台能力测试跳过），覆盖率 84%，ruff/mypy、12/12 import-linter、
-  scripted 19/19、recovery 4/4 全绿；20,143 行/131 文件生产 Python + 1,617 行 eval 基础设施；
+- 766 个测试通过（6 个平台能力测试跳过），覆盖率 84%，ruff/mypy、12/12 import-linter、
+  scripted 19/19、recovery 4/4 全绿；20,176 行/131 文件生产 Python + 1,617 行 eval 基础设施；
   剩余 7 项技术债（4 中/3 低，无高优先级）。
 
 第三阶段总规划及 M9a-M10c 方案/决策已归档到 `docs/archive/phase3/`，还清

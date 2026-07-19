@@ -351,6 +351,11 @@ checkpoint 或终态同步不能复活 Session/Run。普通删除还持有 M22 e
 -> Run lifecycle -> checkpoint 双槽。lifecycle 短锁使用固定 64 分片限制 `.lock` 文件增长；按 ID
 tombstone 不分片并持续保留删除事实。
 
+Windows lifecycle 锁使用 `LK_NBLCK` 识别正常争用，并以 50ms 可中断休眠等待最终取得，不依赖
+`LK_LOCK` 的固定短重试窗口，也不为正常短临界区设置 timeout。进程内同 shard 由 `RLock` 串行，同线程
+重入只在最外层取得/释放 OS 锁；上下文异常退出或进程终止由句柄关闭释放。POSIX `flock` 和全局锁序
+保持不变。调用方不应把正常锁等待映射成冲突或存储失败。
+
 Run 还有独立的短时跨进程 lifecycle 锁和持久 tombstone。首次 `RunStore.save` 创建 Run，后续 save
 轮转 current/previous；单删先发布 Run tombstone 再清理两个槽。此后同 run_id 的 save/create 和 load
 稳定失败，list 隐藏该 Run，重复删除返回 `False`，进程重启也不会丢失删除事实。默认 `_delete_run`

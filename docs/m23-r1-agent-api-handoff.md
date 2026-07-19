@@ -13,11 +13,12 @@
 - 索引完整性复审实现：`ad3550ef6513475970c5b70291c72f2e00443010`
 - 索引提交窗口最终实现：`b658371a4322edeec897db31b2937bb7579e4cf4`
 - 权威双槽核对最终实现：`9691b177e2ba408e7c2bf875d793518b71c502c1`
+- Windows lifecycle 锁最终实现：`5f90c21bea3ca397a728c273b84e61e1f23fc51b`
 - 分支：`codex/m23-r1-summary-by-id`
 - `SESSION_CONTRACT_VERSION=1`、`EVENT_CONTRACT_VERSION=1`、RunState schema v6，未修改 Agent Loop
 
-本文件之后的纯文档提交不改变 API 应集成的 Agent 行为；等待中的 API 应基于上述权威双槽核对最终
-实现 commit 集成和验证。
+本文件之后的纯文档提交不改变 API 应集成的 Agent 行为；等待中的 API 应基于上述 Windows lifecycle
+锁最终实现 commit 集成和验证。
 
 ## API 必改项
 
@@ -66,6 +67,10 @@
   独立 Run tombstone 防止复活。
 - lifecycle 锁使用固定 64 分片，锁文件数量有界；按 ID tombstone 仍持久保留。锁顺序固定为
   `Session lifecycle（如适用） -> index lifecycle -> Run lifecycle -> checkpoint 双槽`。
+- Windows lifecycle 锁不使用 `LK_LOCK` 的固定短重试窗口；改用 `LK_NBLCK` 检测正常锁冲突，并以
+  50ms 可中断休眠持续等待持有者释放，不设置正常短临界区 timeout。未知 OS 错误仍原样 fail closed。
+  进程内按 shard 使用 `RLock`，同线程重入只由最外层上下文持有 OS 锁；上下文退出、Ctrl-C 异常展开
+  或进程终止均释放句柄，Windows/POSIX 既有锁顺序不变。
 - save 先替换 ref，再以 manifest 单文件替换提交索引可见性，最后写权威 checkpoint；这不是跨文件事务。
   索引阶段失败不会留下已提交 checkpoint，checkpoint 失败只留下可检测 stale ref。下一次 direct/startup
   依据 epoch 和权威双槽核对重建，因此已覆盖的进程崩溃点不会永久静默漏 Run。
@@ -105,13 +110,16 @@
 15. 同时从 manifest/generation/ref 删除最新 Run 但保留 checkpoint，或保留合法 ref 但删除双槽，重启
     必须按权威集合重建且 direct/catalog 一致。ref/manifest replace 后、checkpoint 前模拟进程崩溃也必须
     在重启或新 epoch 首次 direct 时清理 stale ref；同一健康 epoch 后续 direct 不再全目录扫描。
+16. Windows 原生执行 2 进程各 120 次连续 Session save、8 进程持续竞争以及 direct/save/delete 混合；
+    所有操作不得出现 `EDEADLK` 或固定窗口 timeout。持有者 `os._exit` 后等待者必须取得锁，等待期间 CPU
+    时间保持低水平；所有压力测试由父进程设置 15..90 秒防挂死 timeout 并在 finally 清理子进程。
 
 ## Agent 验证结果
 
 - Ruff format/check：通过
 - mypy：131 source files，通过
 - import-linter：12/12
-- pytest coverage：761 passed、6 skipped、84%
+- pytest coverage：766 passed、6 skipped、84%
 - scripted eval：19/19
 - recovery eval：4/4
 - 测试/eval 子进程：无残留；仓库相关监听端口：无

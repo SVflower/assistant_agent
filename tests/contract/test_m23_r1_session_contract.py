@@ -12,8 +12,8 @@ from assistant_agent.contracts.events import EVENT_CONTRACT_VERSION
 
 
 def test_m23_r1_public_contract_is_strict_and_exported():
-    assert service.SESSION_CONTRACT_VERSION == 1
-    assert contracts.SESSION_CONTRACT_VERSION == 1
+    assert service.SESSION_CONTRACT_VERSION == 2
+    assert contracts.SESSION_CONTRACT_VERSION == 2
     assert hasattr(service.AgentService, "get_session_summary")
     assert tuple(service.LastRunSummary.model_fields) == ("id", "status", "updated_at")
     assert tuple(service.SessionSummary.model_fields) == (

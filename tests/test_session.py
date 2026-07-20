@@ -50,7 +50,14 @@ def test_save_survives_surrogate_chars(tmp_path):
     store = _store(tmp_path)
     s = store.new_session()
     # \udce8 是孤代理，utf-8 直接编码会抛 UnicodeEncodeError
-    store.save(s, [{"role": "assistant", "content": "坏字符\udce8结尾"}], must_exist=False)
+    store.save(
+        s,
+        [
+            {"role": "user", "content": "测试"},
+            {"role": "assistant", "content": "坏字符\udce8结尾"},
+        ],
+        must_exist=False,
+    )
     # 不崩即通过；文件应已写出
     assert store._path(s.id).exists()
 
@@ -134,7 +141,13 @@ def test_atomic_save_failure_preserves_old_file(tmp_path, monkeypatch):
 
     monkeypatch.setattr(os, "replace", fail_replace)
     with pytest.raises(OSError, match="disk failure"):
-        store.save(session, [{"role": "user", "content": "new"}])
+        store.save(
+            session,
+            [
+                {"role": "user", "content": "old"},
+                {"role": "assistant", "content": "new"},
+            ],
+        )
 
     assert store.load(session.id).messages[0]["content"] == "old"
     assert not list((tmp_path / "sessions").glob("*.tmp"))
@@ -160,10 +173,14 @@ def test_v0_session_migrates_atomically_and_repeated_load_is_stable(tmp_path, ve
     second = store.load("legacy-v0")
     assert first == second
     assert path.read_bytes() == first_bytes
-    assert first.schema_version == 1
+    assert first.schema_version == 2
     assert first.created_at == "2026-01-01T00:00:00Z"
     assert first.updated_at == "2026-01-02T00:00:00Z"
     assert first.title == "legacy title"
+    assert len(first.message_ledger) == 1
+    assert first.message_ledger[0].role == "user"
+    assert first.message_ledger[0].created_at is None
+    assert first.message_ledger[0].reply_to_message_id is None
 
 
 def test_v1_missing_metadata_fields_is_treated_as_v0(tmp_path):
@@ -187,7 +204,7 @@ def test_v1_missing_metadata_fields_is_treated_as_v0(tmp_path):
     assert migrated.metadata_version == 1
 
 
-@pytest.mark.parametrize("version", [True, "1", -1, 2])
+@pytest.mark.parametrize("version", [True, "1", -1, 3])
 def test_invalid_or_future_schema_version_fails_closed(tmp_path, version):
     store = _store(tmp_path)
     path = store._path("unsupported")

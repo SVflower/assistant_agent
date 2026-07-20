@@ -478,6 +478,7 @@ def test_windows_eight_processes_sustain_lock_contention_without_failure(tmp_pat
 @pytest.mark.skipif(sys.platform != "win32", reason="Windows msvcrt contention regression")
 def test_windows_waiter_acquires_after_holder_os_exit_without_busy_wait(tmp_path):
     ready = tmp_path / "ready"
+    waiter_ready = tmp_path / "waiter-ready"
     lifecycle = tmp_path / "lifecycle"
     holder_script = """
 import os, sys, time
@@ -485,13 +486,19 @@ from pathlib import Path
 from assistant_agent.persistence.session_lifecycle import SessionLifecycle
 with SessionLifecycle(Path(sys.argv[1])).lock('session-1'):
     Path(sys.argv[2]).write_text('ready', encoding='ascii')
-    time.sleep(1.5)
+    deadline = time.monotonic() + 10
+    while not Path(sys.argv[3]).exists() and time.monotonic() < deadline:
+        time.sleep(0.02)
+    if not Path(sys.argv[3]).exists():
+        raise RuntimeError('waiter did not start')
+    time.sleep(1.2)
     os._exit(0)
 """
     waiter_script = """
 import json, sys, time
 from pathlib import Path
 from assistant_agent.persistence.session_lifecycle import SessionLifecycle
+Path(sys.argv[2]).write_text('ready', encoding='ascii')
 started = time.monotonic()
 cpu_started = time.process_time()
 with SessionLifecycle(Path(sys.argv[1])).lock('session-1'):
@@ -499,7 +506,14 @@ with SessionLifecycle(Path(sys.argv[1])).lock('session-1'):
 print(json.dumps(result))
 """
     holder = subprocess.Popen(
-        [sys.executable, "-c", holder_script, str(lifecycle), str(ready)],
+        [
+            sys.executable,
+            "-c",
+            holder_script,
+            str(lifecycle),
+            str(ready),
+            str(waiter_ready),
+        ],
         text=True,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
@@ -511,7 +525,7 @@ print(json.dumps(result))
             time.sleep(0.02)
         assert ready.exists()
         waiter = subprocess.Popen(
-            [sys.executable, "-c", waiter_script, str(lifecycle)],
+            [sys.executable, "-c", waiter_script, str(lifecycle), str(waiter_ready)],
             text=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,

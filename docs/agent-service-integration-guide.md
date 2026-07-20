@@ -5,8 +5,8 @@
 >
 > 本文是公共服务契约的长期唯一正式入口；里程碑归档和阶段性交接不能替代本文。
 > 当前公共事件契约：`EVENT_CONTRACT_VERSION == 1`；Session 服务契约：
-> `SESSION_CONTRACT_VERSION == 1`；当前 Run checkpoint：schema v6；当前 Session 文档：schema v1。
-> 最近同步：M23-R1 Session catalog、按 ID summary 与元数据 CAS（2026-07-20）。
+> `SESSION_CONTRACT_VERSION == 2`；当前 Run checkpoint：schema v6；当前 Session 文档：schema v2。
+> 最近同步：M23-R2 权威消息 ledger 与安全 Session fork（2026-07-20）。
 
 ## 1. 集成边界
 
@@ -307,7 +307,7 @@ token，可在下一页使用不同 limit，但不能解析、修改或与其他
 points，匹配时对 query、title、公开 preview 做 NFKC + casefold。缺省和空 query 都表示不过滤。
 
 公共 DTO 均为 strict、`extra=forbid`、frozen 模型，并由 `assistant_agent.service` 与
-`assistant_agent.contracts` 同一对象导出；两处也导出 `SESSION_CONTRACT_VERSION=1`：
+`assistant_agent.contracts` 同一对象导出；两处也导出 `SESSION_CONTRACT_VERSION=2`：
 
 ```text
 LastRunSummary = {id,status,updated_at}
@@ -338,11 +338,11 @@ Artifact 内容。
 | `SessionMetadataConflictError` | `session_metadata_conflict` | CAS 冲突；可读 `current_metadata_version` |
 | `SessionUnavailableError` | `session_unavailable` | Session schema/存储暂不可用 |
 
-Session schema v1 在首次读取时于文档锁内幂等迁移并原子替换。未知未来 schema fail closed。自动标题
+Session schema v2 在首次读取时于文档锁内幂等迁移并原子替换。未知未来 schema fail closed。自动标题
 来自第一条 Unicode 空白折叠后非空的公开 user 文本，截断到 80 code points；无该消息时为
 `（空会话）`。首条非空 user 首次持久化时自动标题与 metadata_version 同步更新；用户 rename 永不被
 后续 Run 保存覆盖。缺失 `schema_version`、显式 v0 或缺失 v1 元数据字段的旧文档都在锁内原子迁移为
-v1；非法类型、负数和未来版本 fail closed。
+v2；非法类型、负数和未来版本 fail closed。
 
 所有 Session 更新和带 Session 的 Run checkpoint 共用短时跨进程 lifecycle 文件锁，并在锁内检查持久
 tombstone；Session 更新默认要求目标已存在。删除先发布 tombstone 再级联清理 Run，因此旧 Runtime 的
@@ -375,7 +375,60 @@ tombstone。Session cascade 遵守上述统一锁顺序，与 M22 execution leas
 规范化。合法小数秒保留为规范 UTC 小数秒，不能按整秒截断；catalog 排序、cursor key 和 last_run
 选择均比较解析后的真实 UTC instant，不比较混合格式字符串。
 
-### 5.3 删除
+### 5.3 权威消息 ledger 与安全 fork（M23-R2）
+
+`SessionRuntime.snapshot() -> SessionSnapshot` 返回 Session schema v2 的公开快照：
+
+```text
+PublicMessageSnapshot = {
+  id, role, created_at, reply_to_message_id, content, artifacts
+}
+SessionSnapshot = {
+  id, schema_version=2, title, title_source, metadata_version,
+  created_at, updated_at, messages, artifacts, assistant_messages, fork_created
+}
+```
+
+所有公开 user/assistant 消息只以 `messages` ledger 为权威，ID 严格匹配
+`msg_[a-f0-9]{24}`。user 的 `reply_to_message_id` 固定为 `null`；assistant 必须指向同一
+Session 的 user。旧 v0/v1 Session 首次读取时在 lifecycle/document 锁内原子迁移；消息自身存在可信
+UTC 时间时保留，否则 `created_at=null`，绝不读取文件 mtime 或以迁移时间补造。模型历史和 compaction
+checkpoint 不是公开历史事实源，压缩不得改写 ledger。
+
+绑定源 Session 的公共原语：
+
+```python
+forked = session_runtime.fork_session(
+    before_user_message_id="msg_0123456789abcdef01234567",
+    idempotency_key="opaque-visible-ascii-key",
+)
+```
+
+边界必须是源 ledger 中的 user；目标只复制该 user 之前的消息，并为所有复制消息生成新的全局唯一 ID，
+按 source->target 映射重写 assistant reply。目标不复制 Run、Interaction 或 compaction checkpoint。复制
+范围内的 Chart Artifact 会深复制、生成新 artifact ID、重绑定目标 Session/message，`run_id=null`，
+`created_at` 使用 fork 提交时间；源 Session、Run 和 Artifact 不变。
+
+幂等键必须是 1..200 个可见 ASCII 字符。相同源 + key + 边界跨 Runtime/进程重启永久返回同一目标；
+相同 key 改用其他边界返回冲突。首次创建的 snapshot 为 `fork_created=true`，重放为 `false`，普通
+snapshot 为 `null`；API 用它分别映射 HTTP 201/200，不得自行扫描存储判断。目标 Session、Artifact 和
+幂等身份以单个完整 Session 文档原子发布；匹配的既有幂等结果损坏时 fail closed，不创建第二目标。
+
+稳定错误：
+
+| 类型 | `code` | 语义 |
+|---|---|---|
+| `InvalidForkRequestError` | `invalid_fork_request` | message ID 格式非法 |
+| `InvalidIdempotencyKeyError` | `invalid_idempotency_key` | key 缺失、长度或字符非法 |
+| `UserMessageNotFoundError` | `user_message_not_found` | 非本 Session user 边界；跨 Session 同样返回此码 |
+| `IdempotencyConflictError` | `idempotency_conflict` | 同 key 被其他边界复用 |
+| `SessionMigrationRequiredError` | `session_migration_required` | 旧历史或幂等结果无法安全迁移 |
+| `SessionUnavailableError` | `session_unavailable` | Session/Artifact 存储暂不可用 |
+
+`EVENT_CONTRACT_VERSION` 仍为 1，Run checkpoint 仍为 v6；fork 不创建 Run，也不产生 StepEvent。
+`PresentationArtifactRef.run_id` 是向后兼容 nullable 扩展，只有 fork Artifact 使用 `null`。
+
+### 5.4 删除
 
 ```python
 deleted = service.delete_session(session_id)
@@ -390,7 +443,7 @@ CLI `assistant-agent sessions --delete <id>` 也调用本节同一公共删除�
 默认遇到活动 Run 返回稳定冲突；明确传入 `--force` 并确认后采用同一 tombstone 与级联语义。`--config`
 可指定用于定位 recovery RunStore 的配置文件。
 
-### 5.4 关闭
+### 5.5 关闭
 
 ```python
 session.close()
@@ -907,8 +960,8 @@ run.terminal(completed)
 ```
 
 非法/超限图表序列为 `tool_result(result_code=artifact_rejected) -> run.notice -> 后续正文 ->
-run.terminal`，不得把图表局部失败提升为 Run failed。刷新历史时使用 `SessionSnapshot.assistant_messages`
-的稳定 `id/artifacts`；旧消息 `id=null/artifacts=[]`，不得由 API 临时生成 ID。删除 Session 后旧
+run.terminal`，不得把图表局部失败提升为 Run failed。刷新历史时以 `SessionSnapshot.messages` 为
+权威，`assistant_messages` 仅为兼容投影；schema v2 消息都有稳定 ID，API 不得生成或补造。删除 Session 后旧
 artifact URL 必须返回统一 404，跨 Session 查询也返回同一 404，避免泄漏存在性。
 
 ## 13. 常见错误
@@ -929,6 +982,7 @@ artifact URL 必须返回统一 404，跨 Session 查询也返回同一 404，�
 - 在 `discovering -> restart_required` 后向活跃 Runtime 热插拔工具。
 - 把完整 Chart rows 放入 WebSocket 重连缓存，或让 Web 接收模型生成的 ECharts option；
 - API 扫描 Agent Session/Run 文件、复制完整 Artifact，或为旧消息补造不稳定 message ID。
+- API 按消息数组位置/文本推断 reply，或自行复制 history/Artifact 实现 fork。
 
 ## 14. 接入验收清单
 
@@ -957,6 +1011,9 @@ artifact URL 必须返回统一 404，跨 Session 查询也返回同一 404，�
 22. 图表刷新/历史恢复、跨 Session 404、删除级联、503 损坏态和断线重放均通过；
 23. `artifact_rejected` 不改变 final/run_terminal，低上下文或 recovery 关闭导致工具缺失时 API 仍 ready；
 24. Web 只把 ChartSpecV1 映射为固定 ECharts option，未知 schema/encoding 安全降级为表格或忽略。
+25. API 固定 `SESSION_CONTRACT_VERSION == 2`，保真映射 message ID/time/reply/artifacts；
+26. fork 首次/重放按 `fork_created` 映射 201/200，同 key 异参、跨 Session 边界和迁移失败均按稳定 code；
+27. edit/regenerate 先 fork、再显式创建普通 Run，第二步失败不得再次隐式 fork；
 21. opaque process ID 不作为 OS PID 展示、不跨 Runtime 持久化，Runtime 淘汰/关闭后不自动恢复；
 22. `background_process_detected`、`managed_process_container_unsupported` 和
     `managed_process_detached_child` 按结构化工具结果处理，不解析中文文本；

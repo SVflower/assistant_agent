@@ -168,6 +168,9 @@ class AgentService:
         try:
             session = runtime.session_store.load(session_id)
             return SessionRuntime(runtime, session)
+        except FileNotFoundError as exc:
+            runtime.close("session_load_failed")
+            raise SessionNotFoundError("Session 不存在") from exc
         except BaseException:
             runtime.close("session_load_failed")
             raise
@@ -321,9 +324,7 @@ class AgentService:
             metadata_version=session.metadata_version,
             created_at=session.created_at,
             updated_at=session.updated_at,
-            message_count=sum(
-                message.get("role") in {"user", "assistant"} for message in session.messages
-            ),
+            message_count=len(session.message_ledger),
             preview=session.preview,
         )
 

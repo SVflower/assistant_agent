@@ -89,7 +89,7 @@ python -m assistant_agent
 
 ## 当前状态
 
-**第一至第十七阶段已完成；M23-R1 Agent 侧已完成**。里程碑详情见 ROADMAP.md。
+**第一至第十八阶段已完成；M23-R2 Agent 侧已完成**。里程碑详情见 ROADMAP.md。
 - 第一阶段：配置/模型抽象/工具/ReAct 循环/CLI，加流式输出、会话持久化、工具集扩展（edit/multi_edit/code_search/git 只读）、模型切换、循环工程与写入安全、slash 命令、init 向导，全部落地。
 - **第二阶段 M6/M6.5/M7a/M7b/M7c/M8a/M8b 已完成**：结构化日志与工具审计；任务级工具调用/累计输出预算与批次协议完整终止；Agent Skills 系统（SKILL.md 发现 + 渐进披露 + load_skill）；MCP client（stdio + HTTP 两种 transport）——外部 server 工具接入 + 同步桥 + 命名空间 + 每工具确认 + 过滤/上限 + HTTP 委托 SDK 管 session/重连不重放 + cli/setup.py Runtime，还清 D7；上下文进化——M8a 预算口径计入 tools schema + reserved（还 D10），M8b 摘要压缩替代硬截断（双历史 + checkpoint 持久化 + 按轮分组 + 降级兜底，默认关闭时逐字节等于现状）。
 - 双后端实测通过：云端 DeepSeek + 本地 LM Studio，切换只改 `config.yaml`，业务代码零改动。
@@ -141,8 +141,11 @@ python -m assistant_agent
   catalog/search/HMAC cursor、按 ID summary 和权威 last_run；Session/Run tombstone 阻止删除后复活，
   CLI 删除走服务用例，小数历史时间按真实 UTC instant 排序。Session contract v1/Event v1/RunState v6
   不变；整个 R1 待 API/Web 接入。
-- 783 个测试通过（10 个平台能力测试跳过），覆盖率 84%，ruff/mypy、12/12 import-linter、
-  scripted 19/19、recovery 4/4 全绿；20,240 行/131 文件生产 Python + 1,617 行 eval 基础设施；
+- M23-R2 Agent 侧已完成：Session schema/contract v2 权威公开消息 ledger、稳定 ID/time/reply，绑定源
+  Session 的原子幂等 fork、Chart Artifact 深复制与 `run_id=null` 重绑定；compaction 不改写或泄漏
+  ledger，Event v1/RunState v6 不变，未修改 Loop。API/Web 待按正式 handoff 接入。
+- 797 个测试通过（10 个平台能力测试跳过），覆盖率 84%，ruff/mypy、12/12 import-linter、
+  scripted 19/19、recovery 4/4 全绿；20,921 行/132 文件生产 Python + 1,617 行 eval 基础设施；
   剩余 7 项技术债（4 中/3 低，无高优先级）。
 
 第三阶段总规划及 M9a-M10c 方案/决策已归档到 `docs/archive/phase3/`，还清
@@ -152,4 +155,5 @@ D8/D9/D13/D14/D15/D16/D17。剩余工作按技术债和真实触发信号立项�
 `docs/archive/phase9/`、`docs/archive/phase10/`、`docs/archive/phase11/`。M19 架构重建归档于
 `docs/archive/phase12/`，M20 扩展启动生命周期归档于 `docs/archive/phase13/`，M21 受管命令生命周期
 归档于 `docs/archive/phase14/`，M24 受控图表展示归档于 `docs/archive/phase15/`，M25 Web Runtime
-部署边界归档于 `docs/archive/phase16/`，M22 稳定性收口归档于 `docs/archive/phase17/`。
+部署边界归档于 `docs/archive/phase16/`，M22 稳定性收口归档于 `docs/archive/phase17/`，M23-R2
+权威消息 ledger 与 Session fork 归档于 `docs/archive/phase18/`。

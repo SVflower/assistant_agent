@@ -122,8 +122,11 @@ state <- recovery
 
 | 模块 | 行数 | 触发日期 | 结论 | 理由 | 复审信号 |
 |---|---:|---|---|---|---|
+| `agent/run/coordinator.py` | 606 | 2026-07-20 | 暂不拆分 | RunState 转换、checkpoint 顺序、工具批次与恢复共同维护单一 Run 状态机；纯预算、恢复策略、codec 已在 sibling 模块 | 新增独立状态域；增长超过约 20%；或 coordinator 出现第二个持久化后端职责 |
+| `application/runs.py` | 1085 | 2026-07-20 | 暂不拆分，D25 跟踪 | SessionRuntime、事件 Iterator、lease 释放、terminal Session 同步及跨 Run 用例共享执行所有权；M23-R2 增加 ledger/snapshot/fork 后增长明显，但本期拆分会扩大冻结契约改动。RunState 改写仍委托 coordinator | 下一里程碑优先提取无状态 snapshot/ledger 映射和 fork 应用用例；不得拆散 `_stream/_finish_run/_end_run` |
 | `integrations/mcp/manager.py` | 720 | 2026-07-19 | 暂不拆分 | event loop 线程、连接表、惰性连接、后台目录发现、Runtime 工具可见性与关闭共同维护同一 server 生命周期；此时拆成多个有状态 owner 会增加竞态和清理遗漏。纯数据模型与目录持久化已分别抽到 `models.py`、`catalog.py` | 增加独立健康熔断职责；增长超过约 20%；或能以无共享可变状态的 port 分离连接 owner 与目录发现 owner |
 | `persistence/run_store.py` | 626 | 2026-07-20 | 暂不拆分 | 双槽 checkpoint、Session ref 索引、Run tombstone 与原子替换共同维护 `Session -> index -> Run` 锁序和崩溃恢复不变量；当前公共符号只有 `RunStore`/`LoadedRun`，拆出有状态 index owner 会增加锁重入和提交窗口。故障注入集中在 `test_run_store.py`，依赖只指向 application model、time contract 和 lifecycle | 索引出现第二个消费者或独立存储后端；可用单一无状态 codec 抽离 manifest/ref 编解码；或增长超过约 20% |
+| `persistence/store.py` | 608 | 2026-07-20 | 暂不拆分 | Session schema 迁移、ledger 合并、源锁内幂等查找和目标原子发布共同维护“一个可见完整 Session”不变量；纯 fork 映射/Artifact 克隆已抽至 `session_fork.py`。继续拆锁内 transaction 会增加重复锁序或半提交风险 | 迁移新增第二种独立 schema 家族；出现非文件存储后端；或可提取不依赖 Store/锁的纯 migration codec |
 
 行数不是拆分判据，也没有硬失败线。复杂声明或内聚状态机允许超过预警线，但必须留下分析。
 
@@ -229,11 +232,12 @@ Windows shard 锁用非阻塞探测加 50ms 可中断等待替代 `LK_LOCK` 的�
 当前持锁线程 fork，并由 at-fork 回调等待其他线程、恢复 parent、重建 child 线程锁状态；Windows spawn
 不依赖该回调，继续由文件锁串行。
 
-`application/runs.py` 当前 928 行，超过 600 行非阻断评审线。它仍只拥有 SessionRuntime、事件 Iterator
+`application/runs.py` 当前 1085 行，超过 600 行非阻断评审线。它仍只拥有 SessionRuntime、事件 Iterator
 边界、Session terminal 同步和跨 Run 用例编排；所有 RunState 改写继续委托 RunCoordinator，依赖方向由
 import-linter 约束，事件 Iterator 的并发 close 只请求取消并由迭代线程完成 lease 释放；租约/重试/orphan/
-唯一 terminal 有直接测试，因此本期不为行数机械拆分。若再新增一种
-跨 Run 工作流或超过 800 行，应把 snapshot 查询和 retry/reconcile 用例提取为独立 Application 服务，
+唯一 terminal 有直接测试，因此本期不为行数机械拆分。M23-R2 增加权威 ledger、Session snapshot 与
+绑定源 Session 的 fork 后，D25 的复审信号已经触发；下一里程碑应把无状态 snapshot/ledger 映射、fork
+应用用例和 retry/reconcile 查询边界提取为独立 Application 服务，
 不得拆散 `_stream/_finish_run/_end_run` 的生命周期不变量。该观察登记为 D25。
 
 ## 9. 复杂度基线

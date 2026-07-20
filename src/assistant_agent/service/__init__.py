@@ -26,13 +26,14 @@ from assistant_agent.contracts.charts import (
     PendingInteractionSnapshot,
     PresentationArtifactRef,
     RunSnapshot,
-    SessionSnapshot,
 )
 from assistant_agent.contracts.errors import (
     AgentServiceError,
     ArtifactNotFoundError,
     ArtifactUnavailableError,
     IdempotencyConflictError,
+    InvalidForkRequestError,
+    InvalidIdempotencyKeyError,
     InvalidSessionCursorError,
     InvalidSessionLimitError,
     InvalidSessionMetadataError,
@@ -50,9 +51,11 @@ from assistant_agent.contracts.errors import (
     RuntimePolicyError,
     SessionBusyError,
     SessionMetadataConflictError,
+    SessionMigrationRequiredError,
     SessionNotFoundError,
     SessionRunConflictError,
     SessionUnavailableError,
+    UserMessageNotFoundError,
 )
 from assistant_agent.contracts.events import (
     EVENT_CONTRACT_VERSION,
@@ -64,7 +67,9 @@ from assistant_agent.contracts.events import (
 from assistant_agent.contracts.sessions import (
     SESSION_CONTRACT_VERSION,
     LastRunSummary,
+    PublicMessageSnapshot,
     SessionCatalogPage,
+    SessionSnapshot,
     SessionSummary,
     UpdateSessionMetadataRequest,
 )
@@ -105,10 +110,13 @@ __all__ = [
     "RunNotRetryableError",
     "RunRecoveryRequiredError",
     "IdempotencyConflictError",
+    "InvalidForkRequestError",
+    "InvalidIdempotencyKeyError",
     "SessionRunConflictError",
     "SessionRuntime",
     "SessionSnapshot",
     "PresentationArtifactRef",
+    "PublicMessageSnapshot",
     "StepEvent",
     "ToolDisplay",
     "BudgetSnapshot",
@@ -122,8 +130,10 @@ __all__ = [
     "LastRunSummary",
     "SessionCatalogPage",
     "SessionMetadataConflictError",
+    "SessionMigrationRequiredError",
     "SessionNotFoundError",
     "SessionSummary",
     "SessionUnavailableError",
+    "UserMessageNotFoundError",
     "UpdateSessionMetadataRequest",
 ]

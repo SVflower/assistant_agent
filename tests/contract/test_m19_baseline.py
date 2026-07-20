@@ -38,6 +38,8 @@ def test_service_public_exports_baseline():
         "RunNotRetryableError",
         "RunRecoveryRequiredError",
         "IdempotencyConflictError",
+        "InvalidForkRequestError",
+        "InvalidIdempotencyKeyError",
         "RuntimeClosedError",
         "RuntimeConfigError",
         "RuntimeInitializationError",
@@ -56,6 +58,7 @@ def test_service_public_exports_baseline():
         "SessionRuntime",
         "SessionSnapshot",
         "PresentationArtifactRef",
+        "PublicMessageSnapshot",
         "StepEvent",
         "ToolDisplay",
         "BudgetSnapshot",
@@ -69,9 +72,11 @@ def test_service_public_exports_baseline():
         "LastRunSummary",
         "SessionCatalogPage",
         "SessionMetadataConflictError",
+        "SessionMigrationRequiredError",
         "SessionNotFoundError",
         "SessionSummary",
         "SessionUnavailableError",
+        "UserMessageNotFoundError",
         "UpdateSessionMetadataRequest",
     }
     assert [field.name for field in fields(RunExecution)] == ["run_id", "events", "warning"]

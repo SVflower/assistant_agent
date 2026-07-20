@@ -128,7 +128,7 @@ class PresentationArtifactRef(_StrictModel):
     schema_version: Literal[1] = 1
     content_hash: str = Field(pattern=r"^sha256:[a-f0-9]{64}$")
     session_id: str = Field(min_length=1)
-    run_id: str = Field(min_length=1)
+    run_id: str | None = Field(default=None, min_length=1)
     message_id: str = Field(pattern=r"^msg_[a-f0-9]{24}$")
     created_at: str = Field(min_length=1)
     title: str = Field(min_length=1, max_length=200)
@@ -149,7 +149,7 @@ class ChartArtifact(PresentationArtifactRef):
         actual_size = len(canonical_json_bytes(self.model_dump(mode="json")))
         if self.size_bytes != actual_size:
             raise ValueError("Artifact size_bytes 与载荷不一致")
-        if self.message_id != stable_message_id(self.run_id):
+        if self.run_id is not None and self.message_id != stable_message_id(self.run_id):
             raise ValueError("Artifact message_id 与 run_id 不一致")
         return self
 
@@ -169,17 +169,6 @@ class AssistantMessageSnapshot(_StrictModel):
     @field_validator("artifacts", mode="before")
     @classmethod
     def _artifacts_to_tuple(cls, value: Any) -> Any:
-        return tuple(value) if isinstance(value, list) else value
-
-
-class SessionSnapshot(_StrictModel):
-    id: str
-    assistant_messages: tuple[AssistantMessageSnapshot, ...] = ()
-    artifacts: tuple[PresentationArtifactRef, ...] = ()
-
-    @field_validator("assistant_messages", "artifacts", mode="before")
-    @classmethod
-    def _items_to_tuple(cls, value: Any) -> Any:
         return tuple(value) if isinstance(value, list) else value
 
 

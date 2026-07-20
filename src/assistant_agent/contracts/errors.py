@@ -56,6 +56,14 @@ class InvalidSessionMetadataError(AgentServiceError):
     code = "invalid_session_metadata"
 
 
+class InvalidForkRequestError(AgentServiceError):
+    code = "invalid_fork_request"
+
+
+class InvalidIdempotencyKeyError(AgentServiceError):
+    code = "invalid_idempotency_key"
+
+
 class SessionNotFoundError(AgentServiceError):
     code = "session_not_found"
 
@@ -70,6 +78,14 @@ class SessionMetadataConflictError(AgentServiceError):
 
 class SessionUnavailableError(AgentServiceError):
     code = "session_unavailable"
+
+
+class SessionMigrationRequiredError(AgentServiceError):
+    code = "session_migration_required"
+
+
+class UserMessageNotFoundError(AgentServiceError):
+    code = "user_message_not_found"
 
 
 class RunNotFoundError(AgentServiceError):

@@ -6,8 +6,9 @@ from dataclasses import dataclass, field
 from typing import Any, Literal, TypeGuard
 
 from assistant_agent.contracts.charts import AssistantMessageSnapshot, ChartArtifact
+from assistant_agent.contracts.sessions import PublicMessageSnapshot
 
-SESSION_SCHEMA_VERSION = 1
+SESSION_SCHEMA_VERSION = 2
 EMPTY_SESSION_TITLE = "（空会话）"
 _PREVIEW_LEN = 40
 PublicRunStatus = Literal["running", "paused", "cancelled", "completed", "failed"]
@@ -63,6 +64,8 @@ class Session:
     compaction_checkpoint: dict[str, Any] | None = None
     presentations: list[ChartArtifact] = field(default_factory=list)
     assistant_messages: list[AssistantMessageSnapshot] = field(default_factory=list)
+    message_ledger: list[PublicMessageSnapshot] = field(default_factory=list)
+    fork_origin: dict[str, str] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -81,6 +84,8 @@ class Session:
             "assistant_messages": [
                 item.model_dump(mode="json") for item in self.assistant_messages
             ],
+            "message_ledger": [item.model_dump(mode="json") for item in self.message_ledger],
+            "fork_origin": self.fork_origin,
         }
 
     @classmethod
@@ -104,10 +109,22 @@ class Session:
                 AssistantMessageSnapshot.model_validate(item)
                 for item in data.get("assistant_messages", [])
             ],
+            message_ledger=[
+                PublicMessageSnapshot.model_validate(item, strict=True)
+                for item in data.get("message_ledger", [])
+            ],
+            fork_origin=data.get("fork_origin"),
         )
 
     @property
     def preview(self) -> str:
+        if self.message_ledger:
+            return public_preview(
+                [
+                    {"role": message.role, "content": message.content}
+                    for message in self.message_ledger
+                ]
+            )
         return public_preview(self.messages)
 
 

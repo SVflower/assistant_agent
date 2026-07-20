@@ -48,6 +48,9 @@
   Session 与 Run 独立 lifecycle tombstone 阻止单删或级联删除后复活，CLI 删除统一走服务用例，混合及
   小数历史时间按确定性 UTC instant 排序。Run 终态同步锁内 fresh load，保留并发 rename。
   Session contract v1/Event v1/RunState v6 不变。
+- **M23-R2 Agent 消息与分叉**：Session schema/contract v2 权威公开消息 ledger、稳定 ID/time/reply；
+  绑定源 Session 的原子幂等 fork 严格排除 user 边界，深复制并重绑定 Chart Artifact；compaction 不改写
+  或泄漏 ledger，Event v1/RunState v6 不变。
 - **工具**：读/写/局部编辑/列目录/shell/代码检索/git 只读/用户澄清，以及带来源的
   `web_search`/`fetch_url`；搜索 backend 可替换，抓取含 SSRF、重定向和响应上限防护。
 - **命令层**：slash 命令系统本地拦截不花 token；`/skills` 与 `/mcp` 支持列出、安装、诊断、
@@ -66,7 +69,7 @@
   已完成工具不重放，started 副作用需 retry/skip/abort；预算、重复熔断、权限和摘要状态跨进程恢复；
   trace/session/run/call 标识对齐，还清 D8。
 
-**质量**：783 测试通过（10 个平台能力测试跳过）、覆盖率 84%、20,240 行/131 文件生产 Python 源码 +
+**质量**：797 测试通过（10 个平台能力测试跳过）、覆盖率 84%、20,921 行/132 文件生产 Python 源码 +
 1,617 行 eval 基础设施，Ruff/mypy 全绿。架构适应度测试（12 条声明式依赖契约 + 旧路径防回归 +
 600 行非阻断评审）、技术债册、
 DoD 和里程碑工作流全在；CI 已加入 format/lint/mypy/coverage/scripted eval/recovery eval 与
@@ -75,17 +78,18 @@ Windows/Linux、Python 3.11/3.13 矩阵。剩余 7 项技术债（4 中/3 低，
 **边界（明确未做）**：外置 MCP/自定义 Python Tool 的容器化、远程 Workspace、子 Agent 编排、
 Web GUI、rewind/recap、非交互 init、PyPI 分发。
 
-**阶段状态**：第一至第十七阶段已完成；第十八阶段 M23-R1 Agent 侧已完成，API/Web 联调待下游仓库
+**阶段状态**：第一至第十八阶段已完成；M23-R2 Agent 侧已完成，API/Web R2 联调待下游仓库
 实现。M10c 的
 “不做全栈 async”决策保持不变；M14 以同步 RunControl、跨平台 ProcessSupervisor 和 Workspace
 抽象补齐受控执行边界并还清 D18。
 
-**当前进展**：M23-R1 Agent 侧已完成。Session schema v1、自动/用户标题、metadata CAS、服务端
+**当前进展**：M23-R2 Agent 侧已完成。R1 的 Session schema v1、自动/用户标题、metadata CAS、服务端
 catalog/search/cursor、按 ID summary 与权威 last_run 已进入公共服务；未知未来 Session schema fail closed，所有 Session
 与 Run checkpoint 写路径以共享 lifecycle 锁、tombstone、`must_exist` 和锁内 fresh merge 防止删除后
 复活或终态同步覆盖 rename；Run 单删也持久 tombstone，CLI 删除走相同服务用例；旧 naive 时间固定按
-UTC 解释且小数秒不截断。Event v1 与 RunState v6 不变。
-整个 R1 尚待 API/Web 按冻结契约接入。公共调用继续只依赖
+UTC 解释且小数秒不截断。R2 将 Session schema/contract 升至 v2，权威 ledger 与模型历史/compaction
+分离，并提供跨重启幂等、失败原子、Artifact 深复制的 Session fork。Event v1 与 RunState v6 不变。
+API/Web 尚待按 R2 冻结契约接入。公共调用继续只依赖
 `assistant_agent.service` / `contracts` / `interaction`。见
 [架构事实源](docs/ARCHITECTURE.md)与[正式服务契约](docs/agent-service-integration-guide.md)。
 
@@ -368,6 +372,13 @@ D14，M9c 已还清 D9，M10a 已还清 D16，M10b 已还清 D8，M11a 已还清
 | 里程碑 | 主题 | 状态 |
 |--------|------|------|
 | M23-R1 Agent | Session schema v1、catalog、搜索与元数据 CAS | ✅ Agent · API/Web 待接入 |
+| M23-R2 Agent | Session schema v2、权威消息 ledger 与原子幂等 fork | ✅ Agent · API/Web 待接入 |
+
+> **M23-R2 Agent 已完成**：`SessionSnapshot.messages` 成为公开历史权威，消息 ID、可信时间与 reply
+> 关系跨迁移/重启/compaction 稳定；`SessionRuntime.fork_session` 在一致源快照上排除边界并一次发布
+> 完整目标，Chart Artifact 深复制、重绑定且 `run_id=null`。Session contract v2；Event v1、RunState v6
+> 和 Loop 不变。797 passed、10 skipped、覆盖率 84%；Ruff、mypy、12/12 import-linter、scripted 19/19、
+> recovery 4/4 全绿；生产 Python 20,921 行/132 文件。
 
 > **M23-R1 Agent 已完成**：提供 strict `SessionSummary`、`LastRunSummary`、`SessionCatalogPage` 和
 > `UpdateSessionMetadataRequest`，catalog 使用 `(updated_at DESC,id DESC)` keyset、NFKC+casefold

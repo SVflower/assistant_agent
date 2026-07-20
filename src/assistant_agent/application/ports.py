@@ -38,6 +38,14 @@ class SessionRepository(Protocol):
 
     def update_metadata(self, session_id: str, title: str, expected_version: int) -> Session: ...
 
+    def fork_session(
+        self,
+        source_session_id: str,
+        before_user_message_id: str,
+        key_hash: str,
+        request_hash: str,
+    ) -> tuple[Session, bool]: ...
+
     def delete(self, session_id: str) -> bool: ...
 
 

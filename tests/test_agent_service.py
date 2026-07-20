@@ -30,6 +30,7 @@ from assistant_agent.service import (
     RunStillActiveError,
     RuntimeConfigError,
     SessionBusyError,
+    SessionNotFoundError,
     SessionRunConflictError,
 )
 from tests.support import ToolBudget
@@ -159,7 +160,7 @@ def test_delete_holds_execution_lease_between_check_and_commit(tmp_path, monkeyp
     assert not thread.is_alive()
     assert delete_errors == []
     assert outcome == [True]
-    with pytest.raises(FileNotFoundError):
+    with pytest.raises(SessionNotFoundError):
         service.load_session(session_id)
     assert service.list_runs(session_id=session_id) == []
 
@@ -657,6 +658,14 @@ class _ChartClient:
             yield StreamEvent(kind="content", text="图表已生成")
 
 
+class _ChartThenFailClient(_ChartClient):
+    def complete_stream(self, messages, tools=None) -> Iterator[StreamEvent]:
+        if self.calls == 0:
+            yield from super().complete_stream(messages, tools)
+            return
+        raise RuntimeError("provider failed after chart")
+
+
 def test_chart_event_history_snapshot_and_cascade_delete(tmp_path, monkeypatch):
     config = _config(tmp_path, monkeypatch)
     config.write_text(
@@ -689,6 +698,30 @@ def test_chart_event_history_snapshot_and_cascade_delete(tmp_path, monkeypatch):
     assert all(item.id != execution.run_id for item in service.list_runs())
     with pytest.raises(ArtifactNotFoundError):
         service.get_artifact(session_id, artifact_id)
+
+
+def test_failed_run_keeps_chart_bound_to_authoritative_assistant_message(tmp_path, monkeypatch):
+    config = _config(tmp_path, monkeypatch)
+    config.write_text(
+        "active: fake\nproviders:\n  fake:\n    model: openai/fake\n"
+        "agent:\n  max_context_tokens: 16000\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(runtime_module, "LLMClient", _ChartThenFailClient)
+    service = AgentService(config_path=config, workspace_root=tmp_path)
+    session_runtime = service.create_session()
+    try:
+        events = list(session_runtime.start_run("画图后失败").events)
+        assert events[-1].terminal_status == "failed"
+        chart = next(item.chart for item in events if item.chart is not None)
+        snapshot = session_runtime.snapshot()
+        message = next(item for item in snapshot.messages if item.id == chart.message_id)
+        assert message.role == "assistant"
+        assert message.content == ""
+        assert message.artifacts == (chart.ref,)
+        assert message.reply_to_message_id == snapshot.messages[0].id
+    finally:
+        session_runtime.close()
 
 
 def test_corrupt_artifact_state_is_typed_unavailable(tmp_path, monkeypatch):

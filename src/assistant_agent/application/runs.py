@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import hashlib
+import re
 import threading
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
+from typing import Literal, cast
 
 from assistant_agent.agent.run.coordinator import RecoveryChoice as LoopRecoveryChoice
 from assistant_agent.agent.run.coordinator import RunCoordinator
@@ -23,13 +26,16 @@ from assistant_agent.contracts.charts import (
     AssistantMessageSnapshot,
     ChartArtifact,
     PendingInteractionSnapshot,
+    PresentationArtifactRef,
     RunSnapshot,
-    SessionSnapshot,
     stable_message_id,
 )
 from assistant_agent.contracts.errors import (
+    AgentServiceError,
     ArtifactNotFoundError,
     IdempotencyConflictError,
+    InvalidForkRequestError,
+    InvalidIdempotencyKeyError,
     RunNotFoundError,
     RunNotReconcilableError,
     RunNotResumableError,
@@ -37,7 +43,11 @@ from assistant_agent.contracts.errors import (
     RunRecoveryRequiredError,
     RuntimeClosedError,
     SessionBusyError,
+    SessionMigrationRequiredError,
+    SessionNotFoundError,
     SessionRunConflictError,
+    SessionUnavailableError,
+    UserMessageNotFoundError,
 )
 from assistant_agent.contracts.events import StepEvent, TerminalStatus
 from assistant_agent.contracts.failures import AllowedAction, BudgetSnapshot, RunFailure
@@ -46,6 +56,9 @@ from assistant_agent.contracts.interactions import (
     DefinitionDifferenceInfo,
     RecoveryRequest,
 )
+from assistant_agent.contracts.sessions import PublicMessageSnapshot, SessionSnapshot
+
+_PUBLIC_MESSAGE_ID = re.compile(r"^msg_[a-f0-9]{24}$")
 
 
 class _ExecutionEvents(Iterator[StepEvent]):
@@ -244,6 +257,7 @@ def sync_terminal_session(
             continue
         by_id.setdefault(artifact.artifact_id, artifact)
     session.presentations = list(by_id.values())
+    _synchronize_run_ledger(session, state)
     message_id = stable_message_id(state.run_id)
     if not any(item.id == message_id for item in session.assistant_messages):
         assistant_content = next(
@@ -264,6 +278,111 @@ def sync_terminal_session(
     store.save(session, state.messages, must_exist=True)
     coordinator.mark_session_synced()
     return session
+
+
+def _synchronize_run_ledger(session: Session, state: RunState) -> None:
+    public = [
+        message
+        for message in state.messages
+        if message.get("role") == "user"
+        or (message.get("role") == "assistant" and not message.get("tool_calls"))
+    ]
+    ledger = session.message_ledger
+    if len(public) < len(ledger):
+        raise SessionMigrationRequiredError("Run 历史短于 Session ledger")
+    for raw, saved in zip(public, ledger, strict=False):
+        if raw.get("role") != saved.role or str(raw.get("content") or "") != saved.content:
+            raise SessionMigrationRequiredError("Run 历史与 Session ledger 冲突")
+    current_user_id = next(
+        (message.id for message in reversed(ledger) if message.role == "user"), None
+    )
+    appended = public[len(ledger) :]
+    for offset, raw in enumerate(appended):
+        role = cast(Literal["user", "assistant"], raw.get("role"))
+        artifacts: tuple[PresentationArtifactRef, ...]
+        if role == "user":
+            message_id = _run_message_id(state.run_id, "user", offset)
+            current_user_id = message_id
+            reply_to = None
+            created_at = state.created_at
+            artifacts = ()
+        else:
+            if current_user_id is None:
+                raise SessionMigrationRequiredError("assistant message 缺少对应 user")
+            message_id = (
+                stable_message_id(state.run_id)
+                if offset == len(appended) - 1
+                else _run_message_id(state.run_id, "assistant", offset)
+            )
+            reply_to = current_user_id
+            created_at = state.updated_at
+            artifacts = tuple(item.ref for item in state.presentations)
+            if any(ref.message_id != message_id for ref in artifacts):
+                raise SessionMigrationRequiredError("Run Artifact 与 assistant message 不一致")
+        ledger.append(
+            PublicMessageSnapshot(
+                id=message_id,
+                role=role,
+                created_at=created_at,
+                reply_to_message_id=reply_to,
+                content=str(raw.get("content") or ""),
+                artifacts=artifacts,
+            )
+        )
+    artifact_message_id = stable_message_id(state.run_id)
+    if state.presentations and not any(item.id == artifact_message_id for item in ledger):
+        if current_user_id is None:
+            raise SessionMigrationRequiredError("Run Artifact 缺少对应 user")
+        refs = tuple(item.ref for item in state.presentations)
+        if any(ref.message_id != artifact_message_id for ref in refs):
+            raise SessionMigrationRequiredError("Run Artifact message ID 不一致")
+        ledger.append(
+            PublicMessageSnapshot(
+                id=artifact_message_id,
+                role="assistant",
+                created_at=state.updated_at,
+                reply_to_message_id=current_user_id,
+                content="",
+                artifacts=refs,
+            )
+        )
+
+
+def _run_message_id(run_id: str, role: str, ordinal: int) -> str:
+    payload = f"run-message:{run_id}:{role}:{ordinal}".encode()
+    return "msg_" + hashlib.sha256(payload).hexdigest()[:24]
+
+
+def _session_snapshot(
+    session: Session,
+    *,
+    presentations: tuple[ChartArtifact, ...] | None = None,
+    fork_created: bool | None = None,
+) -> SessionSnapshot:
+    assistant_messages = tuple(
+        AssistantMessageSnapshot(
+            id=message.id,
+            content=message.content,
+            artifacts=message.artifacts,
+        )
+        for message in session.message_ledger
+        if message.role == "assistant"
+    )
+    return SessionSnapshot(
+        id=session.id,
+        title=session.title,
+        title_source=cast(Literal["auto", "user"], session.title_source),
+        metadata_version=session.metadata_version,
+        created_at=session.created_at,
+        updated_at=session.updated_at,
+        messages=tuple(session.message_ledger),
+        artifacts=tuple(
+            item.ref
+            for item in (presentations if presentations is not None else session.presentations)
+        ),
+        assistant_messages=assistant_messages,
+        fork_created=fork_created,
+    )
 
 
 def _load_warning(coordinator: RunCoordinator) -> str:
@@ -375,11 +494,49 @@ class SessionRuntime:
 
     def snapshot(self) -> SessionSnapshot:
         presentations = self.list_presentations()
-        return SessionSnapshot(
-            id=self.session.id,
-            assistant_messages=tuple(self.session.assistant_messages),
-            artifacts=tuple(item.ref for item in presentations),
+        self.session = self.runtime.session_store.load(self.session.id)
+        return _session_snapshot(self.session, presentations=presentations)
+
+    def fork_session(self, before_user_message_id: str, idempotency_key: str) -> SessionSnapshot:
+        if not isinstance(before_user_message_id, str) or not _PUBLIC_MESSAGE_ID.fullmatch(
+            before_user_message_id
+        ):
+            raise InvalidForkRequestError("before_user_message_id 不合法")
+        if (
+            not isinstance(idempotency_key, str)
+            or not 1 <= len(idempotency_key) <= 200
+            or any(not 0x21 <= ord(char) <= 0x7E for char in idempotency_key)
+        ):
+            raise InvalidIdempotencyKeyError("idempotency_key 必须是 1-200 个可见 ASCII 字符")
+        with self._lock:
+            if self._closed or self.runtime.closed:
+                raise RuntimeClosedError("Session Runtime 已关闭")
+        key_hash = canonical_hash(
+            {"operation": "fork-key", "source_session_id": self.session.id, "key": idempotency_key}
         )
+        request_hash = canonical_hash(
+            {
+                "operation": "fork-session",
+                "source_session_id": self.session.id,
+                "before_user_message_id": before_user_message_id,
+            }
+        )
+        try:
+            target, created = self.runtime.session_store.fork_session(
+                self.session.id,
+                before_user_message_id,
+                key_hash,
+                request_hash,
+            )
+            return _session_snapshot(target, fork_created=created)
+        except (UserMessageNotFoundError, IdempotencyConflictError, SessionMigrationRequiredError):
+            raise
+        except FileNotFoundError as exc:
+            raise SessionNotFoundError("源 Session 不存在") from exc
+        except AgentServiceError:
+            raise
+        except (OSError, ValueError) as exc:
+            raise SessionUnavailableError("Session fork 暂不可用") from exc
 
     def run_snapshot(self, run_id: str) -> RunSnapshot:
         coordinator = self._load_coordinator(run_id)

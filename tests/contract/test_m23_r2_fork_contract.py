@@ -182,6 +182,65 @@ def test_v1_migration_assigns_stable_ids_null_times_and_explicit_replies(tmp_pat
     assert assistant.reply_to_message_id == user.id
 
 
+def test_v1_migration_projects_complete_chart_artifact_into_public_ledger(tmp_path):
+    store = _store(tmp_path)
+    path = store._path("legacy-v1-chart")
+    path.parent.mkdir(parents=True)
+    spec = ChartSpecV1(
+        chart_type="bar",
+        title="旧图表",
+        columns=(
+            ChartColumn(key="name", label="名称", data_type="string"),
+            ChartColumn(key="value", label="数量", data_type="number"),
+        ),
+        rows=(("A", 1),),
+        x_key="name",
+        series=(ChartSeries(key="value", label="数量"),),
+    )
+    artifact = build_chart_artifact(
+        spec,
+        session_id="legacy-v1-chart",
+        run_id="run-legacy-chart",
+        call_id="call-legacy-chart",
+        created_at="2026-01-01T00:01:00Z",
+    )
+    document = {
+        "schema_version": 1,
+        "id": "legacy-v1-chart",
+        "title": "legacy chart",
+        "title_source": "auto",
+        "metadata_version": 1,
+        "created_at": "2026-01-01T00:00:00Z",
+        "updated_at": "2026-01-02T00:00:00Z",
+        "messages": [
+            {"role": "user", "content": "chart"},
+            {"role": "assistant", "content": "ready"},
+        ],
+        "assistant_messages": [
+            {
+                "id": artifact.message_id,
+                "role": "assistant",
+                "content": "ready",
+                "artifacts": [artifact.ref.model_dump(mode="json")],
+            }
+        ],
+        "presentations": [artifact.model_dump(mode="json")],
+    }
+    path.write_text(json.dumps(document, ensure_ascii=False), encoding="utf-8")
+
+    migrated = store.load("legacy-v1-chart")
+    migrated_bytes = path.read_bytes()
+    repeated = store.load("legacy-v1-chart")
+
+    assert migrated == repeated
+    assert path.read_bytes() == migrated_bytes
+    assert migrated.schema_version == 2
+    assert migrated.presentations == [artifact]
+    assert migrated.assistant_messages[0].artifacts == (artifact.ref,)
+    assert migrated.message_ledger[1].id == artifact.message_id
+    assert migrated.message_ledger[1].artifacts == (artifact.ref,)
+
+
 @pytest.mark.parametrize(
     ("boundary_index", "expected_count"),
     [(0, 0), (1, 2), (2, 4)],

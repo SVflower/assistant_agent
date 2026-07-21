@@ -12,12 +12,19 @@ import pytest
 
 from assistant_agent.application.models import RunMeta
 from assistant_agent.application.sessions import AgentService
+from assistant_agent.contracts.charts import (
+    ChartColumn,
+    ChartSeries,
+    ChartSpecV1,
+    build_chart_artifact,
+)
 from assistant_agent.contracts.errors import (
     InvalidSessionCursorError,
     InvalidSessionLimitError,
     InvalidSessionMetadataError,
     InvalidSessionQueryError,
     SessionMetadataConflictError,
+    SessionMigrationRequiredError,
     SessionNotFoundError,
     SessionUnavailableError,
 )
@@ -398,6 +405,93 @@ def test_unknown_future_session_schema_fails_closed(tmp_path):
         store.load("future")
     with pytest.raises(SessionUnavailableError):
         _service(tmp_path).catalog_sessions()
+
+
+def test_catalog_isolates_one_unmigratable_v1_artifact_without_rewriting_it(tmp_path):
+    store = SessionStore(tmp_path / "sessions")
+    healthy = store.new_session()
+    store.save(healthy, [{"role": "user", "content": "healthy"}], must_exist=False)
+
+    spec = ChartSpecV1(
+        chart_type="bar",
+        title="旧图表",
+        columns=(
+            ChartColumn(key="name", label="名称", data_type="string"),
+            ChartColumn(key="value", label="数量", data_type="number"),
+        ),
+        rows=(("A", 1),),
+        x_key="name",
+        series=(ChartSeries(key="value", label="数量"),),
+    )
+    artifact = build_chart_artifact(
+        spec,
+        session_id="bad-v1-chart",
+        run_id="run-bad-chart",
+        call_id="call-bad-chart",
+        created_at="2026-01-01T00:01:00Z",
+    ).model_dump(mode="json")
+    artifact["content_hash"] = "sha256:" + "0" * 64
+    bad_path = store._path("bad-v1-chart")
+    bad_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "id": "bad-v1-chart",
+                "title": "bad chart",
+                "title_source": "auto",
+                "metadata_version": 1,
+                "created_at": "2026-01-01T00:00:00Z",
+                "updated_at": "2026-01-02T00:00:00Z",
+                "messages": [
+                    {"role": "user", "content": "chart"},
+                    {"role": "assistant", "content": "ready"},
+                ],
+                "assistant_messages": [],
+                "presentations": [artifact],
+            }
+        ),
+        encoding="utf-8",
+    )
+    original = bad_path.read_bytes()
+
+    page = _service(tmp_path, session_store=store).catalog_sessions()
+
+    assert [item.id for item in page.items] == [healthy.id]
+    assert bad_path.read_bytes() == original
+    with pytest.raises(SessionMigrationRequiredError, match="Artifact"):
+        store.load("bad-v1-chart")
+    assert bad_path.read_bytes() == original
+
+
+def test_current_session_chart_artifact_roundtrip_is_unchanged(tmp_path):
+    store = SessionStore(tmp_path / "sessions")
+    session = store.new_session()
+    spec = ChartSpecV1(
+        chart_type="line",
+        title="当前图表",
+        columns=(
+            ChartColumn(key="name", label="名称", data_type="string"),
+            ChartColumn(key="value", label="数量", data_type="number"),
+        ),
+        rows=(("A", 1),),
+        x_key="name",
+        series=(ChartSeries(key="value", label="数量"),),
+    )
+    artifact = build_chart_artifact(
+        spec,
+        session_id=session.id,
+        run_id="run-current-chart",
+        call_id="call-current-chart",
+        created_at="2026-01-01T00:01:00Z",
+    )
+    session.presentations = [artifact]
+    store.save(session, [{"role": "user", "content": "current"}], must_exist=False)
+    saved = store._path(session.id).read_bytes()
+
+    loaded = store.load(session.id)
+
+    assert loaded.presentations == [artifact]
+    assert store._path(session.id).read_bytes() == saved
 
 
 def test_auto_title_boundaries_and_user_title_is_never_overwritten(tmp_path):

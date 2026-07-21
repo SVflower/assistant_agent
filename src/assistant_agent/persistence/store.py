@@ -22,7 +22,7 @@ from assistant_agent.application.models import (
     SessionMeta,
     automatic_session_title,
 )
-from assistant_agent.contracts.charts import PresentationArtifactRef
+from assistant_agent.contracts.charts import ChartArtifact
 from assistant_agent.contracts.errors import IdempotencyConflictError, SessionMigrationRequiredError
 from assistant_agent.contracts.sessions import PublicMessageSnapshot
 from assistant_agent.contracts.time import (
@@ -104,7 +104,10 @@ def _build_message_ledger(data: dict[str, Any]) -> list[dict[str, Any]]:
     refs_by_message: dict[str, list[dict[str, Any]]] = {}
     for item in artifacts:
         try:
-            ref = PresentationArtifactRef.model_validate(item, strict=True)
+            # Session.presentations 保存完整不可变 Artifact，而公开 ledger 只嵌入轻量 ref。
+            # 因此先严格校验旧完整载荷，再显式投影为 ref；不能直接拿完整载荷校验 ref，
+            # 否则其中必需的 `spec` 会被当作额外字段，导致所有 v1 图表 Session 无法读取。
+            ref = ChartArtifact.model_validate(item, strict=True).ref
         except Exception as exc:
             raise SessionMigrationRequiredError("Session Artifact 无法安全迁移") from exc
         refs_by_message.setdefault(ref.message_id, []).append(ref.model_dump(mode="json"))
@@ -563,6 +566,10 @@ class SessionStore:
                 session = self.load(path.stem)
             except UnsupportedSessionSchemaError:
                 raise
+            except SessionMigrationRequiredError:
+                # 无法安全迁移的旧文档保持原样，仍可按 ID 显式诊断；单个坏 Session
+                # 不得拖垮整个 catalog。未知未来 schema 仍由上方专门分支 fail closed。
+                continue
             except (json.JSONDecodeError, KeyError, OSError, UnicodeError, ValueError):
                 continue
             metas.append(

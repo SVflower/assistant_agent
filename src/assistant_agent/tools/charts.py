@@ -2,13 +2,11 @@
 
 from __future__ import annotations
 
-import json
 from typing import Any
 
-from pydantic import ValidationError
-
-from assistant_agent.contracts.charts import ChartSpecV1, build_chart_artifact
+from assistant_agent.contracts.charts import build_chart_artifact
 from assistant_agent.contracts.events import ToolDisplay
+from assistant_agent.tools.chart_input import ChartInputError, normalize_chart_input
 from assistant_agent.tools.context import ToolContext
 from assistant_agent.tools.lifecycle import ReplayPolicy
 from assistant_agent.tools.models import ToolResult
@@ -19,8 +17,7 @@ from assistant_agent.tools.tool import Tool
 class PresentChartTool(Tool):
     name = "present_chart"
     description = (
-        "把已获得的结构化数据展示为受控交互图表。只接受声明式 ChartSpec，"
-        "不得传入 ECharts option、HTML、URL、formatter 或执行代码。"
+        "受控交互图表；data_type 可省略并安全推断。禁止 option、HTML、URL、formatter、代码。"
     )
 
     @property
@@ -34,7 +31,7 @@ class PresentChartTool(Tool):
                 "data_type": {"enum": ["string", "number", "datetime"]},
                 "unit": {"type": ["string", "null"], "maxLength": 128},
             },
-            "required": ["key", "label", "data_type"],
+            "required": ["key", "label"],
         }
         series = {
             "type": "object",
@@ -93,6 +90,16 @@ class PresentChartTool(Tool):
             summary=str(args.get("chart_type") or "chart"),
         )
 
+    def argument_validation_error(
+        self,
+        message: str,
+        metadata: dict[str, Any],
+        ctx: ToolContext,
+    ) -> ToolResult:
+        path = ".".join(str(part) for part in metadata.get("path", [])) or "$"
+        validator = str(metadata.get("validator", "invalid"))
+        return self._invalid(ctx, f"{path}: {validator} 校验失败")
+
     def run(self, args: dict[str, Any], ctx: ToolContext) -> ToolResult:
         if not ctx.current_session_id or not ctx.current_run_id or not ctx.current_call_id:
             return ToolResult.error(
@@ -101,23 +108,34 @@ class PresentChartTool(Tool):
                 executed=False,
             )
         try:
-            # JSON mode 保留 strict 标量校验，同时允许 JSON array 映射为不可变 tuple。
-            spec = ChartSpecV1.model_validate_json(json.dumps(args, ensure_ascii=False))
+            spec = normalize_chart_input(args)
             artifact = build_chart_artifact(
                 spec,
                 session_id=ctx.current_session_id,
                 run_id=ctx.current_run_id,
                 call_id=ctx.current_call_id,
             )
-        except (TypeError, ValueError, ValidationError):
-            return ToolResult.error(
-                "图表规格无效或超过安全上限，已忽略图表并保留文字回答。",
-                code="artifact_rejected",
-                retryable=True,
-                executed=False,
-            )
+        except ChartInputError as exc:
+            return self._invalid(ctx, str(exc))
+        except (TypeError, ValueError):
+            return self._invalid(ctx, "图表超过安全存储上限")
         return ToolResult.ok(
             f"已创建图表：{artifact.title}",
             code="chart_presented",
             chart=artifact,
+        )
+
+    def _invalid(self, ctx: ToolContext, detail: str) -> ToolResult:
+        previous = ctx.result_count(self.name, "[chart_input_invalid]")
+        retryable = previous == 0
+        action = (
+            "请仅修正这一次调用。"
+            if retryable
+            else "修正次数已用完，请停止调用图表工具并继续文字回答。"
+        )
+        return ToolResult.error(
+            f"[chart_input_invalid] {detail}；{action}",
+            code="artifact_rejected",
+            retryable=retryable,
+            executed=False,
         )

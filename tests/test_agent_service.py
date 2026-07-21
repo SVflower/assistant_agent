@@ -666,6 +666,34 @@ class _ChartThenFailClient(_ChartClient):
         raise RuntimeError("provider failed after chart")
 
 
+class _InvalidChartTwiceClient:
+    def __init__(self, _provider) -> None:
+        self.calls = 0
+
+    def complete_stream(self, messages, tools=None) -> Iterator[StreamEvent]:
+        self.calls += 1
+        if self.calls <= 2:
+            yield StreamEvent(
+                kind="tool_calls",
+                tool_calls=[
+                    ToolCall(
+                        f"invalid-chart-{self.calls}",
+                        "present_chart",
+                        {
+                            "chart_type": "bar",
+                            "title": "无效图表",
+                            "columns": [{"key": "value", "label": "数量"}],
+                            "rows": [[None]],
+                            "x_key": "value",
+                            "series": [{"key": "value", "label": "数量"}],
+                        },
+                    )
+                ],
+            )
+            return
+        yield StreamEvent(kind="content", text="图表未创建，文字结论仍然完整。")
+
+
 def test_chart_event_history_snapshot_and_cascade_delete(tmp_path, monkeypatch):
     config = _config(tmp_path, monkeypatch)
     config.write_text(
@@ -698,6 +726,34 @@ def test_chart_event_history_snapshot_and_cascade_delete(tmp_path, monkeypatch):
     assert all(item.id != execution.run_id for item in service.list_runs())
     with pytest.raises(ArtifactNotFoundError):
         service.get_artifact(session_id, artifact_id)
+
+
+def test_repeated_invalid_chart_keeps_single_completed_terminal(tmp_path, monkeypatch):
+    config = _config(tmp_path, monkeypatch)
+    config.write_text(
+        "active: fake\nproviders:\n  fake:\n    model: openai/fake\n"
+        "agent:\n  max_context_tokens: 16000\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(runtime_module, "LLMClient", _InvalidChartTwiceClient)
+    service = AgentService(config_path=config, workspace_root=tmp_path)
+    session_runtime = service.create_session()
+    try:
+        events = list(session_runtime.start_run("画图").events)
+        failures = [
+            item
+            for item in events
+            if item.kind == "tool_result" and item.result_code == "artifact_rejected"
+        ]
+        assert len(failures) == 2
+        assert failures[0].failure.retryable is True
+        assert failures[1].failure.retryable is False
+        assert any(item.kind == "final" for item in events)
+        terminals = [item for item in events if item.kind == "run_terminal"]
+        assert len(terminals) == 1
+        assert terminals[0].terminal_status == "completed"
+    finally:
+        session_runtime.close()
 
 
 def test_failed_run_keeps_chart_bound_to_authoritative_assistant_message(tmp_path, monkeypatch):

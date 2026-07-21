@@ -596,6 +596,16 @@ class RunCoordinator(ContinuationStateMixin, DefinitionStateMixin):
         result = self._call(call_id).result
         return decode_result(result) if result is not None else None
 
+    def count_tool_results(self, tool_name: str, marker: str) -> int:
+        """从 checkpoint 消息账本统计安全标记，恢复后仍保持修正上限。"""
+        return sum(
+            1
+            for message in self.state.messages
+            if message.get("role") == "tool"
+            and message.get("name") == tool_name
+            and str(message.get("content", "")).startswith(marker)
+        )
+
     def call_state(self, call_id: str) -> ToolCallState:
         return self._call(call_id)
 

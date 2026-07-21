@@ -108,11 +108,19 @@ class AgentRuntime:
             baseline_compaction_checkpoint=self.loop.export_checkpoint(),
             logger=self.logger,
         )
-        self.tool_context.bind_run(coordinator.run_id, session_id)
+        self.tool_context.bind_run(
+            coordinator.run_id,
+            session_id,
+            result_count=coordinator.count_tool_results,
+        )
         return coordinator
 
     def bind_run(self, coordinator: RunCoordinator) -> None:
-        self.tool_context.bind_run(coordinator.run_id, coordinator.state.session_id)
+        self.tool_context.bind_run(
+            coordinator.run_id,
+            coordinator.state.session_id,
+            result_count=coordinator.count_tool_results,
+        )
 
     def bind_execution_close(self, close: Callable[[], None]) -> None:
         self._execution_close = close

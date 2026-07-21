@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+from dataclasses import fields
 
 import pytest
 from pydantic import ValidationError
@@ -46,6 +47,23 @@ def test_event_contract_is_additive_and_version_stays_v1():
     assert EVENT_CONTRACT_VERSION == 1
     assert event.chart == artifact
     assert ToolResult(output="failed", is_error=True, chart=artifact).chart is None
+
+
+def test_public_chart_and_event_contract_fields_are_unchanged():
+    assert set(ChartSpecV1.model_fields) == {
+        "schema_version",
+        "chart_type",
+        "title",
+        "description",
+        "source_label",
+        "columns",
+        "rows",
+        "x_key",
+        "series",
+        "category_key",
+        "value_key",
+    }
+    assert [field.name for field in fields(StepEvent)][-1] == "chart"
 
 
 def test_content_hash_uses_frozen_canonical_json():

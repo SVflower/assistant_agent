@@ -82,6 +82,8 @@ class ToolContext:
     current_call_id: str = ""
     current_run_id: str = ""
     current_session_id: str | None = None
+    # 查询当前 Run 已持久化的指定工具结果；用于有界修正，不保存模型参数。
+    result_count: Callable[[str, str], int] = lambda _tool, _marker: 0
     # 当前工具执行内确认回调的累计等待时间。
     _approval_wait_ms: int = 0
 
@@ -111,14 +113,22 @@ class ToolContext:
     def reset_approval_wait(self) -> None:
         self._approval_wait_ms = 0
 
-    def bind_run(self, run_id: str, session_id: str | None) -> None:
+    def bind_run(
+        self,
+        run_id: str,
+        session_id: str | None,
+        *,
+        result_count: Callable[[str, str], int] | None = None,
+    ) -> None:
         """绑定当前服务调用身份；每个 Runtime 同时只允许一个活跃 Run。"""
         self.current_run_id = run_id
         self.current_session_id = session_id
+        self.result_count = result_count or (lambda _tool, _marker: 0)
 
     def clear_run(self) -> None:
         self.current_run_id = ""
         self.current_session_id = None
+        self.result_count = lambda _tool, _marker: 0
 
     def request_question(self, question: str, options: list[str]) -> str:
         if self.interaction is None:

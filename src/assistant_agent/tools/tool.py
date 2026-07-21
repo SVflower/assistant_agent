@@ -42,6 +42,21 @@ class Tool(abc.ABC):
     def display_result(self, args: dict[str, Any], result: ToolResult) -> ToolDisplay:
         return result_display(self.name, args, result, self.display_call(args))
 
+    def argument_validation_error(
+        self,
+        message: str,
+        metadata: dict[str, Any],
+        ctx: ToolContext,
+    ) -> ToolResult:
+        """允许工具把通用 JSON Schema 错误收敛为领域内可修复错误。"""
+        return ToolResult.error(
+            message,
+            code="invalid_arguments",
+            retryable=True,
+            metadata=metadata,
+            executed=False,
+        )
+
     def permission_requests(
         self, args: dict[str, Any], ctx: ToolContext
     ) -> list[PermissionRequest]:

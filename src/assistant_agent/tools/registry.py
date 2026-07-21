@@ -257,13 +257,7 @@ class ToolRegistry:
         validation_error = validate_arguments(self._validators[name], args)
         if validation_error is not None:
             message, metadata = validation_error
-            result = ToolResult.error(
-                message,
-                code="invalid_arguments",
-                retryable=True,
-                metadata=metadata,
-                executed=False,
-            )
+            result = tool.argument_validation_error(message, metadata, ctx)
             limited = _finish_preflight_error(name, args, result, ctx, call_id)
             return _notify_completed(lifecycle, call_id, limited, [], "requires_decision")
         ctx.reset_approval_wait()

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import copy
 
+import pytest
+
 from assistant_agent.agent.run.coordinator import RunCoordinator
 from assistant_agent.agent.run.state import RunState, migrate_run_document
 from assistant_agent.persistence.run_store import RunStore
@@ -28,6 +30,15 @@ def _args(title="趋势"):
         "category_key": None,
         "value_key": None,
     }
+
+
+def _draft(rows=None):
+    args = _args()
+    for column in args["columns"]:
+        column.pop("data_type")
+    if rows is not None:
+        args["rows"] = rows
+    return args
 
 
 def _coordinator(tmp_path):
@@ -87,6 +98,135 @@ def test_present_chart_is_pure_and_safely_idempotent(tmp_path):
     loaded = RunCoordinator.load(RunStore(tmp_path / "runs"), "run-1")
     assert loaded.state.presentations == [result.chart]
     assert loaded.result_for("call-1").chart == result.chart
+
+
+def test_missing_column_types_are_inferred_for_local_model_style(tmp_path):
+    tool = PresentChartTool()
+    ctx = ToolContextFixture(
+        workspace_root=tmp_path,
+        current_call_id="c",
+        current_run_id="r",
+        current_session_id="s",
+    )
+    result = tool.run(_draft(), ctx)
+    assert not result.is_error
+    assert [column.data_type for column in result.chart.spec.columns] == ["string", "number"]
+
+
+@pytest.mark.parametrize(
+    ("values", "expected"),
+    [
+        ([1, 2.5], "number"),
+        (["A", "B"], "string"),
+        (["2026-07-20", "2026-07-21T10:30:00Z"], "datetime"),
+    ],
+)
+def test_missing_type_inference_is_deterministic(tmp_path, values, expected):
+    args = _args()
+    args["columns"] = [{"key": "x", "label": "X"}]
+    args["rows"] = [[value] for value in values]
+    args["x_key"] = "x"
+    args["series"] = [{"key": "x", "label": "X"}]
+    if expected != "number":
+        args["chart_type"] = "line"
+    ctx = ToolContextFixture(
+        workspace_root=tmp_path,
+        current_call_id="c",
+        current_run_id="r",
+        current_session_id="s",
+    )
+    result = PresentChartTool().run(args, ctx)
+    assert not result.is_error
+    assert result.chart.spec.columns[0].data_type == expected
+
+
+@pytest.mark.parametrize(
+    "rows",
+    [
+        [["a", None], ["b", None]],
+        [["a", 1], ["b", "2"]],
+        [["a", True], ["b", False]],
+        [["a", float("inf")], ["b", 2]],
+        [["2026-07-20", 1], ["ordinary", 2]],
+        [["a"], ["b", 2]],
+    ],
+)
+def test_ambiguous_or_unsafe_drafts_fail_closed(tmp_path, rows):
+    ctx = ToolContextFixture(
+        workspace_root=tmp_path,
+        current_call_id="c",
+        current_run_id="r",
+        current_session_id="s",
+    )
+    result = PresentChartTool().run(_draft(rows), ctx)
+    assert result.code == "artifact_rejected"
+    assert result.chart is None
+    assert "[chart_input_invalid]" in result.output
+
+
+@pytest.mark.parametrize(
+    "forbidden",
+    ["option", "formatter", "html", "url", "graphic", "script", "function", "__proto__"],
+)
+def test_registry_rejects_non_declarative_chart_fields(tmp_path, forbidden):
+    registry = ToolRegistry()
+    registry.register(PresentChartTool())
+    ctx = ToolContextFixture(
+        workspace_root=tmp_path,
+        current_run_id="run-1",
+        current_session_id="session-1",
+    )
+    result = registry.execute("present_chart", {**_draft(), forbidden: {}}, ctx, call_id="c")
+    assert result.code == "artifact_rejected"
+    assert result.chart is None
+    assert forbidden not in result.output
+
+
+def test_unknown_column_reference_is_rejected_with_safe_error(tmp_path):
+    args = _draft()
+    args["series"] = [{"key": "missing", "label": "未知"}]
+    ctx = ToolContextFixture(
+        workspace_root=tmp_path,
+        current_call_id="c",
+        current_run_id="r",
+        current_session_id="s",
+    )
+    result = PresentChartTool().run(args, ctx)
+    assert result.code == "artifact_rejected"
+    assert "series 必须引用已声明列" in result.output
+    assert "missing" not in result.output
+
+
+def test_chart_correction_limit_survives_checkpoint_reload(tmp_path):
+    coordinator = _coordinator(tmp_path)
+    registry = ToolRegistry()
+    registry.register(PresentChartTool())
+    _plan(coordinator, "call-1")
+    ctx = ToolContextFixture(workspace_root=tmp_path)
+    ctx.bind_run(
+        "run-1",
+        "session-1",
+        result_count=coordinator.count_tool_results,
+    )
+    first = registry.execute(
+        "present_chart", _draft([["a", None]]), ctx, call_id="call-1", lifecycle=coordinator
+    )
+    assert first.retryable
+
+    loaded = RunCoordinator.load(RunStore(tmp_path / "runs"), "run-1")
+    resumed_ctx = ToolContextFixture(
+        workspace_root=tmp_path,
+        current_call_id="call-2",
+        current_run_id="run-1",
+        current_session_id="session-1",
+        result_count=loaded.count_tool_results,
+    )
+    second = PresentChartTool().run(_draft([["a", None]]), resumed_ctx)
+    assert not second.retryable
+    assert "修正次数已用完" in second.output
+
+    corrected = PresentChartTool().run(_draft(), resumed_ctx)
+    assert not corrected.is_error
 
 
 def test_tool_rejects_unbound_or_invalid_artifact(tmp_path):

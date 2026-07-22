@@ -3,33 +3,24 @@
 from __future__ import annotations
 
 import hashlib
-import json
 import math
 from datetime import UTC, datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, field_validator, model_validator
 
 from assistant_agent.contracts.failures import AllowedAction, BudgetSnapshot, RunFailure
-
-MAX_ARTIFACT_BYTES = 512 * 1024
-MAX_RUN_ARTIFACTS = 16
-MAX_RUN_ARTIFACT_BYTES = 2 * 1024 * 1024
+from assistant_agent.contracts.presentation_common import (
+    MAX_ARTIFACT_BYTES,
+    MAX_RUN_ARTIFACT_BYTES,
+    MAX_RUN_ARTIFACTS,
+    canonical_json_bytes,
+    stable_message_id,
+)
 
 ChartType = Literal["line", "bar", "stacked_bar", "area", "scatter", "donut"]
 DataType = Literal["string", "number", "datetime"]
 ChartCell = str | int | float | None
-
-
-def canonical_json_bytes(value: Any) -> bytes:
-    """按冻结契约生成稳定 UTF-8 canonical JSON。"""
-    return json.dumps(
-        value,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(",", ":"),
-        allow_nan=False,
-    ).encode("utf-8")
 
 
 class _StrictModel(BaseModel):
@@ -160,11 +151,50 @@ class ChartArtifact(PresentationArtifactRef):
         )
 
 
+from assistant_agent.contracts.charts_v2 import (  # noqa: E402
+    ChartArtifactV2,
+    ChartSpecV2,
+    PresentationArtifactRefV2,
+)
+
+AnyChartArtifact = ChartArtifact | ChartArtifactV2
+AnyPresentationArtifactRef = PresentationArtifactRef | PresentationArtifactRefV2
+_ARTIFACT_ADAPTER: TypeAdapter[AnyChartArtifact] = TypeAdapter(AnyChartArtifact)
+_REF_ADAPTER: TypeAdapter[AnyPresentationArtifactRef] = TypeAdapter(AnyPresentationArtifactRef)
+
+
+def parse_chart_artifact(value: Any, *, strict: bool = True) -> AnyChartArtifact:
+    return _ARTIFACT_ADAPTER.validate_python(value, strict=strict)
+
+
+def parse_presentation_ref(value: Any, *, strict: bool = True) -> AnyPresentationArtifactRef:
+    return _REF_ADAPTER.validate_python(value, strict=strict)
+
+
+__all__ = [
+    "AnyChartArtifact",
+    "AnyPresentationArtifactRef",
+    "ChartArtifact",
+    "ChartArtifactV2",
+    "ChartSpecV1",
+    "ChartSpecV2",
+    "MAX_ARTIFACT_BYTES",
+    "MAX_RUN_ARTIFACT_BYTES",
+    "MAX_RUN_ARTIFACTS",
+    "PresentationArtifactRef",
+    "PresentationArtifactRefV2",
+    "canonical_json_bytes",
+    "parse_chart_artifact",
+    "parse_presentation_ref",
+    "stable_message_id",
+]
+
+
 class AssistantMessageSnapshot(_StrictModel):
     id: str | None = None
     role: Literal["assistant"] = "assistant"
     content: str = ""
-    artifacts: tuple[PresentationArtifactRef, ...] = ()
+    artifacts: tuple[AnyPresentationArtifactRef, ...] = ()
 
     @field_validator("artifacts", mode="before")
     @classmethod
@@ -192,7 +222,7 @@ class RunSnapshot(_StrictModel):
     budget: BudgetSnapshot
     pending_interaction: PendingInteractionSnapshot | None = None
     final_candidate: str | None = None
-    artifacts: tuple[PresentationArtifactRef, ...] = ()
+    artifacts: tuple[AnyPresentationArtifactRef, ...] = ()
     allowed_actions: tuple[AllowedAction, ...] = ()
     execution_status: Literal["active", "inactive", "unknown"]
     retry_of_run_id: str | None = None
@@ -201,11 +231,6 @@ class RunSnapshot(_StrictModel):
     @classmethod
     def _items_to_tuple(cls, value: Any) -> Any:
         return tuple(value) if isinstance(value, list) else value
-
-
-def stable_message_id(run_id: str) -> str:
-    digest = hashlib.sha256(f"message:{run_id}".encode()).hexdigest()[:24]
-    return f"msg_{digest}"
 
 
 def build_chart_artifact(

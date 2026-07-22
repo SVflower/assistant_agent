@@ -106,9 +106,9 @@ def _source_with_three_turns(store: SessionStore):
     return session
 
 
-def test_public_contract_exports_schema_v2_without_event_or_run_upgrade():
-    assert contracts.SESSION_CONTRACT_VERSION == 2
-    assert service_contract.SESSION_CONTRACT_VERSION == 2
+def test_public_contract_exports_schema_v3_without_event_upgrade():
+    assert contracts.SESSION_CONTRACT_VERSION == 3
+    assert service_contract.SESSION_CONTRACT_VERSION == 3
     assert EVENT_CONTRACT_VERSION == 1
     assert contracts.PublicMessageSnapshot is service_contract.PublicMessageSnapshot
     assert contracts.SessionSnapshot is service_contract.SessionSnapshot
@@ -171,7 +171,7 @@ def test_v1_migration_assigns_stable_ids_null_times_and_explicit_replies(tmp_pat
 
     assert first == second
     assert path.read_bytes() == migrated_bytes
-    assert first.schema_version == 2
+    assert first.schema_version == 3
     assert [message.id for message in first.message_ledger] == [
         message.id for message in second.message_ledger
     ]
@@ -234,7 +234,7 @@ def test_v1_migration_projects_complete_chart_artifact_into_public_ledger(tmp_pa
 
     assert migrated == repeated
     assert path.read_bytes() == migrated_bytes
-    assert migrated.schema_version == 2
+    assert migrated.schema_version == 3
     assert migrated.presentations == [artifact]
     assert migrated.assistant_messages[0].artifacts == (artifact.ref,)
     assert migrated.message_ledger[1].id == artifact.message_id

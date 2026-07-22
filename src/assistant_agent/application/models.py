@@ -5,10 +5,14 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Literal, TypeGuard
 
-from assistant_agent.contracts.charts import AssistantMessageSnapshot, ChartArtifact
+from assistant_agent.contracts.charts import (
+    AnyChartArtifact,
+    AssistantMessageSnapshot,
+    parse_chart_artifact,
+)
 from assistant_agent.contracts.sessions import PublicMessageSnapshot
 
-SESSION_SCHEMA_VERSION = 2
+SESSION_SCHEMA_VERSION = 3
 EMPTY_SESSION_TITLE = "（空会话）"
 _PREVIEW_LEN = 40
 PublicRunStatus = Literal["running", "paused", "cancelled", "completed", "failed"]
@@ -62,7 +66,7 @@ class Session:
     model: str = ""
     messages: list[dict[str, Any]] = field(default_factory=list)
     compaction_checkpoint: dict[str, Any] | None = None
-    presentations: list[ChartArtifact] = field(default_factory=list)
+    presentations: list[AnyChartArtifact] = field(default_factory=list)
     assistant_messages: list[AssistantMessageSnapshot] = field(default_factory=list)
     message_ledger: list[PublicMessageSnapshot] = field(default_factory=list)
     fork_origin: dict[str, str] | None = None
@@ -103,7 +107,7 @@ class Session:
             messages=data.get("messages", []),
             compaction_checkpoint=data.get("compaction_checkpoint"),
             presentations=[
-                ChartArtifact.model_validate(item) for item in data.get("presentations", [])
+                parse_chart_artifact(item, strict=True) for item in data.get("presentations", [])
             ],
             assistant_messages=[
                 AssistantMessageSnapshot.model_validate(item)

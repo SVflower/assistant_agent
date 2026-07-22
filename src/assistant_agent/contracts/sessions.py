@@ -7,12 +7,12 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from assistant_agent.contracts.charts import (
+    AnyPresentationArtifactRef,
     AssistantMessageSnapshot,
-    PresentationArtifactRef,
 )
 from assistant_agent.contracts.time import parse_utc_timestamp
 
-SESSION_CONTRACT_VERSION = 2
+SESSION_CONTRACT_VERSION = 3
 
 
 class _StrictModel(BaseModel):
@@ -82,7 +82,7 @@ class PublicMessageSnapshot(_StrictModel):
     created_at: str | None = None
     reply_to_message_id: str | None = Field(default=None, pattern=r"^msg_[a-f0-9]{24}$")
     content: str = ""
-    artifacts: tuple[PresentationArtifactRef, ...] = ()
+    artifacts: tuple[AnyPresentationArtifactRef, ...] = ()
 
     @field_validator("created_at")
     @classmethod
@@ -105,14 +105,14 @@ class PublicMessageSnapshot(_StrictModel):
 
 class SessionSnapshot(_StrictModel):
     id: str = Field(min_length=1)
-    schema_version: Literal[2] = 2
+    schema_version: Literal[3] = 3
     title: str = Field(default="（空会话）", min_length=1, max_length=100)
     title_source: Literal["auto", "user"] = "auto"
     metadata_version: int = Field(default=1, ge=1)
     created_at: str | None = None
     updated_at: str | None = None
     messages: tuple[PublicMessageSnapshot, ...] = ()
-    artifacts: tuple[PresentationArtifactRef, ...] = ()
+    artifacts: tuple[AnyPresentationArtifactRef, ...] = ()
     assistant_messages: tuple[AssistantMessageSnapshot, ...] = ()
     fork_created: bool | None = None
 

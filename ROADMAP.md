@@ -2,11 +2,11 @@
 
 > 开工蓝本。第一阶段（MVP）已完成，见 [DESIGN.md](DESIGN.md) 第 8 节。
 > 本文档规划第二阶段起的里程碑，每个里程碑只列可清晰验收的目标。
-> 最后更新：2026-07-20
+> 最后更新：2026-07-22
 
 ---
 
-## 项目当前状态（截至 2026-07-20）
+## 项目当前状态（截至 2026-07-22）
 
 **一句话**：从"能跑的 MVP"长成了一个功能相当完整、多平台实测、可观测且运行时预算可控、全程守调研→方案→测试→验收纪律的本地 Agent。
 
@@ -51,6 +51,11 @@
 - **M23-R2 Agent 消息与分叉**：Session schema/contract v2 权威公开消息 ledger、稳定 ID/time/reply；
   绑定源 Session 的原子幂等 fork 严格排除 user 边界，深复制并重绑定 Chart Artifact；compaction 不改写
   或泄漏 ledger，Event v1/RunState v6 不变。
+- **M27 图表草稿归一化**：cloud/LM Studio 共用小模型友好输入边界，缺失列类型保守推断；无效草稿
+  最多一次定向修正，ChartSpecV1/Event/RunState 不变。
+- **M28 高频普通图表**：新增逐版本受控 ChartSpecV2 和中立 TabularDatasetV1，覆盖 15 类图表、
+  histogram/boxplot/percent/aggregate 确定性计算、多轴、多面板与白名单 overlay；V1 hash 逐字节兼容，
+  Event v1 不变，Session schema/contract v3、RunState v7。
 - **工具**：读/写/局部编辑/列目录/shell/代码检索/git 只读/用户澄清，以及带来源的
   `web_search`/`fetch_url`；搜索 backend 可替换，抓取含 SSRF、重定向和响应上限防护。
 - **命令层**：slash 命令系统本地拦截不花 token；`/skills` 与 `/mcp` 支持列出、安装、诊断、
@@ -69,8 +74,8 @@
   已完成工具不重放，started 副作用需 retry/skip/abort；预算、重复熔断、权限和摘要状态跨进程恢复；
   trace/session/run/call 标识对齐，还清 D8。
 
-**质量**：797 测试通过（10 个平台能力测试跳过）、覆盖率 84%、20,921 行/132 文件生产 Python 源码 +
-1,617 行 eval 基础设施，Ruff/mypy 全绿。架构适应度测试（12 条声明式依赖契约 + 旧路径防回归 +
+**质量**：856 测试通过（10 个平台能力测试跳过）、覆盖率 84%、22,878 行/138 文件生产 Python 源码 +
+1,629 行 eval 基础设施，Ruff/mypy 全绿。架构适应度测试（12 条声明式依赖契约 + 旧路径防回归 +
 600 行非阻断评审）、技术债册、
 DoD 和里程碑工作流全在；CI 已加入 format/lint/mypy/coverage/scripted eval/recovery eval 与
 Windows/Linux、Python 3.11/3.13 矩阵。剩余 7 项技术债（4 中/3 低，无高优先级）。
@@ -78,7 +83,7 @@ Windows/Linux、Python 3.11/3.13 矩阵。剩余 7 项技术债（4 中/3 低，
 **边界（明确未做）**：外置 MCP/自定义 Python Tool 的容器化、远程 Workspace、子 Agent 编排、
 Web GUI、rewind/recap、非交互 init、PyPI 分发。
 
-**阶段状态**：第一至第十八阶段已完成；M23-R2 Agent 侧已完成，API/Web R2 联调待下游仓库
+**阶段状态**：第一至第二十阶段已完成；M28 Agent 侧已完成，API/Web V2 图表接入待下游仓库
 实现。M10c 的
 “不做全栈 async”决策保持不变；M14 以同步 RunControl、跨平台 ProcessSupervisor 和 Workspace
 抽象补齐受控执行边界并还清 D18。
@@ -389,6 +394,31 @@ D14，M9c 已还清 D9，M10a 已还清 D16，M10b 已还清 D8，M11a 已还清
 > mypy、12/12 import-linter、scripted 19/19、recovery 4/4 全绿；生产 Python 20,240 行/131 文件，
 > 未修改 Loop。跨仓 R1 完成状态
 > 以 API/Web 联调结果为准。
+
+### 第十九阶段（已完成）
+
+| 里程碑 | 主题 | 状态 |
+|--------|------|------|
+| M27 | 图表模型输入归一化 | ✅ · [方案](docs/archive/phase19/m27-chart-input-normalization-plan.md) |
+
+> **M27 已完成**：模型可省略 `columns[].data_type`，Agent 对 number/string/datetime 做保守、
+> 确定性推断；歧义、混合危险值和可执行渲染字段 fail closed。第一次无效允许一次定向修正，第二次
+> 停止图表调用但保留文字回答。cloud/LM Studio 走同一路径；ChartSpecV1、Event v1、RunState v6
+> 均不变，未修改 Loop。
+
+### 第二十阶段（Agent 侧已完成）
+
+| 里程碑 | 主题 | 状态 |
+|--------|------|------|
+| M28 Agent | ChartSpecV2 高频普通图表 | ✅ Agent · [方案](docs/archive/phase20/m28-chart-v2-plan.md) · API/Web 待接入 |
+
+> **M28 Agent 已完成**：逐字节保留 ChartSpecV1 canonical JSON/hash，新增受控 ChartSpecV2、
+> TabularDatasetV1、15 类普通图表、确定性 histogram/boxplot/percent/aggregate、双轴、多面板和
+> 白名单 overlay。模型仍只见紧凑 draft，不接触 ECharts option/formatter/HTML/JS。Session
+> schema/contract v3，RunState v7，Event v1 不变。856 passed、10 skipped、覆盖率 84%；Ruff、mypy、
+> 12/12 import-linter、scripted 22/22、recovery 4/4 全绿；生产 Python 22,878 行/138 文件，
+> eval 基础设施 1,629 行，未修改 Loop。API/Web 按 [交接](docs/archive/phase20/m28-agent-api-handoff.md)
+> 接入 V2 renderer 与判别联合。
 
 ## 未来方向（P3，信号驱动，暂不做）
 

@@ -287,7 +287,7 @@ def test_get_session_summary_migrates_legacy_session_without_catalog_scan(tmp_pa
     summary = _service(tmp_path, session_store=store).get_session_summary("legacy-summary")
     assert summary.title == "legacy title"
     assert summary.metadata_version == 1
-    assert json.loads(path.read_text(encoding="utf-8"))["schema_version"] == 2
+    assert json.loads(path.read_text(encoding="utf-8"))["schema_version"] == 3
 
 
 def test_get_session_summary_linearizes_before_concurrent_rename(tmp_path):
@@ -386,7 +386,7 @@ def test_legacy_session_migrates_once_without_changing_messages(tmp_path):
     first = store.load("legacy")
     second = store.load("legacy")
     assert first == second
-    assert first.schema_version == 2
+    assert first.schema_version == 3
     assert first.title == "第一条 公开问题"
     assert first.title_source == "auto"
     assert first.metadata_version == 1
@@ -400,7 +400,7 @@ def test_unknown_future_session_schema_fails_closed(tmp_path):
     store = SessionStore(tmp_path / "sessions")
     path = store._path("future")
     path.parent.mkdir(parents=True)
-    path.write_text('{"schema_version":3,"id":"future"}', encoding="utf-8")
+    path.write_text('{"schema_version":4,"id":"future"}', encoding="utf-8")
     with pytest.raises(UnsupportedSessionSchemaError):
         store.load("future")
     with pytest.raises(SessionUnavailableError):

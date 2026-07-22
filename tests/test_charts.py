@@ -243,7 +243,7 @@ def test_tool_rejects_unbound_or_invalid_artifact(tmp_path):
     assert tool.run({**_args(), "option": {}}, ctx).code == "artifact_rejected"
 
 
-def test_checkpoint_migrates_v1_v2_v3_to_v6_without_presentations(tmp_path):
+def test_checkpoint_migrates_v1_v2_v3_to_v7_without_presentations(tmp_path):
     coordinator = _coordinator(tmp_path)
     document = coordinator.state.model_dump(mode="json")
     for version in (1, 2, 3):
@@ -252,7 +252,7 @@ def test_checkpoint_migrates_v1_v2_v3_to_v6_without_presentations(tmp_path):
         old.pop("presentations")
         migrated = migrate_run_document(old)
         state = RunState.model_validate(migrated)
-        assert state.schema_version == 6
+        assert state.schema_version == 7
         assert state.presentations == []
 
 

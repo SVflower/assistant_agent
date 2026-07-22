@@ -5,8 +5,8 @@
 >
 > 本文是公共服务契约的长期唯一正式入口；里程碑归档和阶段性交接不能替代本文。
 > 当前公共事件契约：`EVENT_CONTRACT_VERSION == 1`；Session 服务契约：
-> `SESSION_CONTRACT_VERSION == 2`；当前 Run checkpoint：schema v6；当前 Session 文档：schema v2。
-> 最近同步：M23-R2 权威消息 ledger 与安全 Session fork（2026-07-20）。
+> `SESSION_CONTRACT_VERSION == 3`；当前 Run checkpoint：schema v7；当前 Session 文档：schema v3。
+> 最近同步：M28 ChartSpecV2 高频普通图表（2026-07-22）。
 
 ## 1. 集成边界
 
@@ -961,8 +961,20 @@ run.terminal(completed)
 
 非法/超限图表序列为 `tool_result(result_code=artifact_rejected) -> run.notice -> 后续正文 ->
 run.terminal`，不得把图表局部失败提升为 Run failed。刷新历史时以 `SessionSnapshot.messages` 为
-权威，`assistant_messages` 仅为兼容投影；schema v2 消息都有稳定 ID，API 不得生成或补造。删除 Session 后旧
+权威，`assistant_messages` 仅为兼容投影；schema v3 消息都有稳定 ID，API 不得生成或补造。删除 Session 后旧
 artifact URL 必须返回统一 404，跨 Session 查询也返回同一 404，避免泄漏存在性。
+
+M28 在不改变 Event v1 外壳的前提下，把 `chart` 扩展为按 `schema_version` 判别的
+`ChartArtifact | ChartArtifactV2`。V1 canonical JSON/hash 不变；V2 使用受控
+`datasets/layout/panels/derivations`，支持 15 种普通图表、多轴、多面板和白名单 overlay。调用方必须：
+
+- 将 artifact/ref DTO 的 `schema_version` 接受范围扩展为 1/2；
+- 通过 `RuntimeCapabilities.chart_spec_versions` 发现能力，不按 provider/model 猜测；
+- 只把 V2 白名单字段映射为 renderer 配置，禁止透传 option/formatter/HTML/URL/JS/style；
+- 直接使用 Agent 产生的 histogram/boxplot/percent derived dataset，不在 API/Web 重算；
+- 未知或损坏 V2 只降级当前图表，不丢失文字消息，不改变 final/run_terminal；
+- 固定 `SESSION_CONTRACT_VERSION == 3`。Session v1/v2 和 Run checkpoint v1-v6 的迁移均由 Agent
+  在所有者边界完成，API 不复制迁移状态机。
 
 ## 13. 常见错误
 
@@ -1010,8 +1022,8 @@ artifact URL 必须返回统一 404，跨 Session 查询也返回同一 404，�
 21. API 忽略普通 `tool_result.chart=null`，把成功 chart 映射为 summary 事件并通过 REST 拉完整数据；
 22. 图表刷新/历史恢复、跨 Session 404、删除级联、503 损坏态和断线重放均通过；
 23. `artifact_rejected` 不改变 final/run_terminal，低上下文或 recovery 关闭导致工具缺失时 API 仍 ready；
-24. Web 只把 ChartSpecV1 映射为固定 ECharts option，未知 schema/encoding 安全降级为表格或忽略。
-25. API 固定 `SESSION_CONTRACT_VERSION == 2`，保真映射 message ID/time/reply/artifacts；
+24. Web 只把 ChartSpecV1/V2 白名单映射为固定 ECharts option，未知 schema/encoding 安全降级为表格或忽略。
+25. API 固定 `SESSION_CONTRACT_VERSION == 3`，保真映射 message ID/time/reply/artifacts；
 26. fork 首次/重放按 `fork_created` 映射 201/200，同 key 异参、跨 Session 边界和迁移失败均按稳定 code；
 27. edit/regenerate 先 fork、再显式创建普通 Run，第二步失败不得再次隐式 fork；
 21. opaque process ID 不作为 OS PID 展示、不跨 Runtime 持久化，Runtime 淘汰/关闭后不自动恢复；

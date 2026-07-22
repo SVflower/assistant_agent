@@ -4,9 +4,11 @@ from __future__ import annotations
 
 from typing import Any
 
-from assistant_agent.contracts.charts import build_chart_artifact
+from assistant_agent.contracts.charts import AnyChartArtifact, build_chart_artifact
+from assistant_agent.contracts.charts_v2 import build_chart_artifact_v2
 from assistant_agent.contracts.events import ToolDisplay
 from assistant_agent.tools.chart_input import ChartInputError, normalize_chart_input
+from assistant_agent.tools.chart_input_v2 import needs_chart_v2, normalize_chart_v2_input
 from assistant_agent.tools.context import ToolContext
 from assistant_agent.tools.lifecycle import ReplayPolicy
 from assistant_agent.tools.models import ToolResult
@@ -17,7 +19,9 @@ from assistant_agent.tools.tool import Tool
 class PresentChartTool(Tool):
     name = "present_chart"
     description = (
-        "受控交互图表；data_type 可省略并安全推断。禁止 option、HTML、URL、formatter、代码。"
+        "受控交互图表；支持常用统计图、多轴和多面板，data_type 可省略。"
+        "例：histogram 传原始 rows、value_key 和可选 bin_count。"
+        "禁止 option、HTML、URL、formatter、style 和代码。"
     )
 
     @property
@@ -39,16 +43,98 @@ class PresentChartTool(Tool):
             "properties": {
                 "key": {"type": "string", "minLength": 1, "maxLength": 64},
                 "label": {"type": "string", "minLength": 1, "maxLength": 128},
+                "mark": {"enum": ["line", "area", "bar"]},
+                "axis": {"enum": ["left", "right"]},
             },
             "required": ["key", "label"],
         }
         nullable_key = {"type": ["string", "null"], "maxLength": 64}
+        reference_line = {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "axis": {"enum": ["x", "left", "right"]},
+                "value": {"type": ["string", "number"]},
+                "label": {"type": "string", "maxLength": 128},
+            },
+            "required": ["axis", "value"],
+        }
+        reference_band = {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "axis": {"enum": ["x", "left", "right"]},
+                "start": {"type": ["string", "number"]},
+                "end": {"type": ["string", "number"]},
+                "label": {"type": "string", "maxLength": 128},
+            },
+            "required": ["axis", "start", "end"],
+        }
+        error_bar = {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "series_key": {"type": "string", "maxLength": 64},
+                "lower_key": {"type": "string", "maxLength": 64},
+                "upper_key": {"type": "string", "maxLength": 64},
+            },
+            "required": ["series_key", "lower_key", "upper_key"],
+        }
+        annotation = {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "text": {"type": "string", "minLength": 1, "maxLength": 200},
+                "x_value": {"type": ["string", "number", "null"]},
+                "y_value": {"type": ["number", "null"]},
+            },
+            "required": ["text"],
+        }
+        chart_types = [
+            "line",
+            "area",
+            "bar",
+            "grouped_bar",
+            "stacked_bar",
+            "percent_stacked_bar",
+            "pie",
+            "donut",
+            "combo_bar_line",
+            "dual_axis",
+            "scatter",
+            "bubble",
+            "histogram",
+            "boxplot",
+            "heatmap",
+        ]
+        panel = {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "panel_title": {"type": ["string", "null"], "maxLength": 160},
+                "chart_type": {"enum": chart_types},
+                "x_key": nullable_key,
+                "y_key": nullable_key,
+                "category_key": nullable_key,
+                "value_key": nullable_key,
+                "group_key": nullable_key,
+                "size_key": nullable_key,
+                "series": {"type": "array", "maxItems": 8, "items": series},
+                "bin_count": {"type": ["integer", "null"], "minimum": 1, "maximum": 100},
+                "aggregate": {"enum": ["count", "sum", "mean", "min", "max", None]},
+                "reference_lines": {"type": "array", "maxItems": 16, "items": reference_line},
+                "reference_bands": {"type": "array", "maxItems": 16, "items": reference_band},
+                "error_bars": {"type": "array", "maxItems": 16, "items": error_bar},
+                "annotations": {"type": "array", "maxItems": 32, "items": annotation},
+            },
+            "required": ["chart_type"],
+        }
         return {
             "type": "object",
             "additionalProperties": False,
             "properties": {
-                "schema_version": {"const": 1},
-                "chart_type": {"enum": ["line", "bar", "stacked_bar", "area", "scatter", "donut"]},
+                "schema_version": {"enum": [1, 2]},
+                "chart_type": {"enum": chart_types},
                 "title": {"type": "string", "minLength": 1, "maxLength": 200},
                 "description": {"type": ["string", "null"], "maxLength": 500},
                 "source_label": {"type": ["string", "null"], "maxLength": 500},
@@ -63,9 +149,27 @@ class PresentChartTool(Tool):
                     },
                 },
                 "x_key": nullable_key,
+                "y_key": nullable_key,
                 "series": {"type": "array", "maxItems": 8, "items": series},
                 "category_key": nullable_key,
                 "value_key": nullable_key,
+                "group_key": nullable_key,
+                "size_key": nullable_key,
+                "bin_count": {"type": ["integer", "null"], "minimum": 1, "maximum": 100},
+                "aggregate": {"enum": ["count", "sum", "mean", "min", "max", None]},
+                "reference_lines": {"type": "array", "maxItems": 16, "items": reference_line},
+                "reference_bands": {"type": "array", "maxItems": 16, "items": reference_band},
+                "error_bars": {"type": "array", "maxItems": 16, "items": error_bar},
+                "annotations": {"type": "array", "maxItems": 32, "items": annotation},
+                "panels": {"type": "array", "maxItems": 4, "items": panel},
+                "layout": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "properties": {
+                        "columns": {"type": "integer", "minimum": 1, "maximum": 2},
+                        "shared_legend": {"type": "boolean"},
+                    },
+                },
             },
             "required": ["chart_type", "title", "columns", "rows"],
         }
@@ -108,13 +212,23 @@ class PresentChartTool(Tool):
                 executed=False,
             )
         try:
-            spec = normalize_chart_input(args)
-            artifact = build_chart_artifact(
-                spec,
-                session_id=ctx.current_session_id,
-                run_id=ctx.current_run_id,
-                call_id=ctx.current_call_id,
-            )
+            artifact: AnyChartArtifact
+            if needs_chart_v2(args):
+                spec_v2 = normalize_chart_v2_input(args)
+                artifact = build_chart_artifact_v2(
+                    spec_v2,
+                    session_id=ctx.current_session_id,
+                    run_id=ctx.current_run_id,
+                    call_id=ctx.current_call_id,
+                )
+            else:
+                spec_v1 = normalize_chart_input(args)
+                artifact = build_chart_artifact(
+                    spec_v1,
+                    session_id=ctx.current_session_id,
+                    run_id=ctx.current_run_id,
+                    call_id=ctx.current_call_id,
+                )
         except ChartInputError as exc:
             return self._invalid(ctx, str(exc))
         except (TypeError, ValueError):

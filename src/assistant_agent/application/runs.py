@@ -23,10 +23,10 @@ from assistant_agent.application.ports import (
 from assistant_agent.application.runtime import AgentRuntime
 from assistant_agent.contracts.capabilities import RuntimeCapabilities
 from assistant_agent.contracts.charts import (
+    AnyChartArtifact,
+    AnyPresentationArtifactRef,
     AssistantMessageSnapshot,
-    ChartArtifact,
     PendingInteractionSnapshot,
-    PresentationArtifactRef,
     RunSnapshot,
     stable_message_id,
 )
@@ -299,7 +299,7 @@ def _synchronize_run_ledger(session: Session, state: RunState) -> None:
     appended = public[len(ledger) :]
     for offset, raw in enumerate(appended):
         role = cast(Literal["user", "assistant"], raw.get("role"))
-        artifacts: tuple[PresentationArtifactRef, ...]
+        artifacts: tuple[AnyPresentationArtifactRef, ...]
         if role == "user":
             message_id = _run_message_id(state.run_id, "user", offset)
             current_user_id = message_id
@@ -356,7 +356,7 @@ def _run_message_id(run_id: str, role: str, ordinal: int) -> str:
 def _session_snapshot(
     session: Session,
     *,
-    presentations: tuple[ChartArtifact, ...] | None = None,
+    presentations: tuple[AnyChartArtifact, ...] | None = None,
     fork_created: bool | None = None,
 ) -> SessionSnapshot:
     assistant_messages = tuple(
@@ -468,7 +468,7 @@ class SessionRuntime:
             if item.session_id == self.session.id and item.status in {"running", "paused"}
         ]
 
-    def list_presentations(self) -> tuple[ChartArtifact, ...]:
+    def list_presentations(self) -> tuple[AnyChartArtifact, ...]:
         merged = {item.artifact_id: item for item in self.session.presentations}
         for meta in self.runtime.run_store.list():
             if meta.session_id != self.session.id:
@@ -483,7 +483,7 @@ class SessionRuntime:
                 merged.setdefault(artifact.artifact_id, artifact)
         return tuple(merged.values())
 
-    def get_artifact(self, artifact_id: str) -> ChartArtifact:
+    def get_artifact(self, artifact_id: str) -> AnyChartArtifact:
         artifact = next(
             (item for item in self.list_presentations() if item.artifact_id == artifact_id),
             None,

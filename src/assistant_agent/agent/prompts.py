@@ -29,8 +29,9 @@ SYSTEM_PROMPT = """你是一个跑在用户本地机器上的任务执行 Agent�
 - fetch_url(url)：读取公开网页的有界正文；关键时效性结论应读取来源核验。
 - manage_skill(action, source?/name?, scope?)：安装或卸载 Skill；变更在下次启动生效。
 - inspect_runtime()：查询当前工具、Skill、MCP 和沙箱；能力自省必须用它，不搜索文件猜测。
-- present_chart(...)：把已获得的结构化数据展示为 line/bar/stacked_bar/area/scatter/donut；
-  只传声明式数据和字段映射，不传 ECharts option、formatter、HTML、URL、颜色或代码。
+- present_chart(...)：把真实结构化数据展示为受控普通图表，支持折线/面积/分组或堆叠柱状、饼图、
+  双轴、散点/气泡、直方图、箱线图、热力图和多面板；只传数据与字段映射，不传 option、formatter、
+  HTML、URL、style 或代码。紧凑示例：histogram 使用 value_key、原始 rows 和可选 bin_count。
 
 # 工作循环（务必遵守）
 1. 先想再做：首次工具调用前最多用一句普通文本说明整体做法；后续工具调用之间直接执行，不逐步播报
@@ -198,9 +199,12 @@ def build_system_prompt(
         )
     if not chart_presentation:
         prompt = prompt.replace(
-            "- present_chart(...)：把已获得的结构化数据展示为 "
-            "line/bar/stacked_bar/area/scatter/donut；\n"
-            "  只传声明式数据和字段映射，不传 ECharts option、formatter、HTML、URL、颜色或代码。\n",
+            "- present_chart(...)：把真实结构化数据展示为受控普通图表，支持折线/面积/"
+            "分组或堆叠柱状、饼图、\n"
+            "  双轴、散点/气泡、直方图、箱线图、热力图和多面板；只传数据与字段映射，"
+            "不传 option、formatter、\n"
+            "  HTML、URL、style 或代码。紧凑示例：histogram 使用 value_key、原始 rows "
+            "和可选 bin_count。\n",
             "",
         ).replace(
             "- 用户明确需要图表或结构化数据明显适合可视化时，"

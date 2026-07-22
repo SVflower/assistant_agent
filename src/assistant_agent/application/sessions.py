@@ -28,7 +28,7 @@ from assistant_agent.application.ports import (
 )
 from assistant_agent.application.runs import SessionRuntime, inspect_run
 from assistant_agent.contracts.capabilities import RuntimeCapabilities
-from assistant_agent.contracts.charts import ChartArtifact
+from assistant_agent.contracts.charts import AnyChartArtifact
 from assistant_agent.contracts.errors import (
     ArtifactNotFoundError,
     ArtifactUnavailableError,
@@ -390,7 +390,7 @@ class AgentService:
             if lease is not None:
                 lease.release()
 
-    def get_artifact(self, session_id: str, artifact_id: str) -> ChartArtifact:
+    def get_artifact(self, session_id: str, artifact_id: str) -> AnyChartArtifact:
         """按 Session 隔离读取完整 Artifact，不暴露持久化路径。"""
         try:
             session = self._session_store.load(session_id)

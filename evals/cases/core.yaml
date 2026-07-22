@@ -551,3 +551,33 @@
     required_tools: [present_chart]
     max_tool_calls: 2
     final_contains: [B 比 A 多 6]
+
+- schema_version: 1
+  id: chart-v2-histogram
+  title: 原始数值确定性生成 V2 直方图
+  tags: [scripted, chart, presentation, chart-v2]
+  task: 把 1、2、3、4 生成两个区间的直方图，并给出文字结论。
+  budget:
+    max_context_tokens: 16000
+  script:
+    - tool_calls:
+        - name: present_chart
+          arguments:
+            schema_version: 2
+            chart_type: histogram
+            title: 数值分布
+            columns: [{key: value, label: 数值}]
+            rows: [[1], [2], [3], [4]]
+            value_key: value
+            bin_count: 2
+            series: []
+    - final: 已生成两个区间的数值分布图。
+  expect:
+    trajectory: strict
+    expected_calls:
+      - name: present_chart
+        output_contains: [已创建图表]
+        is_error: false
+    required_tools: [present_chart]
+    max_tool_calls: 1
+    final_contains: [两个区间]

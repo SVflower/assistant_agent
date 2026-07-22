@@ -22,7 +22,7 @@ from assistant_agent.application.models import (
     SessionMeta,
     automatic_session_title,
 )
-from assistant_agent.contracts.charts import ChartArtifact
+from assistant_agent.contracts.charts import parse_chart_artifact
 from assistant_agent.contracts.errors import IdempotencyConflictError, SessionMigrationRequiredError
 from assistant_agent.contracts.sessions import PublicMessageSnapshot
 from assistant_agent.contracts.time import (
@@ -107,7 +107,7 @@ def _build_message_ledger(data: dict[str, Any]) -> list[dict[str, Any]]:
             # Session.presentations 保存完整不可变 Artifact，而公开 ledger 只嵌入轻量 ref。
             # 因此先严格校验旧完整载荷，再显式投影为 ref；不能直接拿完整载荷校验 ref，
             # 否则其中必需的 `spec` 会被当作额外字段，导致所有 v1 图表 Session 无法读取。
-            ref = ChartArtifact.model_validate(item, strict=True).ref
+            ref = parse_chart_artifact(item, strict=True).ref
         except Exception as exc:
             raise SessionMigrationRequiredError("Session Artifact 无法安全迁移") from exc
         refs_by_message.setdefault(ref.message_id, []).append(ref.model_dump(mode="json"))
@@ -224,6 +224,12 @@ def _migrate_document(data: dict[str, Any]) -> tuple[dict[str, Any], bool]:
         data = migrated
         version = SESSION_SCHEMA_VERSION
         migrated_document = True
+    if version == 2:
+        migrated = dict(data)
+        migrated["schema_version"] = SESSION_SCHEMA_VERSION
+        data = migrated
+        version = SESSION_SCHEMA_VERSION
+        migrated_document = True
     if version != SESSION_SCHEMA_VERSION:
         raise UnsupportedSessionSchemaError(f"不支持的 Session schema_version：{version!r}")
     if not _valid_title(data.get("title")):
@@ -235,7 +241,7 @@ def _migrate_document(data: dict[str, Any]) -> tuple[dict[str, Any], bool]:
         raise ValueError("Session metadata_version 不合法")
     normalized = dict(data)
     if "message_ledger" not in normalized:
-        raise SessionMigrationRequiredError("Session v2 缺少 message_ledger")
+        raise SessionMigrationRequiredError("Session v3 缺少 message_ledger")
     normalized["created_at"] = normalize_utc_timestamp(str(data.get("created_at") or ""))
     normalized["updated_at"] = normalize_utc_timestamp(str(data.get("updated_at") or ""))
     return normalized, migrated_document or normalized != data

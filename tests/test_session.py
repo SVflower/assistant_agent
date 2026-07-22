@@ -173,7 +173,7 @@ def test_v0_session_migrates_atomically_and_repeated_load_is_stable(tmp_path, ve
     second = store.load("legacy-v0")
     assert first == second
     assert path.read_bytes() == first_bytes
-    assert first.schema_version == 2
+    assert first.schema_version == 3
     assert first.created_at == "2026-01-01T00:00:00Z"
     assert first.updated_at == "2026-01-02T00:00:00Z"
     assert first.title == "legacy title"
@@ -204,7 +204,7 @@ def test_v1_missing_metadata_fields_is_treated_as_v0(tmp_path):
     assert migrated.metadata_version == 1
 
 
-@pytest.mark.parametrize("version", [True, "1", -1, 3])
+@pytest.mark.parametrize("version", [True, "1", -1, 4])
 def test_invalid_or_future_schema_version_fails_closed(tmp_path, version):
     store = _store(tmp_path)
     path = store._path("unsupported")

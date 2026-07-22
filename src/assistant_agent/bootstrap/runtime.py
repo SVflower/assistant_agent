@@ -465,6 +465,7 @@ def create_runtime(
             mcp_servers=mcp_capabilities,
             extension_management=extension_management,
             profile=policy.profile,
+            chart_spec_versions=(1, 2) if chart_available else (),
         )
         runtime = AgentRuntime(
             config=config,

@@ -11,9 +11,10 @@ from assistant_agent.application.models import (
     automatic_session_title,
 )
 from assistant_agent.contracts.charts import (
-    ChartArtifact,
-    PresentationArtifactRef,
+    AnyChartArtifact,
+    AnyPresentationArtifactRef,
     canonical_json_bytes,
+    parse_chart_artifact,
 )
 from assistant_agent.contracts.errors import UserMessageNotFoundError
 from assistant_agent.contracts.sessions import PublicMessageSnapshot
@@ -46,11 +47,11 @@ def build_forked_session(
     copied = source.message_ledger[:boundary]
     id_map = {message.id: fork_message_id(target_session_id, message.id) for message in copied}
     source_artifacts = {item.artifact_id: item for item in source.presentations}
-    cloned_artifacts: list[ChartArtifact] = []
+    cloned_artifacts: list[AnyChartArtifact] = []
     ledger: list[PublicMessageSnapshot] = []
     for message in copied:
         new_id = id_map[message.id]
-        refs: list[PresentationArtifactRef] = []
+        refs: list[AnyPresentationArtifactRef] = []
         for ref in message.artifacts:
             artifact = source_artifacts.get(ref.artifact_id)
             if artifact is None or artifact.content_hash != ref.content_hash:
@@ -105,19 +106,19 @@ def build_forked_session(
 
 
 def _clone_chart_artifact(
-    source: ChartArtifact,
+    source: AnyChartArtifact,
     *,
     target_session_id: str,
     target_message_id: str,
     committed_at: str,
-) -> ChartArtifact:
+) -> AnyChartArtifact:
     identity = canonical_json_bytes(
         [target_session_id, target_message_id, source.artifact_id, source.content_hash]
     )
     base: dict[str, Any] = {
         "artifact_id": "chart_" + hashlib.sha256(identity).hexdigest()[:24],
         "kind": "chart",
-        "schema_version": 1,
+        "schema_version": source.schema_version,
         "content_hash": source.content_hash,
         "session_id": target_session_id,
         "run_id": None,
@@ -129,4 +130,4 @@ def _clone_chart_artifact(
     size = 1
     for _ in range(4):
         size = len(canonical_json_bytes({**base, "size_bytes": size}))
-    return ChartArtifact.model_validate({**base, "size_bytes": size}, strict=True)
+    return parse_chart_artifact({**base, "size_bytes": size}, strict=True)

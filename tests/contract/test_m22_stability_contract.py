@@ -51,6 +51,6 @@ def test_v5_migration_is_fail_closed_for_retry_and_baseline():
     ).model_dump(mode="python")
     current["schema_version"] = 5
     migrated = migrate_run_document(current)
-    assert migrated["schema_version"] == 6
+    assert migrated["schema_version"] == 7
     assert migrated["retry_safety"] == "unknown"
     assert migrated["retry_baseline_available"] is False

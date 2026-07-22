@@ -18,15 +18,21 @@ from assistant_agent.contracts.capabilities import (
     SkillCapability,
 )
 from assistant_agent.contracts.charts import (
+    AnyChartArtifact,
+    AnyPresentationArtifactRef,
     AssistantMessageSnapshot,
     ChartArtifact,
     ChartColumn,
     ChartSeries,
     ChartSpecV1,
+    ChartSpecV2,
     PendingInteractionSnapshot,
     PresentationArtifactRef,
+    PresentationArtifactRefV2,
     RunSnapshot,
 )
+from assistant_agent.contracts.charts_v2 import ChartArtifactV2
+from assistant_agent.contracts.datasets import DatasetColumnV1, TabularDatasetV1
 from assistant_agent.contracts.errors import (
     AgentServiceError,
     ArtifactNotFoundError,
@@ -78,13 +84,18 @@ __all__ = [
     "AgentRuntime",
     "AgentService",
     "AgentServiceError",
+    "AnyChartArtifact",
+    "AnyPresentationArtifactRef",
     "ArtifactNotFoundError",
     "ArtifactUnavailableError",
     "AssistantMessageSnapshot",
     "ChartArtifact",
+    "ChartArtifactV2",
     "ChartColumn",
     "ChartSeries",
     "ChartSpecV1",
+    "ChartSpecV2",
+    "DatasetColumnV1",
     "EVENT_CONTRACT_VERSION",
     "RunExecution",
     "RetryRunExecution",
@@ -116,6 +127,7 @@ __all__ = [
     "SessionRuntime",
     "SessionSnapshot",
     "PresentationArtifactRef",
+    "PresentationArtifactRefV2",
     "PublicMessageSnapshot",
     "StepEvent",
     "ToolDisplay",
@@ -136,4 +148,5 @@ __all__ = [
     "SessionUnavailableError",
     "UserMessageNotFoundError",
     "UpdateSessionMetadataRequest",
+    "TabularDatasetV1",
 ]

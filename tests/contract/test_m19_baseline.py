@@ -20,13 +20,18 @@ def test_service_public_exports_baseline():
         "AgentRuntime",
         "AgentService",
         "AgentServiceError",
+        "AnyChartArtifact",
+        "AnyPresentationArtifactRef",
         "ArtifactNotFoundError",
         "ArtifactUnavailableError",
         "AssistantMessageSnapshot",
         "ChartArtifact",
+        "ChartArtifactV2",
         "ChartColumn",
         "ChartSeries",
         "ChartSpecV1",
+        "ChartSpecV2",
+        "DatasetColumnV1",
         "EVENT_CONTRACT_VERSION",
         "RunExecution",
         "RetryRunExecution",
@@ -58,6 +63,7 @@ def test_service_public_exports_baseline():
         "SessionRuntime",
         "SessionSnapshot",
         "PresentationArtifactRef",
+        "PresentationArtifactRefV2",
         "PublicMessageSnapshot",
         "StepEvent",
         "ToolDisplay",
@@ -78,6 +84,7 @@ def test_service_public_exports_baseline():
         "SessionUnavailableError",
         "UserMessageNotFoundError",
         "UpdateSessionMetadataRequest",
+        "TabularDatasetV1",
     }
     assert [field.name for field in fields(RunExecution)] == ["run_id", "events", "warning"]
     execution = RunExecution("run-contract", iter(()))
@@ -270,7 +277,7 @@ def test_run_state_v6_field_and_legacy_migration_baseline():
         ):
             legacy.pop(key)
         migrated = migrate_run_document(legacy)
-        assert migrated["schema_version"] == 6
+        assert migrated["schema_version"] == 7
         assert migrated["retry_safety"] == "unknown"
         assert migrated["retry_baseline_available"] is False
-        assert RunState.model_validate(migrated).schema_version == 6
+        assert RunState.model_validate(migrated).schema_version == 7

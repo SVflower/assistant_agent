@@ -75,3 +75,4 @@ class RuntimeCapabilities:
     mcp_servers: tuple[MCPServerCapability, ...]
     extension_management: bool
     profile: RuntimeProfile = "custom"
+    chart_spec_versions: tuple[int, ...] = ()

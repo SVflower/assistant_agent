@@ -10,7 +10,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from assistant_agent.contracts.charts import ChartArtifact
+from assistant_agent.contracts.charts import AnyChartArtifact
 from assistant_agent.contracts.failures import BudgetResource, RunFailure
 from assistant_agent.contracts.time import utc_now_rfc3339
 
@@ -34,7 +34,7 @@ ReplayPolicy = Literal["safe_readonly", "safe_idempotent", "requires_decision"]
 RetrySafety = Literal["safe", "unsafe", "uncertain", "unknown"]
 
 _RESOLVED_TOOL_STATUSES = {"completed", "failed", "skipped"}
-_SCHEMA_VERSION: Literal[6] = 6
+_SCHEMA_VERSION: Literal[7] = 7
 
 
 def now_iso() -> str:
@@ -112,7 +112,7 @@ class ToolResultState(StrictStateModel):
     retryable: bool = False
     executed: bool = True
     budget_exhausted: str | None = None
-    chart: ChartArtifact | None = None
+    chart: AnyChartArtifact | None = None
 
 
 class PermissionRequestState(StrictStateModel):
@@ -141,7 +141,7 @@ class ToolCallState(StrictStateModel):
 
 
 class RunState(StrictStateModel):
-    schema_version: Literal[6] = _SCHEMA_VERSION
+    schema_version: Literal[7] = _SCHEMA_VERSION
     run_id: str = Field(min_length=1)
     session_id: str | None = None
     task: str
@@ -179,7 +179,7 @@ class RunState(StrictStateModel):
     last_signature: str | None = None
     repeat_count: int = Field(default=0, ge=0)
     tool_calls: list[ToolCallState] = Field(default_factory=list)
-    presentations: list[ChartArtifact] = Field(default_factory=list, max_length=16)
+    presentations: list[AnyChartArtifact] = Field(default_factory=list, max_length=16)
     permission_grants: list[PermissionGrantState] = Field(default_factory=list)
     terminal_text: str = ""
     failure: RunFailure | None = None
@@ -269,7 +269,7 @@ def migrate_run_document(document: dict[str, Any]) -> dict[str, Any]:
     version = document.get("schema_version")
     if version == _SCHEMA_VERSION:
         return document
-    if version in {1, 2, 3, 4, 5}:
+    if version in {1, 2, 3, 4, 5, 6}:
         migrated = dict(document)
         migrated["schema_version"] = _SCHEMA_VERSION
         iteration_limit = max(int(migrated.get("iteration_budget", 1)), 1)

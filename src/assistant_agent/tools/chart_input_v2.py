@@ -1,0 +1,581 @@
+"""把紧凑模型草稿归一化为严格 ChartSpecV2。"""
+
+from __future__ import annotations
+
+import math
+from copy import deepcopy
+from typing import Any, Literal, cast
+
+from assistant_agent.contracts.charts_v2 import (
+    AnnotationSpecV1,
+    AxisSpecV1,
+    ChartLayoutV1,
+    ChartPanelV1,
+    ChartSpecV2,
+    ChartTypeV2,
+    DerivationTraceV1,
+    ErrorBarSpecV1,
+    ReferenceBandSpecV1,
+    ReferenceLineSpecV1,
+    SeriesMark,
+    SeriesSpecV1,
+)
+from assistant_agent.contracts.datasets import DatasetColumnV1, TabularDatasetV1
+from assistant_agent.tools.chart_input import ChartInputError, _infer_data_type
+from assistant_agent.tools.chart_transforms import (
+    aggregate_dataset,
+    boxplot_dataset,
+    histogram_dataset,
+    percent_dataset,
+)
+
+_FORBIDDEN_KEYS = {
+    "option",
+    "formatter",
+    "html",
+    "url",
+    "graphic",
+    "script",
+    "function",
+    "style",
+    "__proto__",
+    "prototype",
+    "constructor",
+}
+_V2_ONLY_TYPES = {
+    "grouped_bar",
+    "percent_stacked_bar",
+    "pie",
+    "combo_bar_line",
+    "dual_axis",
+    "bubble",
+    "histogram",
+    "boxplot",
+    "heatmap",
+}
+_ROOT_KEYS = {
+    "schema_version",
+    "chart_type",
+    "title",
+    "description",
+    "source_label",
+    "columns",
+    "rows",
+    "x_key",
+    "y_key",
+    "category_key",
+    "value_key",
+    "group_key",
+    "size_key",
+    "series",
+    "bin_count",
+    "aggregate",
+    "reference_lines",
+    "reference_bands",
+    "error_bars",
+    "annotations",
+    "panels",
+    "layout",
+}
+_PANEL_KEYS = _ROOT_KEYS - {
+    "schema_version",
+    "title",
+    "description",
+    "source_label",
+    "columns",
+    "rows",
+    "panels",
+    "layout",
+} | {"panel_title"}
+
+
+def needs_chart_v2(args: dict[str, Any]) -> bool:
+    return (
+        args.get("schema_version") == 2
+        or args.get("chart_type") in _V2_ONLY_TYPES
+        or bool(args.get("panels"))
+        or any(
+            args.get(key)
+            for key in ("reference_lines", "reference_bands", "error_bars", "annotations")
+        )
+        or any(
+            item.get("axis") or item.get("mark")
+            for item in args.get("series", [])
+            if isinstance(item, dict)
+        )
+    )
+
+
+def normalize_chart_v2_input(args: dict[str, Any]) -> ChartSpecV2:
+    draft = deepcopy(args)
+    _reject_forbidden_keys(draft)
+    _reject_unknown_draft_keys(draft)
+    try:
+        source = _source_dataset(draft)
+        panel_drafts = draft.get("panels") or [draft]
+        if not isinstance(panel_drafts, list) or not 1 <= len(panel_drafts) <= 4:
+            raise ChartInputError("panels 必须是 1..4 个对象")
+        datasets = [source]
+        panels: list[ChartPanelV1] = []
+        derivations: list[DerivationTraceV1] = []
+        for index, panel_draft in enumerate(panel_drafts):
+            if not isinstance(panel_draft, dict):
+                raise ChartInputError(f"panels[{index}] 必须是对象")
+            panel, derived, traces = _build_panel(panel_draft, source, index)
+            panels.append(panel)
+            datasets.extend(derived)
+            derivations.extend(traces)
+        return ChartSpecV2(
+            title=str(draft.get("title") or "图表"),
+            description=draft.get("description"),
+            source_label=draft.get("source_label"),
+            datasets=tuple(datasets),
+            layout=ChartLayoutV1(
+                columns=int((draft.get("layout") or {}).get("columns", 1)),
+                panel_order=tuple(item.panel_id for item in panels),
+                shared_legend=bool((draft.get("layout") or {}).get("shared_legend", True)),
+            ),
+            panels=tuple(panels),
+            derivations=tuple(derivations),
+        )
+    except ChartInputError:
+        raise
+    except (TypeError, ValueError) as exc:
+        raise ChartInputError(_safe_error(exc)) from None
+
+
+def _source_dataset(draft: dict[str, Any]) -> TabularDatasetV1:
+    columns = draft.get("columns")
+    rows = draft.get("rows")
+    if not isinstance(columns, list) or not 1 <= len(columns) <= 12:
+        raise ChartInputError("columns 必须是 1..12 个对象")
+    if not isinstance(rows, list) or len(rows) > 5000:
+        raise ChartInputError("rows 必须是最多 5000 行的数组")
+    width = len(columns)
+    for index, row in enumerate(rows):
+        if not isinstance(row, list) or len(row) != width:
+            raise ChartInputError(f"rows[{index}] 单元格数量必须等于 columns 数量")
+    normalized = []
+    for index, raw in enumerate(columns):
+        if not isinstance(raw, dict):
+            raise ChartInputError(f"columns[{index}] 必须是对象")
+        column = dict(raw)
+        if "data_type" not in column:
+            values = [row[index] for row in rows if row[index] is not None]
+            column["data_type"] = _infer_data_type(values, index)
+        normalized.append(DatasetColumnV1.model_validate(column, strict=True))
+    try:
+        return TabularDatasetV1(
+            dataset_id="ds_source",
+            columns=tuple(normalized),
+            rows=tuple(tuple(row) for row in rows),
+        )
+    except ValueError as exc:
+        raise ChartInputError(_safe_error(exc)) from None
+
+
+def _build_panel(
+    draft: dict[str, Any], source: TabularDatasetV1, index: int
+) -> tuple[ChartPanelV1, list[TabularDatasetV1], list[DerivationTraceV1]]:
+    chart_type = str(draft.get("chart_type") or "")
+    panel_id = f"panel_p{index + 1}"
+    derived: list[TabularDatasetV1] = []
+    traces: list[DerivationTraceV1] = []
+    dataset = source
+    series: list[SeriesSpecV1]
+    x_key = _optional_key(draft, "x_key")
+    raw_series = draft.get("series") or []
+    if chart_type == "histogram":
+        value_key = _required_key(draft, "value_key")
+        dataset, trace = histogram_dataset(
+            source, value_key, bin_count=draft.get("bin_count"), output_id=f"ds_hist_{index + 1}"
+        )
+        derived.append(dataset)
+        traces.append(trace)
+        x_key = "bin"
+        series = [_series(index, 0, "频数", "bar", dataset.dataset_id, x_key="bin", y_key="count")]
+    elif chart_type == "boxplot":
+        value_key = _required_key(draft, "value_key")
+        group_key = _optional_key(draft, "group_key")
+        dataset, outliers, trace = boxplot_dataset(
+            source, value_key, group_key=group_key, output_id=f"ds_box_{index + 1}"
+        )
+        derived.extend((dataset, outliers))
+        traces.append(trace)
+        x_key = "group"
+        series = [
+            SeriesSpecV1(
+                series_id=f"series_p{index + 1}_s1",
+                label="箱线图",
+                mark="boxplot",
+                dataset_id=dataset.dataset_id,
+                category_key="group",
+                min_key="min",
+                q1_key="q1",
+                median_key="median",
+                q3_key="q3",
+                max_key="max",
+                outlier_dataset_id=outliers.dataset_id,
+                x_axis_id="axis_x",
+                y_axis_id="axis_y",
+            )
+        ]
+    elif chart_type == "percent_stacked_bar":
+        value_keys = _series_keys(raw_series)
+        if x_key is None or len(value_keys) < 2:
+            raise ChartInputError("percent_stacked_bar 需要 x_key 和至少两个 series")
+        dataset, trace = percent_dataset(
+            source, x_key, value_keys, output_id=f"ds_percent_{index + 1}"
+        )
+        derived.append(dataset)
+        traces.append(trace)
+        series = [
+            _series(
+                index,
+                i,
+                _series_label(raw_series[i], key),
+                "bar",
+                dataset.dataset_id,
+                x_key=x_key,
+                y_key=key,
+                stack_id="percent",
+            )
+            for i, key in enumerate(value_keys)
+        ]
+    elif chart_type in {"pie", "donut"}:
+        category_key, value_key = (
+            _required_key(draft, "category_key"),
+            _required_key(draft, "value_key"),
+        )
+        dataset, aggregate_trace = aggregate_dataset(
+            source,
+            [category_key],
+            value_key,
+            draft.get("aggregate"),
+            output_id=f"ds_sector_{index + 1}",
+        )
+        if aggregate_trace is not None:
+            derived.append(dataset)
+            traces.append(aggregate_trace)
+        else:
+            derived.append(dataset)
+        series = [
+            SeriesSpecV1(
+                series_id=f"series_p{index + 1}_s1",
+                label=str(draft.get("title") or chart_type),
+                mark=cast(SeriesMark, chart_type),
+                dataset_id=dataset.dataset_id,
+                category_key=category_key,
+                value_key=value_key,
+            )
+        ]
+        x_key = None
+    elif chart_type == "heatmap":
+        x_key, y_key, value_key = (
+            _required_key(draft, key) for key in ("x_key", "y_key", "value_key")
+        )
+        dataset, aggregate_trace = aggregate_dataset(
+            source,
+            [x_key, y_key],
+            value_key,
+            draft.get("aggregate"),
+            output_id=f"ds_heat_{index + 1}",
+        )
+        derived.append(dataset)
+        if aggregate_trace is not None:
+            traces.append(aggregate_trace)
+        series = [
+            SeriesSpecV1(
+                series_id=f"series_p{index + 1}_s1",
+                label=str(draft.get("title") or "热力图"),
+                mark="heatmap",
+                dataset_id=dataset.dataset_id,
+                x_key=x_key,
+                y_key=y_key,
+                value_key=value_key,
+                x_axis_id="axis_x",
+                y_axis_id="axis_y",
+            )
+        ]
+    elif chart_type == "bubble":
+        keys = _series_keys(raw_series)
+        if x_key is None or len(keys) != 1:
+            raise ChartInputError("bubble 需要 x_key 和一个 series")
+        series = [
+            _series(
+                index,
+                0,
+                _series_label(raw_series[0], keys[0]),
+                "bubble",
+                source.dataset_id,
+                x_key=x_key,
+                y_key=keys[0],
+                size_key=_required_key(draft, "size_key"),
+            )
+        ]
+    else:
+        series = _cartesian_series(chart_type, draft, source, index)
+    x_axis, y_axes = _axes(chart_type, dataset, x_key, series)
+    panel = ChartPanelV1(
+        panel_id=panel_id,
+        title=draft.get("panel_title"),
+        chart_type=cast(ChartTypeV2, chart_type),
+        x_axis=x_axis,
+        y_axes=y_axes,
+        series=tuple(series),
+        reference_lines=tuple(_reference_lines(draft)),
+        reference_bands=tuple(_reference_bands(draft)),
+        error_bars=tuple(_error_bars(draft, series)),
+        annotations=tuple(_annotations(draft)),
+    )
+    return panel, derived, traces
+
+
+def _cartesian_series(
+    chart_type: str, draft: dict[str, Any], source: TabularDatasetV1, panel_index: int
+) -> list[SeriesSpecV1]:
+    x_key = _required_key(draft, "x_key")
+    raw = draft.get("series") or []
+    keys = _series_keys(raw)
+    minimum = (
+        2 if chart_type in {"grouped_bar", "stacked_bar", "combo_bar_line", "dual_axis"} else 1
+    )
+    if len(keys) < minimum:
+        raise ChartInputError(f"{chart_type} 至少需要 {minimum} 个 series")
+    result = []
+    marks = set()
+    axes = set()
+    for i, key in enumerate(keys):
+        item = raw[i]
+        default_mark = (
+            "bar"
+            if chart_type in {"bar", "grouped_bar", "stacked_bar"}
+            or (chart_type == "combo_bar_line" and i == 0)
+            else "line"
+            if chart_type in {"combo_bar_line", "dual_axis"}
+            else chart_type
+        )
+        mark = str(item.get("mark") or default_mark)
+        if chart_type == "combo_bar_line" and mark not in {"bar", "line"}:
+            raise ChartInputError("combo_bar_line 的 mark 只能是 bar/line")
+        if chart_type == "dual_axis" and mark not in {"bar", "line", "area"}:
+            raise ChartInputError("dual_axis 的 mark 只能是 bar/line/area")
+        axis = str(item.get("axis") or "left")
+        marks.add(mark)
+        axes.add(axis)
+        result.append(
+            _series(
+                panel_index,
+                i,
+                _series_label(item, key),
+                mark,
+                source.dataset_id,
+                x_key=x_key,
+                y_key=key,
+                y_axis_id="axis_y2" if axis == "right" else "axis_y",
+                stack_id="stack" if chart_type == "stacked_bar" else None,
+            )
+        )
+    if chart_type == "combo_bar_line" and not {"bar", "line"} <= marks:
+        raise ChartInputError("combo_bar_line 必须同时包含 bar 和 line")
+    if chart_type == "dual_axis" and axes != {"left", "right"}:
+        raise ChartInputError("dual_axis 必须同时使用 left/right")
+    if chart_type == "bar" and len(result) != 1:
+        raise ChartInputError("bar 只能包含一个 series；多个系列请使用 grouped_bar")
+    return result
+
+
+def _series(
+    panel: int, index: int, label: str, mark: str, dataset_id: str, **kwargs: Any
+) -> SeriesSpecV1:
+    x_axis_id = kwargs.pop("x_axis_id", "axis_x")
+    y_axis_id = kwargs.pop("y_axis_id", "axis_y")
+    return SeriesSpecV1(
+        series_id=f"series_p{panel + 1}_s{index + 1}",
+        label=label,
+        mark=cast(SeriesMark, mark),
+        dataset_id=dataset_id,
+        x_axis_id=x_axis_id,
+        y_axis_id=y_axis_id,
+        **kwargs,
+    )
+
+
+def _axes(
+    chart_type: str, dataset: TabularDatasetV1, x_key: str | None, series: list[SeriesSpecV1]
+) -> tuple[AxisSpecV1 | None, tuple[AxisSpecV1, ...]]:
+    if chart_type in {"pie", "donut"}:
+        return None, ()
+    x_type = dataset.column_type(x_key) if x_key else "string"
+    x_scale = (
+        "linear"
+        if x_type == "number" and chart_type in {"scatter", "bubble"}
+        else ("time" if x_type == "datetime" else "category")
+    )
+    x_axis = AxisSpecV1(
+        axis_id="axis_x",
+        dimension="x",
+        scale=cast(Literal["category", "linear", "time"], x_scale),
+        position="bottom",
+    )
+    y_axes = [AxisSpecV1(axis_id="axis_y", dimension="y", scale="linear", position="left")]
+    if any(item.y_axis_id == "axis_y2" for item in series):
+        y_axes.append(
+            AxisSpecV1(axis_id="axis_y2", dimension="y", scale="linear", position="right")
+        )
+    return x_axis, tuple(y_axes)
+
+
+def _reference_lines(draft: dict[str, Any]) -> list[ReferenceLineSpecV1]:
+    return [
+        ReferenceLineSpecV1(
+            axis_id=_axis_id(item.get("axis")),
+            value=item.get("value"),
+            label=str(item.get("label") or "参考线"),
+        )
+        for item in draft.get("reference_lines") or []
+    ]
+
+
+def _reference_bands(draft: dict[str, Any]) -> list[ReferenceBandSpecV1]:
+    return [
+        ReferenceBandSpecV1(
+            axis_id=_axis_id(item.get("axis")),
+            start=item.get("start"),
+            end=item.get("end"),
+            label=str(item.get("label") or "参考区间"),
+        )
+        for item in draft.get("reference_bands") or []
+    ]
+
+
+def _error_bars(draft: dict[str, Any], series: list[SeriesSpecV1]) -> list[ErrorBarSpecV1]:
+    by_key = {item.y_key: item.series_id for item in series}
+    return [
+        ErrorBarSpecV1(
+            series_id=by_key.get(item.get("series_key"), ""),
+            lower_key=str(item.get("lower_key") or ""),
+            upper_key=str(item.get("upper_key") or ""),
+        )
+        for item in draft.get("error_bars") or []
+    ]
+
+
+def _annotations(draft: dict[str, Any]) -> list[AnnotationSpecV1]:
+    return [
+        AnnotationSpecV1(
+            text=str(item.get("text") or ""),
+            x_value=item.get("x_value"),
+            y_value=item.get("y_value"),
+        )
+        for item in draft.get("annotations") or []
+    ]
+
+
+def _axis_id(value: Any) -> str:
+    return {"x": "axis_x", "right": "axis_y2"}.get(str(value), "axis_y")
+
+
+def _series_keys(raw: Any) -> list[str]:
+    if not isinstance(raw, list):
+        raise ChartInputError("series 必须是数组")
+    keys = [str(item.get("key") or "") for item in raw if isinstance(item, dict)]
+    if len(keys) != len(raw) or any(not key for key in keys):
+        raise ChartInputError("series.key 不能为空")
+    return keys
+
+
+def _series_label(item: Any, key: str) -> str:
+    return str(item.get("label") or key) if isinstance(item, dict) else key
+
+
+def _required_key(draft: dict[str, Any], name: str) -> str:
+    value = draft.get(name)
+    if not isinstance(value, str) or not value:
+        raise ChartInputError(f"{name} 不能为空")
+    return value
+
+
+def _optional_key(draft: dict[str, Any], name: str) -> str | None:
+    value = draft.get(name)
+    return value if isinstance(value, str) and value else None
+
+
+def _reject_forbidden_keys(value: Any) -> None:
+    if isinstance(value, dict):
+        for key, child in value.items():
+            if str(key).casefold() in _FORBIDDEN_KEYS:
+                raise ChartInputError("图表草稿包含禁止的可执行或渲染字段")
+            _reject_forbidden_keys(child)
+    elif isinstance(value, list):
+        for child in value:
+            _reject_forbidden_keys(child)
+    elif isinstance(value, float) and not math.isfinite(value):
+        raise ChartInputError("图表数字必须是有限值")
+
+
+def _reject_unknown_draft_keys(draft: dict[str, Any]) -> None:
+    _require_keys(draft, _ROOT_KEYS, "$")
+    _require_object_list(draft.get("columns"), {"key", "label", "data_type", "unit"}, "columns")
+    _require_object_list(draft.get("series"), {"key", "label", "mark", "axis"}, "series")
+    _validate_panel_children(draft, "$")
+    panels = draft.get("panels")
+    if panels is not None:
+        if not isinstance(panels, list):
+            raise ChartInputError("panels 必须是数组")
+        for index, panel in enumerate(panels):
+            if not isinstance(panel, dict):
+                raise ChartInputError(f"panels[{index}] 必须是对象")
+            _require_keys(panel, _PANEL_KEYS, f"panels[{index}]")
+            _validate_panel_children(panel, f"panels[{index}]")
+    layout = draft.get("layout")
+    if layout is not None:
+        if not isinstance(layout, dict):
+            raise ChartInputError("layout 必须是对象")
+        _require_keys(layout, {"columns", "shared_legend"}, "layout")
+
+
+def _validate_panel_children(draft: dict[str, Any], path: str) -> None:
+    _require_object_list(draft.get("series"), {"key", "label", "mark", "axis"}, f"{path}.series")
+    _require_object_list(
+        draft.get("reference_lines"), {"axis", "value", "label"}, f"{path}.reference_lines"
+    )
+    _require_object_list(
+        draft.get("reference_bands"),
+        {"axis", "start", "end", "label"},
+        f"{path}.reference_bands",
+    )
+    _require_object_list(
+        draft.get("error_bars"),
+        {"series_key", "lower_key", "upper_key"},
+        f"{path}.error_bars",
+    )
+    _require_object_list(
+        draft.get("annotations"), {"text", "x_value", "y_value"}, f"{path}.annotations"
+    )
+
+
+def _require_object_list(value: Any, allowed: set[str], path: str) -> None:
+    if value is None:
+        return
+    if not isinstance(value, list):
+        raise ChartInputError(f"{path} 必须是数组")
+    for index, item in enumerate(value):
+        if not isinstance(item, dict):
+            raise ChartInputError(f"{path}[{index}] 必须是对象")
+        _require_keys(item, allowed, f"{path}[{index}]")
+
+
+def _require_keys(value: dict[str, Any], allowed: set[str], path: str) -> None:
+    unknown = set(value) - allowed
+    if unknown:
+        raise ChartInputError(f"{path} 包含未支持字段")
+
+
+def _safe_error(exc: BaseException) -> str:
+    errors: list[dict[str, Any]] = getattr(exc, "errors", lambda: [])()
+    if not errors:
+        return str(exc)[:240]
+    first = errors[0]
+    path = ".".join(str(item) for item in first.get("loc", ())) or "$"
+    return f"{path}: {str(first.get('msg', '字段无效')).removeprefix('Value error, ')}"

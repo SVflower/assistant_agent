@@ -1,4 +1,8 @@
-"""RunState 状态转换、checkpoint 与恢复决策。"""
+"""RunState 状态转换、checkpoint 与恢复决策。
+
+Loop 和 Registry 只报告语义事件，例如“模型调用前”或“工具副作用已开始”；本模块是 RunState 的
+唯一写入者，并在每个可恢复边界立即 checkpoint。集中状态转换可以防止不同入口写出互相矛盾的 phase。
+"""
 
 from __future__ import annotations
 
@@ -50,7 +54,11 @@ RecoveryChoice = Literal["retry", "skip", "abort"]
 
 
 class RunCoordinator(ContinuationStateMixin, DefinitionStateMixin):
-    """把 Loop/Registry 的语义事件原子映射到 RunState。"""
+    """把 Loop/Registry 的语义事件原子映射到 RunState。
+
+    方法名表达状态机事件，而不是裸字段赋值。调用方应使用 ``before_model``、``tool_started``、
+    ``tool_completed`` 等方法；直接修改 ``state`` 会绕过合法转换检查、日志和持久化顺序。
+    """
 
     def __init__(
         self,
@@ -237,6 +245,8 @@ class RunCoordinator(ContinuationStateMixin, DefinitionStateMixin):
         self.checkpoint()
 
     def normalize_tool_calls(self, calls: list[ToolCall]) -> list[ToolCall]:
+        # 某些 provider 不给 call ID，或重复使用旧 ID。恢复依赖 ID 判断一个副作用是否已经执行，
+        # 因此这里用 run/iteration/index 生成确定值，并确保它在整份 Run history 中唯一。
         used = {
             str(raw_call.get("id"))
             for message in self.state.messages

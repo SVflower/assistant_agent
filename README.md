@@ -206,6 +206,9 @@ HTTP(S)，拒绝 localhost/私网、URL 凭据和危险重定向，并限制超�
 
 ## 开发
 
+第一次阅读本项目，建议从 [Assistant Agent 学习手册](docs/learning/README.md) 开始。手册按真实调用链
+讲解 Python 写法、架构、Agent Loop、工具安全链、Session/Run 恢复和 MCP 等集成，并给出调试练习。
+
 ```bash
 pytest                          # 跑测试
 pytest --cov                    # 覆盖率

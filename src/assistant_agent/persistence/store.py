@@ -274,7 +274,11 @@ def _unlock_file(handle: BinaryIO) -> None:
 
 
 class SessionStore:
-    """会话文件的存取；每次文档读改写都持有短时跨进程锁。"""
+    """会话文件的存取；每次文档读改写都持有短时跨进程锁。
+
+    lifecycle 锁处理删除/创建世代，document 锁保护一份 Session 的读改写事务。只锁最终 write 不够：
+    两个进程可能基于同一旧版本各自计算 ledger 或 fork，随后互相覆盖。
+    """
 
     def __init__(
         self,
@@ -303,6 +307,8 @@ class SessionStore:
 
     @contextmanager
     def _document_lock(self, session_id: str) -> Iterator[None]:
+        # 线程锁解决同一进程竞争，文件锁解决多个 API worker 竞争。两层都需要；
+        # Windows/POSIX 的文件锁行为不同，由上方 `_lock_file` 统一适配。
         self._dir.mkdir(parents=True, exist_ok=True)
         path = self._lock_path(session_id)
         with _THREAD_LOCKS_GUARD:
@@ -344,6 +350,8 @@ class SessionStore:
         return session, migrated
 
     def _atomic_write_locked(self, session: Session) -> None:
+        # JSON 先完整写入同目录临时文件，再原子替换正式文件。异常时只删除临时文件，
+        # 原 Session 保持可读，调用方不会观察到一半新、一半旧的文档。
         text = json.dumps(session.to_dict(), ensure_ascii=False, indent=2, allow_nan=False)
         payload = text.encode("utf-8", errors="replace")
         target = self._path(session.id)
@@ -408,6 +416,8 @@ class SessionStore:
                 self._atomic_write_locked(session)
 
     def _synchronize_ledger(self, session: Session) -> None:
+        # message_ledger 是公开会话的权威事实，messages 只是模型工作历史。只有当二者仍保持
+        # 可证明的前缀关系时才能追加；compaction 改写 messages 后绝不能反推并覆盖 ledger。
         public = _public_raw_messages(session.messages)
         ledger = session.message_ledger
         prefix_matches = len(public) >= len(ledger) and all(

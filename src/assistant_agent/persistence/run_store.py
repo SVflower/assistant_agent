@@ -1,4 +1,8 @@
-"""Run checkpoint 的双槽原子 JSON 存储。"""
+"""Run checkpoint 的双槽原子 JSON 存储。
+
+current 是最新状态，previous 是上一个已验证状态。原子替换避免读到半个 JSON，双槽则让 current
+损坏时仍有保守恢复点；它不承诺外部工具副作用 exactly once。
+"""
 
 from __future__ import annotations
 
@@ -38,7 +42,11 @@ class _StaleSessionIndexError(Exception):
 
 
 class RunStore:
-    """双槽 Run 文档存储；删除后以持久 tombstone 禁止同 ID 再创建或保存。"""
+    """双槽 Run 文档存储；删除后以持久 tombstone 禁止同 ID 再创建或保存。
+
+    tombstone 防止迟到 worker 在删除后重新保存同一个 Run。Session 索引用于跨进程查询归属，
+    不能只依赖进程内缓存。
+    """
 
     def __init__(
         self,
@@ -85,6 +93,8 @@ class RunStore:
 
     @staticmethod
     def _atomic_write(target: Path, payload: bytes, *, prefix: str) -> None:
+        # 临时文件必须和目标位于同一目录，os.replace 才能提供同一文件系统内的原子发布。
+        # fsync 文件和目录项用于降低断电后“内容写了但名字没落盘”的风险。
         target.parent.mkdir(parents=True, exist_ok=True)
         fd, temp_name = tempfile.mkstemp(prefix=prefix, suffix=".tmp", dir=target.parent)
         temp_path = Path(temp_name)

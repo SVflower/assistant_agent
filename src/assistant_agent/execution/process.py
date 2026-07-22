@@ -1,4 +1,8 @@
-"""跨平台进程树监管与有界双流捕获。"""
+"""跨平台进程树监管与有界双流捕获。
+
+命令 timeout 覆盖的不只是 `process.wait()`：还包括 stdout/stderr PIPE 排空与进程树清理。父进程退出但
+后台子进程仍继承 PIPE 时，如果只等待 EOF，Agent 会看似永久卡住。
+"""
 
 from __future__ import annotations
 
@@ -62,6 +66,12 @@ class BoundedProcessResult:
 
 
 class BoundedCollector:
+    """线程安全地保留输出头尾，并持续统计真实字节数。
+
+    只保存前后片段可以限制内存，同时保留错误开头和末尾 traceback。来源端限制不能被 Registry 的
+    字符限制替代，因为后者发生在子进程已经产生输出之后。
+    """
+
     def __init__(self, limit: int) -> None:
         self.limit = max(limit, 1)
         self.head_limit = self.limit // 2
@@ -136,7 +146,11 @@ class ManagedProcessHandle:
 
 
 class ProcessSupervisor:
-    """拥有受管进程生命周期，支持 timeout、暂停、取消和退出兜底。"""
+    """拥有受管进程生命周期，支持 timeout、暂停、取消和退出兜底。
+
+    每个进程以 Windows Job Object 或 POSIX process group 管理，因此 timeout/Runtime.close 能清理
+    整棵树，而不只杀掉直接子进程。
+    """
 
     def __init__(
         self,
@@ -170,6 +184,7 @@ class ProcessSupervisor:
         assert process.stdout is not None and process.stderr is not None
         stdout = BoundedCollector(max_stream_chars)
         stderr = BoundedCollector(max_stream_chars)
+        # stdout 和 stderr 必须并行排空。顺序读取任一 PIPE 都可能因另一 PIPE 缓冲区写满而死锁。
         threads = [
             threading.Thread(target=drain_stream, args=(process.stdout, stdout), daemon=True),
             threading.Thread(target=drain_stream, args=(process.stderr, stderr), daemon=True),

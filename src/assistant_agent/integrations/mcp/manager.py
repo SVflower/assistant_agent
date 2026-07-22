@@ -3,6 +3,9 @@
 同步/异步桥（最大的坎）：mcp SDK 是 asyncio，我们的 Tool.run() 是同步。
 方案：起一个守护线程跑常驻 event loop，连接/持有 ClientSession 都在该 loop 里；
 MCPTool.run() 用 run_coroutine_threadsafe 把协程投进去、同步等结果。
+
+这样保留同步 Agent/Tool Port，同时把 SDK 要求的异步 session 终身固定在创建它的 loop。不能为每次
+工具调用临时 `asyncio.run()`，否则会跨 loop 使用 session，并破坏取消和统一关闭。
 """
 
 from __future__ import annotations
@@ -62,7 +65,10 @@ class MCPManager:
     """管理所有 MCP server 的生命周期与工具桥接。
 
     用法：m = MCPManager(config, logger); tools = m.start(); ... ; m.close()
-    start() 返回发现并通过过滤/上限的 MCPTool 列表，供 main 注册进 registry。
+    start() 返回发现并通过过滤/上限的 MCPTool 列表，供 bootstrap 注册进 registry。
+
+    optional server 的配置目录、连接状态和工具可见性由本对象共同维护。关闭时必须先阻止新提交，
+    再在所属 event loop 退出 session/transport，最后 join 线程。
     """
 
     def __init__(

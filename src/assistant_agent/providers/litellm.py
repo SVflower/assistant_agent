@@ -1,7 +1,10 @@
 """模型抽象层：封装 LiteLLM，统一云端 API 与本地后端的调用。
 
-这是整个项目的关键扩展点。业务逻辑只依赖本模块暴露的 LLMClient / StreamEvent，
-不感知具体 provider。换后端 = 换传入的 ProviderConfig，本模块代码不变。
+这是整个项目的关键扩展点。业务逻辑依赖 `providers.ports` 中的统一事件，不感知具体 provider。
+换后端 = 换传入的 ProviderConfig，本模块代码不变。
+
+LiteLLM 是边缘 adapter，不是业务状态机。第三方异常和形状不同的流式 chunk 必须在这里归一化，
+Agent/API 不应 import LiteLLM 类型或解析它的原始异常文本。
 """
 
 from __future__ import annotations
@@ -115,7 +118,11 @@ def _bypass_proxy_for_local(api_base: str | None) -> None:
 
 
 class LLMClient:
-    """对 LiteLLM 的薄封装，提供统一的 completion 接口。"""
+    """对 LiteLLM 的薄封装，提供统一的 completion 接口。
+
+    流式响应中的文本、reasoning、usage 和 tool arguments 可能分散在多个 chunk；本类负责拼接并
+    转换成项目自己的 ``StreamEvent``，上层 Loop 不处理 provider 方言。
+    """
 
     def __init__(self, provider: ProviderConfig) -> None:
         self._provider = provider

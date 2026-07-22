@@ -1,4 +1,8 @@
-"""工具注册表：管理可用工具，生成 schema，分发调用。"""
+"""工具注册表：管理可用工具，生成 schema，分发调用。
+
+Registry 是所有工具实现共用的安全漏斗。内置 Tool、声明式 FunctionTool 和 MCPTool 都必须经过同一套
+参数校验、权限、预算、生命周期 checkpoint、输出限制和审计，不能由某类工具自行走捷径。
+"""
 
 from __future__ import annotations
 
@@ -194,7 +198,11 @@ def _notify_completed(
 
 
 class ToolRegistry:
-    """工具集合。负责注册、按名查找、生成给模型的 schema、执行调用。"""
+    """工具集合。负责注册、按名查找、生成给模型的 schema、执行调用。
+
+    注册时预编译 JSON Schema validator，使模型参数在任何权限提示和副作用之前被拒绝。Registry
+    不负责决定 UI 怎么显示；它只产出 ToolResult 和脱敏 ToolDisplay。
+    """
 
     def __init__(self) -> None:
         self._tools: dict[str, Tool] = {}
@@ -241,6 +249,9 @@ class ToolRegistry:
         """按名执行工具。未知工具或异常都归一为 ToolResult，不向外抛。
 
         执行前后计时，把工具调用作为结构化事件写入 ctx.logger（默认 NullLogger 无副作用）。
+
+        顺序是不变量：查找/校验 -> 权限与 approval checkpoint -> 预算 -> started checkpoint ->
+        Tool.run -> 输出限制/审计 -> completed checkpoint。调整顺序前必须分析崩溃恢复和副作用窗口。
         """
         if lifecycle is not None and not call_id:
             raise ValueError("使用工具生命周期时必须提供 call_id")
@@ -317,6 +328,8 @@ class ToolRegistry:
             limited = _finish_denied(name, args, result, ctx, start, call_id)
             return _notify_completed(lifecycle, call_id, limited, requests, replay_policy)
 
+        # 权限通过并不代表一定执行：预算仍可能拒绝本次调用。预算放在真实 Tool.run 前，
+        # 保证“已耗尽”不会产生副作用；拒绝结果仍通过生命周期写入可恢复状态。
         if ctx.budget is not None:
             exhausted = ctx.budget.try_consume_call()
             if exhausted is not None:
@@ -324,6 +337,8 @@ class ToolRegistry:
                 return _notify_completed(lifecycle, call_id, result, requests, replay_policy)
 
         if lifecycle is not None:
+            # 先持久化 started，再进入 Tool.run。若进程随后崩溃，恢复端会保守地认为
+            # 副作用可能已发生，而不是无条件重放写操作。
             lifecycle.tool_started(call_id, requests, replay_policy)
         previous_call_id = ctx.current_call_id
         ctx.current_call_id = call_id

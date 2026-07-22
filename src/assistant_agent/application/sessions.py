@@ -1,4 +1,8 @@
-"""Session CRUD 与隔离 Runtime 创建用例。"""
+"""Session CRUD 与隔离 Runtime 创建用例。
+
+这里描述调用方“想完成什么”，例如创建、载入、检索或删除 Session。文件路径、LiteLLM 和终端
+展示属于 adapter，不应渗入这些用例。
+"""
 
 from __future__ import annotations
 
@@ -121,7 +125,11 @@ def _decode_cursor(cursor: str, query: str) -> tuple[datetime, str]:
 
 
 class AgentService:
-    """只依赖 RuntimeFactory 和 repository ports 的 Session 用例。"""
+    """只依赖 RuntimeFactory 和 repository ports 的 Session 用例。
+
+    每次 ``create_session``/``load_session`` 都获得隔离 Runtime。构造过程中如果 Session 操作失败，
+    必须立刻关闭 Runtime，不能把半初始化的 MCP、WebClient 或进程监管线程留在服务进程中。
+    """
 
     def __init__(
         self,

@@ -62,6 +62,13 @@ _PUBLIC_MESSAGE_ID = re.compile(r"^msg_[a-f0-9]{24}$")
 
 
 class _ExecutionEvents(Iterator[StepEvent]):
+    """为底层事件 generator 增加取消、关闭和最终收口语义。
+
+    generator 中的异常是在调用 ``next()`` 时发生的，因此仅在 ``start_run`` 外包一层 try/except
+    不够。本包装器保证正常耗尽、迭代异常和调用方提前 close 都只执行一次 ``on_close``，让 lease
+    释放与 Session 同步不会被遗漏或重复。
+    """
+
     def __init__(
         self,
         source: Iterator[StepEvent],
@@ -82,6 +89,8 @@ class _ExecutionEvents(Iterator[StepEvent]):
         return self
 
     def __next__(self) -> StepEvent:
+        # Python generator 不支持并发 next()。显式拒绝比让底层抛出难以归因的
+        # "generator already executing" 更容易让 API 找到错误用法。
         with self._lock:
             if self._finished or self._close_requested:
                 raise StopIteration
@@ -434,11 +443,18 @@ def _recovery_choice(
 
 
 class SessionRuntime:
-    """一个 Session 的隔离 Runtime；同一时刻至多执行一个 Run。"""
+    """一个 Session 的隔离 Runtime；同一时刻至多执行一个 Run。
+
+    这个对象是服务调用的主要工作单元：它把 Conversation、Session 文档、Run checkpoint 和
+    execution lease 绑定在一起。所有公开 Run 操作都先校验 Session 归属，避免调用方误操作其他
+    Session 的 run_id。
+    """
 
     def __init__(self, runtime: AgentRuntime, session: Session) -> None:
         self.runtime = runtime
         self.session = session
+        # Session 保存长期历史；Loop 内的 Conversation 是模型本次要看到的工作副本。
+        # compaction checkpoint 必须一起载入，否则恢复后会重复摘要或改变上下文边界。
         self.runtime.loop.load_history(session.messages)
         self.runtime.loop.load_checkpoint(session.compaction_checkpoint)
         self.runtime.logger.bind_session(session.id)

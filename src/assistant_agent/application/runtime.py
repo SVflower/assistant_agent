@@ -1,4 +1,8 @@
-"""完整 Agent Runtime 的生命周期与 Run 创建。"""
+"""完整 Agent Runtime 的生命周期与 Run 创建。
+
+Runtime 是一组“共同创建、共同关闭”的资源，不是全局单例。服务模式下每个 Session 拥有独立
+Runtime，因而 Conversation、RunControl、会话授权、MCP 连接和受管进程不会串到其他 Session。
+"""
 
 from __future__ import annotations
 
@@ -33,6 +37,12 @@ from assistant_agent.tools.ports import (
 
 @dataclass
 class AgentRuntime:
+    """保存已装配资源，并统一负责 Run 绑定与幂等关闭。
+
+    字段大多是 Port 类型而非具体 adapter；创建具体对象属于 ``bootstrap``。带 ``close`` 的字段
+    都必须在本类关闭路径中有明确所有权。
+    """
+
     config: AppConfig
     loop: AgentLoop
     logger: RuntimeTelemetry
@@ -86,6 +96,8 @@ class AgentRuntime:
             raise RuntimeClosedError("Runtime 已关闭")
         if not self.config.agent.recovery.enabled:
             return None
+        # 新 Run 同时保存“当前 Conversation”和“可靠基线”。前者用于继续执行，后者用于
+        # 安全重试；两者用途不同，不能在恢复时临时从 Session 文本猜测。
         coordinator = RunCoordinator.create(
             self.run_store,
             task=task,
@@ -135,6 +147,8 @@ class AgentRuntime:
         self.close()
 
     def close(self, reason: str = "") -> None:
+        # 锁内只提交一次 closed 状态，耗时的 close 调用放在锁外，避免资源回调再次读取
+        # Runtime 时发生死锁。后续 close() 会在这里立即返回，所以关闭是幂等的。
         with self._close_lock:
             if self._closed:
                 return

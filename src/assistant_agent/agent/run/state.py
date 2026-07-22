@@ -1,4 +1,8 @@
-"""可恢复执行的数据契约与稳定标识。"""
+"""可恢复执行的数据契约与稳定标识。
+
+这些 Pydantic 模型是落盘 checkpoint 的权威事实，不是 CLI 的 loading 状态。字段使用 strict/forbid
+验证，目的是让损坏或未来版本数据 fail closed，而不是静默猜测后继续执行副作用。
+"""
 
 from __future__ import annotations
 
@@ -65,6 +69,8 @@ def canonical_hash(value: Any) -> str:
 
 
 class StrictStateModel(BaseModel):
+    # strict 禁止诸如 "1" 自动变成 1；extra=forbid 禁止未知字段被悄悄丢掉。
+    # 对普通表单这可能显得严格，但恢复状态必须精确，否则错误迁移会改变执行语义。
     model_config = ConfigDict(extra="forbid", strict=True)
 
 
@@ -124,6 +130,12 @@ class PermissionRequestState(StrictStateModel):
 
 
 class ToolCallState(StrictStateModel):
+    """一个模型工具调用在 checkpoint 中的生命周期记录。
+
+    `started` 表示真实副作用可能已经发生；只有 resolved 状态才允许携带 result。进程若停在 started，
+    恢复逻辑必须结合 replay_policy 决定自动重试还是请求用户处理未知副作用。
+    """
+
     id: str = Field(min_length=1)
     name: str = Field(min_length=1)
     arguments: dict[str, Any]
@@ -141,6 +153,12 @@ class ToolCallState(StrictStateModel):
 
 
 class RunState(StrictStateModel):
+    """一次 Run 可跨进程恢复的完整状态快照。
+
+    `messages` 是当前执行上下文，`baseline_messages` 是安全重试基线；`session_synced` 只有在终态事实
+    成功写入 Session 后才能置真。三者用途不同，不能为了减少字段而互相重建。
+    """
+
     schema_version: Literal[7] = _SCHEMA_VERSION
     run_id: str = Field(min_length=1)
     session_id: str | None = None

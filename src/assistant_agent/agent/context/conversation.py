@@ -4,6 +4,9 @@
 1. 上下文工程：累积历史，按 token 预算截断——保留 system(头) + 最近消息(尾)，
    契合模型"lost-in-the-middle"的注意力规律（见 docs/archive/phase1/m3-memory-plan.md）。
 2. 序列化：导出/载入原始历史（不含 system），供会话持久化。
+
+注意这里的 Conversation 是“模型工作上下文”，不是公开 Session ledger。压缩或最终硬截断可以改变
+发给 provider 的消息，但不能反向删改用户可见的长期会话事实。
 """
 
 from __future__ import annotations
@@ -41,6 +44,9 @@ class Conversation:
     """维护 OpenAI 格式的消息历史。
 
     system 消息始终保留在最前，截断只作用于其后的对话消息。
+
+    `_messages` 保留原始工作历史，`messages()` 才按当前预算生成 provider-facing 视图。这种“双历史”
+    设计让 checkpoint 可以恢复，同时避免为了某次模型窗口裁剪而永久丢掉原始内容。
     """
 
     def __init__(
@@ -106,6 +112,8 @@ class Conversation:
         无 checkpoint（默认）：[system, *截断后的历史]——与 M8b 前逐字节一致。
         有 checkpoint：[system, 摘要消息, *截断后的尾段]，摘要顶替已覆盖的旧历史。
         """
+        # 每次调用都重新计算视图而不是修改 `_messages`。因此调整预算或恢复 checkpoint 后，
+        # 不会把一次临时截断误当成已经持久化的真实历史。
         if self._checkpoint is None:
             result = [self._system, *self._truncated(self._messages)]
         else:

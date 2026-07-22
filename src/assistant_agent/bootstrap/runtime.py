@@ -1,4 +1,11 @@
-"""UI 无关的 Agent Runtime 工厂与资源生命周期。"""
+"""UI 无关的 Agent Runtime 工厂与资源生命周期。
+
+这是项目唯一的 composition root：核心层只声明自己需要哪些能力，本模块选择具体 adapter，
+并把 LLM、工具、存储、Workspace、MCP 等对象连接成一个 :class:`AgentRuntime`。
+
+这里代码较长是有意的。对象装配和失败回滚必须共享同一份创建顺序；如果把创建分散到 CLI、
+Service 或 Agent Loop，调用方会得到行为不同的 Runtime，也很容易漏关子进程或网络客户端。
+"""
 
 from __future__ import annotations
 
@@ -148,7 +155,11 @@ def create_runtime(
     runtime_policy: RuntimePolicy | None = None,
     startup_observer: Callable[[RuntimeStartupEvent], None] | None = None,
 ) -> AgentRuntime:
-    """创建 UI 无关 Runtime；失败抛类型化异常并回滚所有已创建资源。"""
+    """创建 UI 无关 Runtime；失败抛类型化异常并回滚所有已创建资源。
+
+    ``interactive`` 只决定能否发起 Interaction，不代表权限宽松。真正的能力上界由可信调用方传入
+    的 ``runtime_policy`` 决定，模型既看不到也不能修改这个对象。
+    """
     port = interaction or SafeDefaultInteractionPort()
     policy = runtime_policy or RuntimePolicy.cli()
     config_file = Path(config_path).expanduser().resolve()
@@ -193,6 +204,8 @@ def create_runtime(
         update={"dir": str(resolve_log_dir(config.logging.dir, root))}
     )
     logger = create_logger(logging_config, new_trace_id(), session_id=session_id)
+    # 这些变量先设为 None，是为了让任意启动阶段失败后都能执行同一段逆序回滚。
+    # 每个资源一旦创建成功就写入对应变量，异常处理只关闭“确实创建过”的资源。
     workspace: BaseWorkspace | None = None
     web: WebClient | None = None
     mcp: MCPManager | None = None
@@ -266,6 +279,8 @@ def create_runtime(
         )
         notices.extend(chart_notices)
 
+        # ToolContext 是工具的运行依赖包。工具不读取全局 cwd/权限/Run，而是从这个
+        # Runtime 私有上下文取得能力，因此两个 Session Runtime 不会共享授权或进程状态。
         tool_context = ToolContext(
             workspace=workspace,
             run_control=control,
@@ -467,6 +482,8 @@ def create_runtime(
             profile=policy.profile,
             chart_spec_versions=(1, 2) if chart_available else (),
         )
+        # 到这里所有 adapter 已创建完成。AgentRuntime 接管它们的关闭责任；成功返回后，
+        # composition root 不再单独拥有这些资源。
         runtime = AgentRuntime(
             config=config,
             loop=loop,
@@ -499,6 +516,8 @@ def create_runtime(
         _emit_startup(startup_observer, RuntimeStartupEvent("ready", "completed", "Agent 已就绪"))
         return runtime
     except BaseException as exc:
+        # 创建 Runtime 类似构造一笔资源事务：任何阶段失败都逆序关闭已经创建的资源。
+        # 捕获 BaseException 是为了连启动期间的取消也能清理；清理后仍会重新抛出类型化错误。
         process_manager.close()
         if mcp is not None:
             mcp.close()

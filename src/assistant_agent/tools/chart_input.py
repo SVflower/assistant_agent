@@ -1,14 +1,11 @@
-"""把模型友好的图表草稿确定性收敛为严格 ChartSpecV1 输入。"""
+"""模型图表草稿归一化共享的安全校验。"""
 
 from __future__ import annotations
 
 import math
 import re
-from copy import deepcopy
 from datetime import date, datetime
 from typing import Any
-
-from assistant_agent.contracts.charts import ChartSpecV1
 
 _ISO_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}(?:[Tt ].+)?$")
 
@@ -19,36 +16,6 @@ class ChartInputError(ValueError):
     def __init__(self, message: str, *, metadata: dict[str, Any] | None = None) -> None:
         super().__init__(message)
         self.metadata = metadata or {}
-
-
-def normalize_chart_input(args: dict[str, Any]) -> ChartSpecV1:
-    """只补齐缺失的列类型，其余结构继续交给严格公共契约校验。"""
-    draft = deepcopy(args)
-    columns = draft.get("columns")
-    rows = draft.get("rows")
-    if not isinstance(columns, list) or not columns:
-        raise ChartInputError("columns 必须是非空数组")
-    if not isinstance(rows, list):
-        raise ChartInputError("rows 必须是数组")
-    if len(columns) > 12 or len(rows) > 5000 or len(columns) * len(rows) > 20_000:
-        raise ChartInputError("columns/rows 超过图表安全上限")
-
-    width = len(columns)
-    for row_index, row in enumerate(rows):
-        if not isinstance(row, list) or len(row) != width:
-            raise ChartInputError(f"rows[{row_index}] 单元格数量必须等于 columns 数量")
-
-    for column_index, column in enumerate(columns):
-        if not isinstance(column, dict):
-            raise ChartInputError(f"columns[{column_index}] 必须是对象")
-        if "data_type" not in column:
-            values = [row[column_index] for row in rows if row[column_index] is not None]
-            column["data_type"] = _infer_data_type(values, column_index)
-
-    try:
-        return ChartSpecV1.model_validate(draft, strict=True)
-    except ValueError as exc:
-        raise ChartInputError(_compact_validation_error(exc)) from None
 
 
 def _infer_data_type(values: list[Any], column_index: int) -> str:

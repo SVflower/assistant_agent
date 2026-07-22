@@ -34,9 +34,9 @@ from assistant_agent.agent.run.state import (
     ToolBudgetState,
     ToolCallState,
     canonical_hash,
-    migrate_run_document,
     new_run_id,
     now_iso,
+    parse_run_state,
     stable_call_id,
 )
 from assistant_agent.contracts.charts import (
@@ -153,8 +153,7 @@ class RunCoordinator(ContinuationStateMixin, DefinitionStateMixin):
         logger: RunTelemetry | None = None,
     ) -> RunCoordinator:
         loaded = store.load(run_id)
-        document = migrate_run_document(loaded.document)
-        return cls(store, RunState.model_validate(document), load_info=loaded, logger=logger)
+        return cls(store, parse_run_state(loaded.document), load_info=loaded, logger=logger)
 
     @property
     def run_id(self) -> str:

@@ -90,7 +90,7 @@ Web GUI、rewind/recap、非交互 init、PyPI 分发。
 “不做全栈 async”决策保持不变；M14 以同步 RunControl、跨平台 ProcessSupervisor 和 Workspace
 抽象补齐受控执行边界并还清 D18。
 
-**当前进展**：M23-R2 Agent 侧已完成。R1 的 Session schema v1、自动/用户标题、metadata CAS、服务端
+**当前进展**：M31 Agent 侧已完成。R1 的 Session schema v1、自动/用户标题、metadata CAS、服务端
 catalog/search/cursor、按 ID summary 与权威 last_run 已进入公共服务；未知未来 Session schema fail closed，所有 Session
 与 Run checkpoint 写路径以共享 lifecycle 锁、tombstone、`must_exist` 和锁内 fresh merge 防止删除后
 复活或终态同步覆盖 rename；Run 单删也持久 tombstone，CLI 删除走相同服务用例；旧 naive 时间固定按
@@ -435,6 +435,19 @@ D14，M9c 已还清 D9，M10a 已还清 D16，M10b 已还清 D8，M11a 已还清
 > 867 passed、10 skipped、覆盖率 84%；Ruff、mypy、12/12 import-linter、scripted 23/23、recovery 4/4
 > 全绿；生产 Python 22,934 行/138 文件，eval 基础设施 1,617 行，未修改 Loop。API/Web 按
 > [交接](docs/archive/phase21/m30-agent-api-handoff.md)保真映射可选 metadata。
+
+### 第二十二阶段（Agent 侧已完成）
+
+| 里程碑 | 主题 | 状态 |
+|--------|------|------|
+| M31 Agent | Current-schema hard cut | ✅ Agent · API/Web 按 [交接](docs/archive/phase22/m31-agent-api-handoff.md) 升级 |
+
+> **M31 Agent 已完成**：开发期移除 Run checkpoint v1-v6、Session v0-v2 和 Chart V1 的读取、迁移、
+> re-export 与双读路径。当前只接受 RunState v7、Session v3、ChartSpec/Artifact V2；版本不匹配返回
+> `unsupported_run_state_schema`、`unsupported_session_schema` 或 `unsupported_chart_schema`，不静默转换。
+> Agent service contract 升为 v2，Event v1 保持不变，未修改 Loop。859 passed、10 skipped、覆盖率 84%；
+> Ruff、mypy、12/12 import-linter、scripted 23/23、recovery 4/4 全绿；生产 Python 19,753 行/138 文件，
+> eval 基础设施 1,411 行。旧测试状态须按交接文档备份后清理。
 
 ## 未来方向（P3，信号驱动，暂不做）
 

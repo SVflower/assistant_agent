@@ -4,11 +4,10 @@ from __future__ import annotations
 
 from typing import Any
 
-from assistant_agent.contracts.charts import AnyChartArtifact, build_chart_artifact
-from assistant_agent.contracts.charts_v2 import build_chart_artifact_v2
+from assistant_agent.contracts.charts import build_chart_artifact_v2
 from assistant_agent.contracts.events import ToolDisplay
-from assistant_agent.tools.chart_input import ChartInputError, normalize_chart_input
-from assistant_agent.tools.chart_input_v2 import needs_chart_v2, normalize_chart_v2_input
+from assistant_agent.tools.chart_input import ChartInputError
+from assistant_agent.tools.chart_input_v2 import normalize_chart_v2_input
 from assistant_agent.tools.context import ToolContext
 from assistant_agent.tools.lifecycle import ReplayPolicy
 from assistant_agent.tools.models import ToolResult
@@ -133,7 +132,7 @@ class PresentChartTool(Tool):
             "type": "object",
             "additionalProperties": False,
             "properties": {
-                "schema_version": {"enum": [1, 2]},
+                "schema_version": {"const": 2},
                 "chart_type": {"enum": chart_types},
                 "title": {"type": "string", "minLength": 1, "maxLength": 200},
                 "description": {"type": ["string", "null"], "maxLength": 500},
@@ -216,23 +215,13 @@ class PresentChartTool(Tool):
                 executed=False,
             )
         try:
-            artifact: AnyChartArtifact
-            if needs_chart_v2(args):
-                spec_v2 = normalize_chart_v2_input(args)
-                artifact = build_chart_artifact_v2(
-                    spec_v2,
-                    session_id=ctx.current_session_id,
-                    run_id=ctx.current_run_id,
-                    call_id=ctx.current_call_id,
-                )
-            else:
-                spec_v1 = normalize_chart_input(args)
-                artifact = build_chart_artifact(
-                    spec_v1,
-                    session_id=ctx.current_session_id,
-                    run_id=ctx.current_run_id,
-                    call_id=ctx.current_call_id,
-                )
+            spec = normalize_chart_v2_input(args)
+            artifact = build_chart_artifact_v2(
+                spec,
+                session_id=ctx.current_session_id,
+                run_id=ctx.current_run_id,
+                call_id=ctx.current_call_id,
+            )
         except ChartInputError as exc:
             return self._invalid(ctx, str(exc), args=args, metadata=exc.metadata)
         except (TypeError, ValueError):

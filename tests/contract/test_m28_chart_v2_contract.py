@@ -2,23 +2,15 @@
 
 from __future__ import annotations
 
-import copy
-import hashlib
 import json
 
 import pytest
 
-from assistant_agent.agent.run.state import RunState, migrate_run_document
 from assistant_agent.application.models import Session
 from assistant_agent.contracts import EVENT_CONTRACT_VERSION, ChartArtifactV2, StepEvent
-from assistant_agent.contracts.charts import (
-    ChartSpecV1,
-    build_chart_artifact,
-    canonical_json_bytes,
-    parse_chart_artifact,
-    stable_message_id,
-)
+from assistant_agent.contracts.charts import parse_chart_artifact, stable_message_id
 from assistant_agent.contracts.charts_v2 import build_chart_artifact_v2
+from assistant_agent.contracts.errors import UnsupportedSessionSchemaError
 from assistant_agent.contracts.sessions import PublicMessageSnapshot
 from assistant_agent.persistence.store import SessionStore
 from assistant_agent.tools.chart_input import ChartInputError
@@ -271,36 +263,6 @@ def test_v2_ambiguous_or_unsafe_values_fail_closed(draft):
         normalize_chart_v2_input(draft)
 
 
-def test_v1_canonical_bytes_and_hash_remain_frozen():
-    spec = ChartSpecV1.model_validate(
-        {
-            "schema_version": 1,
-            "chart_type": "line",
-            "title": "Frozen",
-            "columns": [
-                {"key": "x", "label": "X", "data_type": "string"},
-                {"key": "y", "label": "Y", "data_type": "number"},
-            ],
-            "rows": [["A", 1]],
-            "x_key": "x",
-            "series": [{"key": "y", "label": "Y"}],
-        }
-    )
-    payload = canonical_json_bytes(spec.model_dump(mode="json"))
-    assert (
-        hashlib.sha256(payload).hexdigest()
-        == "72da6f43ed0e1adef450f6ecfa6a881f75fdb8e667a0c5058cbd993c85d32e35"
-    )
-    artifact = build_chart_artifact(
-        spec,
-        session_id="session-1",
-        run_id="run-1",
-        call_id="call-1",
-        created_at="2026-01-01T00:00:00Z",
-    )
-    assert parse_chart_artifact(json.loads(artifact.model_dump_json()), strict=True) == artifact
-
-
 def test_v2_artifact_is_additive_on_event_v1_and_tool_uses_one_retry_policy(tmp_path):
     spec = normalize_chart_v2_input(_draft("line"))
     artifact = build_chart_artifact_v2(
@@ -321,40 +283,7 @@ def test_v2_artifact_is_additive_on_event_v1_and_tool_uses_one_retry_policy(tmp_
     assert result.chart is not None and result.chart.schema_version == 2
 
 
-def test_run_checkpoint_versions_1_through_6_migrate_to_v7():
-    current = {
-        "schema_version": 7,
-        "run_id": "run-1",
-        "session_id": None,
-        "task": "chart",
-        "status": "running",
-        "phase": "model_pending",
-        "interactive": False,
-        "provider": "p",
-        "model": "m",
-        "system_prompt_hash": "a" * 64,
-        "tool_schema_hash": "b" * 64,
-        "messages": [],
-        "iteration": 0,
-        "iteration_budget": 5,
-        "tool_budget": {
-            "max_calls": 5,
-            "max_total_output_chars": 100,
-            "used_calls": 0,
-            "used_output_chars": 0,
-        },
-        "created_at": "2026-01-01T00:00:00Z",
-        "updated_at": "2026-01-01T00:00:00Z",
-    }
-    for version in range(1, 7):
-        old = copy.deepcopy(current)
-        old["schema_version"] = version
-        migrated = migrate_run_document(old)
-        assert migrated["schema_version"] == 7
-        assert RunState.model_validate(migrated).presentations == []
-
-
-def test_session_v2_migrates_to_v3_and_fork_deep_copies_v2_artifact(tmp_path):
+def test_session_v2_is_rejected_and_v3_fork_deep_copies_v2_artifact(tmp_path):
     store = SessionStore(tmp_path / "sessions")
     run_id = "run-chart-v2"
     assistant_id = stable_message_id(run_id)
@@ -396,9 +325,12 @@ def test_session_v2_migrates_to_v3_and_fork_deep_copies_v2_artifact(tmp_path):
     raw["schema_version"] = 2
     path.write_text(json.dumps(raw, ensure_ascii=False), encoding="utf-8")
 
-    migrated = store.load("source")
-    assert migrated.schema_version == 3
-    assert isinstance(migrated.presentations[0], ChartArtifactV2)
+    with pytest.raises(UnsupportedSessionSchemaError) as caught:
+        store.load("source")
+    assert caught.value.code == "unsupported_session_schema"
+    assert caught.value.actual_version == 2
+    raw["schema_version"] = 3
+    path.write_text(json.dumps(raw, ensure_ascii=False), encoding="utf-8")
     forked, created = store.fork_session(
         "source", "msg_222222222222222222222222", "a" * 64, "b" * 64
     )

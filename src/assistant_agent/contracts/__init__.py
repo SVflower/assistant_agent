@@ -12,16 +12,9 @@ from assistant_agent.contracts.capabilities import (
     SkillCapability,
 )
 from assistant_agent.contracts.charts import (
-    AnyChartArtifact,
-    AnyPresentationArtifactRef,
     AssistantMessageSnapshot,
-    ChartArtifact,
-    ChartColumn,
-    ChartSeries,
-    ChartSpecV1,
     ChartSpecV2,
     PendingInteractionSnapshot,
-    PresentationArtifactRef,
     PresentationArtifactRefV2,
     RunSnapshot,
 )
@@ -66,6 +59,10 @@ from assistant_agent.contracts.errors import (
     SessionNotFoundError,
     SessionRunConflictError,
     SessionUnavailableError,
+    UnsupportedChartSchemaError,
+    UnsupportedRunStateSchemaError,
+    UnsupportedSchemaError,
+    UnsupportedSessionSchemaError,
     UserMessageNotFoundError,
 )
 from assistant_agent.contracts.events import (
@@ -113,13 +110,14 @@ from assistant_agent.contracts.sessions import (
     UpdateSessionMetadataRequest,
 )
 
+AGENT_SERVICE_CONTRACT_VERSION = 2
+
 __all__ = [
+    "AGENT_SERVICE_CONTRACT_VERSION",
     "ActivityPhase",
     "AgentServiceError",
     "ArtifactNotFoundError",
     "ArtifactUnavailableError",
-    "AnyChartArtifact",
-    "AnyPresentationArtifactRef",
     "AssistantMessageSnapshot",
     "AllowedAction",
     "ApprovalChoice",
@@ -127,13 +125,9 @@ __all__ = [
     "ApprovalRequest",
     "BudgetResource",
     "BudgetSnapshot",
-    "ChartArtifact",
     "ChartArtifactV2",
     "ChartLayoutV1",
     "ChartPanelV1",
-    "ChartColumn",
-    "ChartSeries",
-    "ChartSpecV1",
     "ChartSpecV2",
     "DatasetColumnV1",
     "DerivationTraceV1",
@@ -174,7 +168,6 @@ __all__ = [
     "RunRecoveryRequiredError",
     "RunStillActiveError",
     "RunSnapshot",
-    "PresentationArtifactRef",
     "PresentationArtifactRefV2",
     "ReferenceBandSpecV1",
     "ReferenceLineSpecV1",
@@ -200,6 +193,10 @@ __all__ = [
     "SessionSnapshot",
     "SessionSummary",
     "SessionUnavailableError",
+    "UnsupportedChartSchemaError",
+    "UnsupportedRunStateSchemaError",
+    "UnsupportedSchemaError",
+    "UnsupportedSessionSchemaError",
     "UserMessageNotFoundError",
     "SkillCapability",
     "SeriesSpecV1",

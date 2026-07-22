@@ -2,13 +2,11 @@
 
 from __future__ import annotations
 
-import copy
 import json
 
 import pytest
 
 from assistant_agent.agent.run.coordinator import RunCoordinator
-from assistant_agent.agent.run.state import RunState, migrate_run_document
 from assistant_agent.persistence.run_store import RunStore
 from assistant_agent.providers.ports import ToolCall
 from assistant_agent.tools.charts import PresentChartTool
@@ -18,7 +16,7 @@ from tests.support import ToolContextFixture
 
 def _args(title="趋势"):
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "chart_type": "line",
         "title": title,
         "columns": [
@@ -119,7 +117,10 @@ def test_missing_column_types_are_inferred_for_local_model_style(tmp_path):
     )
     result = tool.run(_draft(), ctx)
     assert not result.is_error
-    assert [column.data_type for column in result.chart.spec.columns] == ["string", "number"]
+    assert [column.data_type for column in result.chart.spec.datasets[0].columns] == [
+        "string",
+        "number",
+    ]
 
 
 @pytest.mark.parametrize(
@@ -132,12 +133,13 @@ def test_missing_column_types_are_inferred_for_local_model_style(tmp_path):
 )
 def test_missing_type_inference_is_deterministic(tmp_path, values, expected):
     args = _args()
-    args["columns"] = [{"key": "x", "label": "X"}]
-    args["rows"] = [[value] for value in values]
+    args["columns"] = [
+        {"key": "x", "label": "X"},
+        {"key": "y", "label": "Y"},
+    ]
+    args["rows"] = [[value, index + 1] for index, value in enumerate(values)]
     args["x_key"] = "x"
-    args["series"] = [{"key": "x", "label": "X"}]
-    if expected != "number":
-        args["chart_type"] = "line"
+    args["series"] = [{"key": "y", "label": "Y"}]
     ctx = ToolContextFixture(
         workspace_root=tmp_path,
         current_call_id="c",
@@ -146,7 +148,7 @@ def test_missing_type_inference_is_deterministic(tmp_path, values, expected):
     )
     result = PresentChartTool().run(args, ctx)
     assert not result.is_error
-    assert result.chart.spec.columns[0].data_type == expected
+    assert result.chart.spec.datasets[0].columns[0].data_type == expected
 
 
 @pytest.mark.parametrize(
@@ -202,7 +204,7 @@ def test_unknown_column_reference_is_rejected_with_safe_error(tmp_path):
     )
     result = PresentChartTool().run(args, ctx)
     assert result.code == "artifact_rejected"
-    assert "series 必须引用已声明列" in result.output
+    assert "series 字段必须引用已声明列" in result.output
     assert "missing" not in result.output
 
 
@@ -340,19 +342,6 @@ def test_tool_rejects_unbound_or_invalid_artifact(tmp_path):
     assert tool.run({**_args(), "option": {}}, ctx).code == "artifact_rejected"
 
 
-def test_checkpoint_migrates_v1_v2_v3_to_v7_without_presentations(tmp_path):
-    coordinator = _coordinator(tmp_path)
-    document = coordinator.state.model_dump(mode="json")
-    for version in (1, 2, 3):
-        old = copy.deepcopy(document)
-        old["schema_version"] = version
-        old.pop("presentations")
-        migrated = migrate_run_document(old)
-        state = RunState.model_validate(migrated)
-        assert state.schema_version == 7
-        assert state.presentations == []
-
-
 def test_run_rejects_seventeenth_artifact_without_losing_first_sixteen(tmp_path):
     coordinator = _coordinator(tmp_path)
     registry = ToolRegistry()
@@ -377,6 +366,8 @@ def test_run_rejects_seventeenth_artifact_without_losing_first_sixteen(tmp_path)
 def test_service_exports_chart_contract():
     from assistant_agent import service
 
-    assert service.ChartSpecV1 is not None
-    assert service.ChartArtifact is not None
+    assert service.ChartSpecV2 is not None
+    assert service.ChartArtifactV2 is not None
+    assert not hasattr(service, "ChartSpecV1")
+    assert not hasattr(service, "ChartArtifact")
     assert issubclass(service.ArtifactNotFoundError, RuntimeError)

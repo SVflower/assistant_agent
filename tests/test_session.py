@@ -153,92 +153,18 @@ def test_atomic_save_failure_preserves_old_file(tmp_path, monkeypatch):
     assert not list((tmp_path / "sessions").glob("*.tmp"))
 
 
-@pytest.mark.parametrize("version", [None, 0])
-def test_v0_session_migrates_atomically_and_repeated_load_is_stable(tmp_path, version):
-    store = _store(tmp_path)
-    path = store._path("legacy-v0")
-    path.parent.mkdir(parents=True)
-    document = {
-        "id": "legacy-v0",
-        "created_at": "2026-01-01T08:00:00+08:00",
-        "updated_at": "2026-01-02T00:00:00",
-        "messages": [{"role": "user", "content": "legacy title"}],
-    }
-    if version is not None:
-        document["schema_version"] = version
-    path.write_text(json.dumps(document), encoding="utf-8")
-
-    first = store.load("legacy-v0")
-    first_bytes = path.read_bytes()
-    second = store.load("legacy-v0")
-    assert first == second
-    assert path.read_bytes() == first_bytes
-    assert first.schema_version == 3
-    assert first.created_at == "2026-01-01T00:00:00Z"
-    assert first.updated_at == "2026-01-02T00:00:00Z"
-    assert first.title == "legacy title"
-    assert len(first.message_ledger) == 1
-    assert first.message_ledger[0].role == "user"
-    assert first.message_ledger[0].created_at is None
-    assert first.message_ledger[0].reply_to_message_id is None
-
-
-def test_v1_missing_metadata_fields_is_treated_as_v0(tmp_path):
-    store = _store(tmp_path)
-    path = store._path("partial-v1")
-    path.parent.mkdir(parents=True)
-    path.write_text(
-        json.dumps(
-            {
-                "schema_version": 1,
-                "id": "partial-v1",
-                "created_at": "2026-01-01T00:00:00Z",
-                "updated_at": "2026-01-01T00:00:00Z",
-                "messages": [],
-            }
-        ),
-        encoding="utf-8",
-    )
-    migrated = store.load("partial-v1")
-    assert migrated.title == "（空会话）"
-    assert migrated.metadata_version == 1
-
-
-@pytest.mark.parametrize("version", [True, "1", -1, 4])
+@pytest.mark.parametrize("version", [None, 0, 1, 2, True, "1", -1, 4])
 def test_invalid_or_future_schema_version_fails_closed(tmp_path, version):
     store = _store(tmp_path)
     path = store._path("unsupported")
     path.parent.mkdir(parents=True)
     path.write_text(json.dumps({"schema_version": version, "id": "unsupported"}), encoding="utf-8")
-    with pytest.raises(ValueError, match="schema_version"):
+    original = path.read_bytes()
+    with pytest.raises(Exception) as caught:
         store.load("unsupported")
-
-
-def test_migration_replace_failure_preserves_original_v0(tmp_path, monkeypatch):
-    store = _store(tmp_path)
-    path = store._path("migration-failure")
-    path.parent.mkdir(parents=True)
-    original = json.dumps(
-        {
-            "schema_version": 0,
-            "id": "migration-failure",
-            "created_at": "2026-01-01T00:00:00",
-            "updated_at": "2026-01-01T00:00:00",
-            "messages": [],
-        }
-    ).encode()
-    path.write_bytes(original)
-
-    def fail_replace(_source, target):
-        if target == path:
-            raise OSError("migration replace failed")
-        raise AssertionError(f"unexpected replace target: {target}")
-
-    monkeypatch.setattr(os, "replace", fail_replace)
-    with pytest.raises(OSError, match="migration replace failed"):
-        store.load("migration-failure")
+    assert caught.value.code == "unsupported_session_schema"
+    assert caught.value.actual_version == version
     assert path.read_bytes() == original
-    assert not list(path.parent.glob("*.tmp"))
 
 
 def test_update_save_requires_existing_session_and_cannot_recreate_deleted(tmp_path):

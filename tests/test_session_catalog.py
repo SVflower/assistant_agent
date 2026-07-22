@@ -13,10 +13,7 @@ import pytest
 from assistant_agent.application.models import RunMeta
 from assistant_agent.application.sessions import AgentService
 from assistant_agent.contracts.charts import (
-    ChartColumn,
-    ChartSeries,
-    ChartSpecV1,
-    build_chart_artifact,
+    build_chart_artifact_v2,
 )
 from assistant_agent.contracts.errors import (
     InvalidSessionCursorError,
@@ -24,13 +21,14 @@ from assistant_agent.contracts.errors import (
     InvalidSessionMetadataError,
     InvalidSessionQueryError,
     SessionMetadataConflictError,
-    SessionMigrationRequiredError,
     SessionNotFoundError,
     SessionUnavailableError,
+    UnsupportedSessionSchemaError,
 )
 from assistant_agent.persistence.execution_lease import FileSessionExecutionLeaseManager
 from assistant_agent.persistence.run_store import RunStore
-from assistant_agent.persistence.store import SessionStore, UnsupportedSessionSchemaError
+from assistant_agent.persistence.store import SessionStore
+from assistant_agent.tools.chart_input_v2 import normalize_chart_v2_input
 
 
 def _service(tmp_path, *, run_store=None, session_store=None):
@@ -45,6 +43,7 @@ def _service(tmp_path, *, run_store=None, session_store=None):
 
 def _run_document(run_id: str, session_id: str, updated_at: str, status="completed"):
     return {
+        "schema_version": 7,
         "run_id": run_id,
         "session_id": session_id,
         "task": "public summary",
@@ -269,7 +268,7 @@ def test_get_session_summary_maps_storage_failures(tmp_path, failure_source):
         )
 
 
-def test_get_session_summary_migrates_legacy_session_without_catalog_scan(tmp_path):
+def test_get_session_summary_rejects_legacy_session_without_rewriting(tmp_path):
     store = SessionStore(tmp_path / "sessions")
     path = store._path("legacy-summary")
     path.parent.mkdir(parents=True)
@@ -284,10 +283,11 @@ def test_get_session_summary_migrates_legacy_session_without_catalog_scan(tmp_pa
         ),
         encoding="utf-8",
     )
-    summary = _service(tmp_path, session_store=store).get_session_summary("legacy-summary")
-    assert summary.title == "legacy title"
-    assert summary.metadata_version == 1
-    assert json.loads(path.read_text(encoding="utf-8"))["schema_version"] == 3
+    original = path.read_bytes()
+    with pytest.raises(UnsupportedSessionSchemaError) as caught:
+        _service(tmp_path, session_store=store).get_session_summary("legacy-summary")
+    assert caught.value.code == "unsupported_session_schema"
+    assert path.read_bytes() == original
 
 
 def test_get_session_summary_linearizes_before_concurrent_rename(tmp_path):
@@ -362,75 +362,25 @@ def test_get_session_summary_linearizes_before_concurrent_delete(tmp_path):
         service.get_session_summary(session.id)
 
 
-def test_legacy_session_migrates_once_without_changing_messages(tmp_path):
-    store = SessionStore(tmp_path / "sessions")
-    path = store._path("legacy")
-    path.parent.mkdir(parents=True)
-    messages = [
-        {"role": "system", "content": "private"},
-        {"role": "user", "content": "  第一条\n\t公开问题  "},
-    ]
-    path.write_text(
-        json.dumps(
-            {
-                "id": "legacy",
-                "created_at": "2026-01-01T00:00:00",
-                "updated_at": "2026-01-02T00:00:00",
-                "messages": messages,
-            },
-            ensure_ascii=False,
-        ),
-        encoding="utf-8",
-    )
-
-    first = store.load("legacy")
-    second = store.load("legacy")
-    assert first == second
-    assert first.schema_version == 3
-    assert first.title == "第一条 公开问题"
-    assert first.title_source == "auto"
-    assert first.metadata_version == 1
-    assert first.messages == messages
-    summary = _service(tmp_path).catalog_sessions().items[0]
-    assert summary.created_at.endswith("Z")
-    assert summary.updated_at.endswith("Z")
-
-
 def test_unknown_future_session_schema_fails_closed(tmp_path):
     store = SessionStore(tmp_path / "sessions")
     path = store._path("future")
     path.parent.mkdir(parents=True)
     path.write_text('{"schema_version":4,"id":"future"}', encoding="utf-8")
-    with pytest.raises(UnsupportedSessionSchemaError):
+    with pytest.raises(UnsupportedSessionSchemaError) as caught:
         store.load("future")
-    with pytest.raises(SessionUnavailableError):
+    assert caught.value.code == "unsupported_session_schema"
+    assert caught.value.expected_version == 3
+    assert caught.value.actual_version == 4
+    with pytest.raises(UnsupportedSessionSchemaError):
         _service(tmp_path).catalog_sessions()
 
 
-def test_catalog_isolates_one_unmigratable_v1_artifact_without_rewriting_it(tmp_path):
+def test_catalog_fails_closed_on_v1_session_without_rewriting_it(tmp_path):
     store = SessionStore(tmp_path / "sessions")
     healthy = store.new_session()
     store.save(healthy, [{"role": "user", "content": "healthy"}], must_exist=False)
 
-    spec = ChartSpecV1(
-        chart_type="bar",
-        title="旧图表",
-        columns=(
-            ChartColumn(key="name", label="名称", data_type="string"),
-            ChartColumn(key="value", label="数量", data_type="number"),
-        ),
-        rows=(("A", 1),),
-        x_key="name",
-        series=(ChartSeries(key="value", label="数量"),),
-    )
-    artifact = build_chart_artifact(
-        spec,
-        session_id="bad-v1-chart",
-        run_id="run-bad-chart",
-        call_id="call-bad-chart",
-        created_at="2026-01-01T00:01:00Z",
-    ).model_dump(mode="json")
-    artifact["content_hash"] = "sha256:" + "0" * 64
     bad_path = store._path("bad-v1-chart")
     bad_path.write_text(
         json.dumps(
@@ -447,18 +397,19 @@ def test_catalog_isolates_one_unmigratable_v1_artifact_without_rewriting_it(tmp_
                     {"role": "assistant", "content": "ready"},
                 ],
                 "assistant_messages": [],
-                "presentations": [artifact],
+                "presentations": [],
+                "message_ledger": [],
+                "fork_origin": None,
             }
         ),
         encoding="utf-8",
     )
     original = bad_path.read_bytes()
 
-    page = _service(tmp_path, session_store=store).catalog_sessions()
-
-    assert [item.id for item in page.items] == [healthy.id]
+    with pytest.raises(UnsupportedSessionSchemaError):
+        _service(tmp_path, session_store=store).catalog_sessions()
     assert bad_path.read_bytes() == original
-    with pytest.raises(SessionMigrationRequiredError, match="Artifact"):
+    with pytest.raises(UnsupportedSessionSchemaError):
         store.load("bad-v1-chart")
     assert bad_path.read_bytes() == original
 
@@ -466,18 +417,21 @@ def test_catalog_isolates_one_unmigratable_v1_artifact_without_rewriting_it(tmp_
 def test_current_session_chart_artifact_roundtrip_is_unchanged(tmp_path):
     store = SessionStore(tmp_path / "sessions")
     session = store.new_session()
-    spec = ChartSpecV1(
-        chart_type="line",
-        title="当前图表",
-        columns=(
-            ChartColumn(key="name", label="名称", data_type="string"),
-            ChartColumn(key="value", label="数量", data_type="number"),
-        ),
-        rows=(("A", 1),),
-        x_key="name",
-        series=(ChartSeries(key="value", label="数量"),),
+    spec = normalize_chart_v2_input(
+        {
+            "schema_version": 2,
+            "chart_type": "line",
+            "title": "当前图表",
+            "columns": [
+                {"key": "name", "label": "名称"},
+                {"key": "value", "label": "数量"},
+            ],
+            "rows": [["A", 1]],
+            "x_key": "name",
+            "series": [{"key": "value", "label": "数量"}],
+        }
     )
-    artifact = build_chart_artifact(
+    artifact = build_chart_artifact_v2(
         spec,
         session_id=session.id,
         run_id="run-current-chart",
@@ -651,7 +605,7 @@ def test_catalog_mixed_time_formats_use_utc_keyset_order(tmp_path):
         path.write_text(
             json.dumps(
                 {
-                    "schema_version": 1,
+                    "schema_version": 3,
                     "id": session_id,
                     "title": session_id,
                     "title_source": "auto",
@@ -659,6 +613,7 @@ def test_catalog_mixed_time_formats_use_utc_keyset_order(tmp_path):
                     "created_at": updated_at,
                     "updated_at": updated_at,
                     "messages": [],
+                    "message_ledger": [],
                 }
             ),
             encoding="utf-8",
@@ -689,7 +644,7 @@ def test_catalog_fractional_instants_remain_distinct_across_cursor_pages(tmp_pat
         path.write_text(
             json.dumps(
                 {
-                    "schema_version": 1,
+                    "schema_version": 3,
                     "id": session_id,
                     "title": session_id,
                     "title_source": "auto",
@@ -697,6 +652,7 @@ def test_catalog_fractional_instants_remain_distinct_across_cursor_pages(tmp_pat
                     "created_at": updated_at,
                     "updated_at": updated_at,
                     "messages": [],
+                    "message_ledger": [],
                 }
             ),
             encoding="utf-8",

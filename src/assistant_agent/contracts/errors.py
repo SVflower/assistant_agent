@@ -84,6 +84,29 @@ class SessionMigrationRequiredError(AgentServiceError):
     code = "session_migration_required"
 
 
+class UnsupportedSchemaError(AgentServiceError):
+    """持久化或 Artifact schema 与当前运行时不兼容。"""
+
+    code = "unsupported_schema"
+
+    def __init__(self, message: str, *, expected_version: int, actual_version: object) -> None:
+        self.expected_version = expected_version
+        self.actual_version = actual_version
+        super().__init__(message)
+
+
+class UnsupportedRunStateSchemaError(UnsupportedSchemaError):
+    code = "unsupported_run_state_schema"
+
+
+class UnsupportedSessionSchemaError(UnsupportedSchemaError):
+    code = "unsupported_session_schema"
+
+
+class UnsupportedChartSchemaError(UnsupportedSchemaError):
+    code = "unsupported_chart_schema"
+
+
 class UserMessageNotFoundError(AgentServiceError):
     code = "user_message_not_found"
 

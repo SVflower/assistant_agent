@@ -7,8 +7,8 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from assistant_agent.contracts.charts import (
-    AnyPresentationArtifactRef,
     AssistantMessageSnapshot,
+    PresentationArtifactRefV2,
 )
 from assistant_agent.contracts.time import parse_utc_timestamp
 
@@ -82,7 +82,7 @@ class PublicMessageSnapshot(_StrictModel):
     created_at: str | None = None
     reply_to_message_id: str | None = Field(default=None, pattern=r"^msg_[a-f0-9]{24}$")
     content: str = ""
-    artifacts: tuple[AnyPresentationArtifactRef, ...] = ()
+    artifacts: tuple[PresentationArtifactRefV2, ...] = ()
 
     @field_validator("created_at")
     @classmethod
@@ -112,7 +112,7 @@ class SessionSnapshot(_StrictModel):
     created_at: str | None = None
     updated_at: str | None = None
     messages: tuple[PublicMessageSnapshot, ...] = ()
-    artifacts: tuple[AnyPresentationArtifactRef, ...] = ()
+    artifacts: tuple[PresentationArtifactRefV2, ...] = ()
     assistant_messages: tuple[AssistantMessageSnapshot, ...] = ()
     fork_created: bool | None = None
 

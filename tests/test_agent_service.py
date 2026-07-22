@@ -628,7 +628,7 @@ class _ChartClient:
                         "chart-call",
                         "present_chart",
                         {
-                            "schema_version": 1,
+                            "schema_version": 2,
                             "chart_type": "bar",
                             "title": "数量",
                             "columns": [

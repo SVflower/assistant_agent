@@ -14,7 +14,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from assistant_agent.contracts.charts import AnyChartArtifact
+from assistant_agent.contracts.charts import ChartArtifactV2
+from assistant_agent.contracts.errors import UnsupportedRunStateSchemaError
 from assistant_agent.contracts.failures import BudgetResource, RunFailure
 from assistant_agent.contracts.time import utc_now_rfc3339
 
@@ -118,7 +119,7 @@ class ToolResultState(StrictStateModel):
     retryable: bool = False
     executed: bool = True
     budget_exhausted: str | None = None
-    chart: AnyChartArtifact | None = None
+    chart: ChartArtifactV2 | None = None
 
 
 class PermissionRequestState(StrictStateModel):
@@ -197,7 +198,7 @@ class RunState(StrictStateModel):
     last_signature: str | None = None
     repeat_count: int = Field(default=0, ge=0)
     tool_calls: list[ToolCallState] = Field(default_factory=list)
-    presentations: list[AnyChartArtifact] = Field(default_factory=list, max_length=16)
+    presentations: list[ChartArtifactV2] = Field(default_factory=list, max_length=16)
     permission_grants: list[PermissionGrantState] = Field(default_factory=list)
     terminal_text: str = ""
     failure: RunFailure | None = None
@@ -282,71 +283,13 @@ class RunState(StrictStateModel):
                 raise ValueError(f"工具状态与 tool result 消息不配对：{call.id}")
 
 
-def migrate_run_document(document: dict[str, Any]) -> dict[str, Any]:
-    """升级已知旧版本；未知未来版本必须明确拒绝。"""
+def parse_run_state(document: dict[str, Any]) -> RunState:
+    """只接受当前 checkpoint schema，不补齐或转换旧状态。"""
     version = document.get("schema_version")
-    if version == _SCHEMA_VERSION:
-        return document
-    if version in {1, 2, 3, 4, 5, 6}:
-        migrated = dict(document)
-        migrated["schema_version"] = _SCHEMA_VERSION
-        iteration_limit = max(int(migrated.get("iteration_budget", 1)), 1)
-        tool_budget = migrated.get("tool_budget") or {}
-        call_limit = max(int(tool_budget.get("max_calls", 1)), 1)
-        output_limit = max(int(tool_budget.get("max_total_output_chars", 0)), 1)
-        migrated.setdefault(
-            "iteration_continuation",
-            {
-                "resource": "iterations",
-                "increment": iteration_limit,
-                "hard_limit": max(iteration_limit * 4, iteration_limit),
-                "extension_count": 0,
-                "max_extensions": 2,
-            },
+    if version != _SCHEMA_VERSION:
+        raise UnsupportedRunStateSchemaError(
+            f"Run checkpoint schema 不兼容：需要 v{_SCHEMA_VERSION}",
+            expected_version=_SCHEMA_VERSION,
+            actual_version=version,
         )
-        migrated.setdefault(
-            "tool_call_continuation",
-            {
-                "resource": "tool_calls",
-                "increment": call_limit,
-                "hard_limit": max(call_limit * 4, call_limit),
-                "extension_count": 0,
-                "max_extensions": 2,
-            },
-        )
-        migrated.setdefault(
-            "tool_output_continuation",
-            {
-                "resource": "tool_output",
-                "increment": max(output_limit, 1),
-                "hard_limit": max(output_limit * 4, output_limit),
-                "extension_count": 0,
-                "max_extensions": 2,
-            },
-        )
-        migrated.setdefault("continuation_decisions", [])
-        migrated.setdefault("presentations", [])
-        migrated["baseline_messages"] = []
-        migrated["baseline_compaction_checkpoint"] = None
-        migrated["retry_baseline_available"] = False
-        migrated["retry_safety"] = "unknown"
-        migrated["retry_of_run_id"] = None
-        migrated["retry_idempotency_key_hash"] = None
-        migrated["retry_request_hash"] = None
-        migrated["reconciliation_request_hash"] = None
-        migrated["retry_requests"] = {}
-        if migrated.get("status") == "failed" and not migrated.get("failure"):
-            migrated["failure"] = {
-                "code": "internal_error",
-                "safe_message": "旧版本 Run 已失败，未保存结构化失败详情。",
-                "retryable": False,
-                "allowed_actions": ["start_new_run"],
-                "resource": None,
-                "used": None,
-                "limit": None,
-                "terminal_status": "failed",
-                "phase": "saving_checkpoint",
-                "unknown_side_effect": False,
-            }
-        return migrated
-    raise ValueError(f"不支持的 RunState schema_version：{version!r}")
+    return RunState.model_validate(document)

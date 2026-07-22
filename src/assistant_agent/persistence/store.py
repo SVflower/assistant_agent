@@ -22,8 +22,11 @@ from assistant_agent.application.models import (
     SessionMeta,
     automatic_session_title,
 )
-from assistant_agent.contracts.charts import parse_chart_artifact
-from assistant_agent.contracts.errors import IdempotencyConflictError, SessionMigrationRequiredError
+from assistant_agent.contracts.errors import (
+    IdempotencyConflictError,
+    SessionMigrationRequiredError,
+    UnsupportedSessionSchemaError,
+)
 from assistant_agent.contracts.sessions import PublicMessageSnapshot
 from assistant_agent.contracts.time import (
     normalize_utc_timestamp,
@@ -38,10 +41,6 @@ _MESSAGE_ID = re.compile(r"^msg_[a-f0-9]{24}$")
 _THREAD_LOCKS_GUARD = threading.Lock()
 _THREAD_LOCKS: dict[Path, threading.Lock] = {}
 _T = TypeVar("_T")
-
-
-class UnsupportedSessionSchemaError(ValueError):
-    """Session 文档来自未知未来版本，调用方必须 fail closed。"""
 
 
 def _now_iso() -> str:
@@ -89,149 +88,15 @@ def _proven_message_time(message: dict[str, Any]) -> str | None:
         return None
 
 
-def _build_message_ledger(data: dict[str, Any]) -> list[dict[str, Any]]:
-    session_id = data.get("id")
-    if not isinstance(session_id, str):
-        raise SessionMigrationRequiredError("Session ID 缺失")
-    raw_messages = _public_raw_messages(data.get("messages", []))
-    snapshots = data.get("assistant_messages", [])
-    if not isinstance(snapshots, list):
-        raise SessionMigrationRequiredError("assistant_messages 不是合法数组")
-    artifacts = data.get("presentations", [])
-    if not isinstance(artifacts, list):
-        raise SessionMigrationRequiredError("presentations 不是合法数组")
-
-    refs_by_message: dict[str, list[dict[str, Any]]] = {}
-    for item in artifacts:
-        try:
-            # Session.presentations 保存完整不可变 Artifact，而公开 ledger 只嵌入轻量 ref。
-            # 因此先严格校验旧完整载荷，再显式投影为 ref；不能直接拿完整载荷校验 ref，
-            # 否则其中必需的 `spec` 会被当作额外字段，导致所有 v1 图表 Session 无法读取。
-            ref = parse_chart_artifact(item, strict=True).ref
-        except Exception as exc:
-            raise SessionMigrationRequiredError("Session Artifact 无法安全迁移") from exc
-        refs_by_message.setdefault(ref.message_id, []).append(ref.model_dump(mode="json"))
-
-    ledger: list[dict[str, Any]] = []
-    used_ids: set[str] = set()
-    current_user_id: str | None = None
-    assistant_index = 0
-    for ordinal, raw in enumerate(raw_messages):
-        role = raw.get("role")
-        content = str(raw.get("content") or "")
-        artifacts_for_message: list[dict[str, Any]] = []
-        if role == "user":
-            message_id = _stable_message_id(session_id, ordinal, "user")
-            current_user_id = message_id
-            reply_to = None
-        else:
-            if current_user_id is None:
-                raise SessionMigrationRequiredError("assistant message 缺少可证明的 user 归属")
-            snapshot = snapshots[assistant_index] if assistant_index < len(snapshots) else None
-            assistant_index += 1
-            candidate = snapshot.get("id") if isinstance(snapshot, dict) else None
-            message_id = (
-                candidate
-                if isinstance(candidate, str) and _MESSAGE_ID.fullmatch(candidate)
-                else _stable_message_id(session_id, ordinal, "assistant")
-            )
-            artifacts_for_message = refs_by_message.pop(message_id, [])
-            reply_to = current_user_id
-        if message_id in used_ids:
-            raise SessionMigrationRequiredError("Session message ID 冲突")
-        used_ids.add(message_id)
-        ledger.append(
-            {
-                "id": message_id,
-                "role": role,
-                "created_at": _proven_message_time(raw),
-                "reply_to_message_id": reply_to,
-                "content": content,
-                "artifacts": artifacts_for_message,
-            }
-        )
-
-    for snapshot in snapshots[assistant_index:]:
-        if not isinstance(snapshot, dict):
-            continue
-        content = str(snapshot.get("content") or "")
-        candidate = snapshot.get("id")
-        meaningful = bool(content or snapshot.get("artifacts"))
-        if not meaningful:
-            continue
-        if (
-            current_user_id is None
-            or not isinstance(candidate, str)
-            or not _MESSAGE_ID.fullmatch(candidate)
-        ):
-            raise SessionMigrationRequiredError("旧 assistant snapshot 无法安全绑定")
-        if candidate in used_ids:
-            raise SessionMigrationRequiredError("Session message ID 冲突")
-        used_ids.add(candidate)
-        ledger.append(
-            {
-                "id": candidate,
-                "role": "assistant",
-                "created_at": None,
-                "reply_to_message_id": current_user_id,
-                "content": content,
-                "artifacts": refs_by_message.pop(candidate, []),
-            }
-        )
-    if refs_by_message:
-        raise SessionMigrationRequiredError("Session Artifact 缺少公开消息归属")
-    try:
-        return [
-            PublicMessageSnapshot.model_validate(item, strict=True).model_dump(mode="json")
-            for item in ledger
-        ]
-    except Exception as exc:
-        raise SessionMigrationRequiredError("Session ledger 无法安全迁移") from exc
-
-
-def _migrate_document(data: dict[str, Any]) -> tuple[dict[str, Any], bool]:
-    migrated_document = False
+def _validate_document(data: dict[str, Any]) -> dict[str, Any]:
+    """只验证当前 Session schema；读取绝不重写持久化文档。"""
     version = data.get("schema_version")
-    if version is not None and type(version) is not int:
-        raise UnsupportedSessionSchemaError(f"不支持的 Session schema_version：{version!r}")
-    missing_v1_metadata = any(
-        field not in data for field in ("title", "title_source", "metadata_version")
-    )
-    is_v0 = version is None or version == 0 or (version == 1 and missing_v1_metadata)
-    if is_v0:
-        migrated = dict(data)
-        source = migrated.get("title_source")
-        title = migrated.get("title")
-        if not (_valid_title(title) and source in {"auto", "user"}):
-            title = automatic_session_title(migrated.get("messages", []))
-            source = "auto"
-        migrated.update(
-            schema_version=1,
-            title=title,
-            title_source=source,
-            metadata_version=1,
-            created_at=normalize_utc_timestamp(str(migrated.get("created_at") or "")),
-            updated_at=normalize_utc_timestamp(str(migrated.get("updated_at") or "")),
-        )
-        data = migrated
-        version = 1
-        migrated_document = True
-    if version == 1:
-        migrated = dict(data)
-        migrated["schema_version"] = SESSION_SCHEMA_VERSION
-        migrated["message_ledger"] = _build_message_ledger(migrated)
-        migrated.setdefault("fork_origin", None)
-        data = migrated
-        version = SESSION_SCHEMA_VERSION
-        migrated_document = True
-    if version == 2:
-        migrated = dict(data)
-        migrated["schema_version"] = SESSION_SCHEMA_VERSION
-        data = migrated
-        version = SESSION_SCHEMA_VERSION
-        migrated_document = True
     if version != SESSION_SCHEMA_VERSION:
-        raise UnsupportedSessionSchemaError(f"不支持的 Session schema_version：{version!r}")
+        raise UnsupportedSessionSchemaError(
+            f"Session schema 不兼容：需要 v{SESSION_SCHEMA_VERSION}",
+            expected_version=SESSION_SCHEMA_VERSION,
+            actual_version=version,
+        )
     if not _valid_title(data.get("title")):
         raise ValueError("Session title 不合法")
     if data.get("title_source") not in {"auto", "user"}:
@@ -239,12 +104,11 @@ def _migrate_document(data: dict[str, Any]) -> tuple[dict[str, Any], bool]:
     metadata_version = data.get("metadata_version")
     if type(metadata_version) is not int or metadata_version < 1:
         raise ValueError("Session metadata_version 不合法")
-    normalized = dict(data)
-    if "message_ledger" not in normalized:
+    if "message_ledger" not in data:
         raise SessionMigrationRequiredError("Session v3 缺少 message_ledger")
-    normalized["created_at"] = normalize_utc_timestamp(str(data.get("created_at") or ""))
-    normalized["updated_at"] = normalize_utc_timestamp(str(data.get("updated_at") or ""))
-    return normalized, migrated_document or normalized != data
+    normalize_utc_timestamp(str(data.get("created_at") or ""))
+    normalize_utc_timestamp(str(data.get("updated_at") or ""))
+    return data
 
 
 def _lock_file(handle: BinaryIO) -> None:
@@ -336,22 +200,27 @@ class SessionStore:
             model=model,
         )
 
-    def _read_locked(self, session_id: str) -> tuple[Session, bool]:
+    def _read_locked(self, session_id: str) -> Session:
         path = self._path(session_id)
         if not path.is_file():
             raise FileNotFoundError(f"会话不存在：{session_id}")
         raw = json.loads(path.read_text(encoding="utf-8"))
         if not isinstance(raw, dict):
             raise ValueError("Session 文档根节点必须是 object")
-        data, migrated = _migrate_document(raw)
-        session = Session.from_dict(data)
+        session = Session.from_dict(_validate_document(raw))
         if session.id != session_id:
             raise ValueError("会话文件 ID 与请求 ID 不一致")
-        return session, migrated
+        return session
 
     def _atomic_write_locked(self, session: Session) -> None:
         # JSON 先完整写入同目录临时文件，再原子替换正式文件。异常时只删除临时文件，
         # 原 Session 保持可读，调用方不会观察到一半新、一半旧的文档。
+        if session.schema_version != SESSION_SCHEMA_VERSION:
+            raise UnsupportedSessionSchemaError(
+                f"Session schema 不兼容：需要 v{SESSION_SCHEMA_VERSION}",
+                expected_version=SESSION_SCHEMA_VERSION,
+                actual_version=session.schema_version,
+            )
         text = json.dumps(session.to_dict(), ensure_ascii=False, indent=2, allow_nan=False)
         payload = text.encode("utf-8", errors="replace")
         target = self._path(session.id)
@@ -381,7 +250,7 @@ class SessionStore:
                 raise FileNotFoundError(f"会话已删除：{session.id}")
             with self._document_lock(session.id):
                 try:
-                    fresh, _ = self._read_locked(session.id)
+                    fresh = self._read_locked(session.id)
                 except FileNotFoundError:
                     fresh = None
                 if must_exist and fresh is None:
@@ -461,19 +330,16 @@ class SessionStore:
             used_ids.add(message_id)
 
     def load(self, session_id: str) -> Session:
-        """载入并在锁内幂等迁移旧 Session；未知未来版本拒绝读取。"""
+        """载入当前 v3 Session；其他版本明确拒绝。"""
         return self.read_locked(session_id, lambda session: session)
 
     def read_locked(self, session_id: str, reader: Callable[[Session], _T]) -> _T:
-        """在 lifecycle/document 锁内读取迁移后的 Session 并执行只读映射。"""
+        """在 lifecycle/document 锁内读取当前 Session 并执行只读映射。"""
         with self._lifecycle.lock(session_id):
             if self._lifecycle.is_deleted_locked(session_id):
                 raise FileNotFoundError(f"会话已删除：{session_id}")
             with self._document_lock(session_id):
-                session, migrated = self._read_locked(session_id)
-                if migrated:
-                    self._atomic_write_locked(session)
-                return reader(session)
+                return reader(self._read_locked(session_id))
 
     def update_metadata(self, session_id: str, title: str, expected_version: int) -> Session:
         if not _valid_title(title):
@@ -484,9 +350,7 @@ class SessionStore:
             if self._lifecycle.is_deleted_locked(session_id):
                 raise FileNotFoundError(f"会话已删除：{session_id}")
             with self._document_lock(session_id):
-                session, migrated = self._read_locked(session_id)
-                if migrated:
-                    self._atomic_write_locked(session)
+                session = self._read_locked(session_id)
                 if session.metadata_version != expected_version:
                     from assistant_agent.contracts.errors import SessionMetadataConflictError
 
@@ -513,9 +377,7 @@ class SessionStore:
             if self._lifecycle.is_deleted_locked(source_session_id):
                 raise FileNotFoundError(f"会话已删除：{source_session_id}")
             with self._document_lock(source_session_id):
-                source, migrated = self._read_locked(source_session_id)
-                if migrated:
-                    self._atomic_write_locked(source)
+                source = self._read_locked(source_session_id)
                 replay = self._find_fork_locked(source_session_id, key_hash)
                 if replay is not None:
                     origin = replay.fork_origin or {}
@@ -567,8 +429,7 @@ class SessionStore:
             ):
                 continue
             try:
-                data, _ = _migrate_document(raw)
-                return Session.from_dict(data)
+                return Session.from_dict(_validate_document(raw))
             except (ValueError, KeyError) as exc:
                 raise SessionMigrationRequiredError("fork 幂等结果无法安全恢复") from exc
         return None

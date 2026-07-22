@@ -44,17 +44,6 @@ _FORBIDDEN_KEYS = {
     "prototype",
     "constructor",
 }
-_V2_ONLY_TYPES = {
-    "grouped_bar",
-    "percent_stacked_bar",
-    "pie",
-    "combo_bar_line",
-    "dual_axis",
-    "bubble",
-    "histogram",
-    "boxplot",
-    "heatmap",
-}
 _ROOT_KEYS = {
     "schema_version",
     "chart_type",
@@ -91,25 +80,12 @@ _PANEL_KEYS = _ROOT_KEYS - {
 } | {"panel_title"}
 
 
-def needs_chart_v2(args: dict[str, Any]) -> bool:
-    return (
-        args.get("schema_version") == 2
-        or args.get("chart_type") in _V2_ONLY_TYPES
-        or bool(args.get("panels"))
-        or any(
-            args.get(key)
-            for key in ("reference_lines", "reference_bands", "error_bars", "annotations")
-        )
-        or any(
-            item.get("axis") or item.get("mark")
-            for item in args.get("series", [])
-            if isinstance(item, dict)
-        )
-    )
-
-
 def normalize_chart_v2_input(args: dict[str, Any]) -> ChartSpecV2:
     draft = deepcopy(args)
+    supplied_version = draft.get("schema_version", 2)
+    if supplied_version != 2:
+        raise ChartInputError("schema_version: 只支持 ChartSpecV2（值 2）")
+    draft["schema_version"] = 2
     _reject_forbidden_keys(draft)
     _reject_unknown_draft_keys(draft)
     try:

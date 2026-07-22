@@ -9,7 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Literal
 
-from assistant_agent.contracts.charts import AnyChartArtifact
+from assistant_agent.contracts.charts import ChartArtifactV2
 from assistant_agent.contracts.failures import ActivityPhase, BudgetSnapshot, RunFailure
 
 
@@ -77,7 +77,7 @@ class StepEvent:
     failure: RunFailure | None = None
     phase: ActivityPhase | None = None
     budget: BudgetSnapshot | None = None
-    chart: AnyChartArtifact | None = None
+    chart: ChartArtifactV2 | None = None
 
     def __post_init__(self) -> None:
         if self.kind == "reasoning":

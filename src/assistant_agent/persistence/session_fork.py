@@ -11,8 +11,8 @@ from assistant_agent.application.models import (
     automatic_session_title,
 )
 from assistant_agent.contracts.charts import (
-    AnyChartArtifact,
-    AnyPresentationArtifactRef,
+    ChartArtifactV2,
+    PresentationArtifactRefV2,
     canonical_json_bytes,
     parse_chart_artifact,
 )
@@ -47,11 +47,11 @@ def build_forked_session(
     copied = source.message_ledger[:boundary]
     id_map = {message.id: fork_message_id(target_session_id, message.id) for message in copied}
     source_artifacts = {item.artifact_id: item for item in source.presentations}
-    cloned_artifacts: list[AnyChartArtifact] = []
+    cloned_artifacts: list[ChartArtifactV2] = []
     ledger: list[PublicMessageSnapshot] = []
     for message in copied:
         new_id = id_map[message.id]
-        refs: list[AnyPresentationArtifactRef] = []
+        refs: list[PresentationArtifactRefV2] = []
         for ref in message.artifacts:
             artifact = source_artifacts.get(ref.artifact_id)
             if artifact is None or artifact.content_hash != ref.content_hash:
@@ -106,12 +106,12 @@ def build_forked_session(
 
 
 def _clone_chart_artifact(
-    source: AnyChartArtifact,
+    source: ChartArtifactV2,
     *,
     target_session_id: str,
     target_message_id: str,
     committed_at: str,
-) -> AnyChartArtifact:
+) -> ChartArtifactV2:
     identity = canonical_json_bytes(
         [target_session_id, target_message_id, source.artifact_id, source.content_hash]
     )

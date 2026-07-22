@@ -11,7 +11,7 @@ from assistant_agent.agent.run.state import (
     ToolCallState,
     ToolResultState,
     canonical_hash,
-    migrate_run_document,
+    parse_run_state,
     stable_call_id,
 )
 
@@ -142,20 +142,15 @@ def test_canonical_hash_ignores_mapping_order():
     assert canonical_hash({"a": 1, "b": 2}) == canonical_hash({"b": 2, "a": 1})
 
 
-def test_unknown_schema_version_is_rejected():
-    with pytest.raises(ValueError, match="schema_version"):
-        migrate_run_document({"schema_version": 99})
-
-
-def test_v1_document_migrates_and_cancelled_is_terminal():
+def test_checkpoint_only_accepts_current_schema():
     state = _state(status="cancelled", phase="terminal")
     assert state.schema_version == 7
-    legacy = state.model_dump(mode="python")
-    legacy["schema_version"] = 1
-    legacy["status"] = "paused"
-    legacy["phase"] = "model_pending"
-    migrated = migrate_run_document(legacy)
-    assert migrated["schema_version"] == 7
-    assert migrated["retry_safety"] == "unknown"
-    assert migrated["retry_baseline_available"] is False
-    assert RunState.model_validate(migrated).status == "paused"
+    assert parse_run_state(state.model_dump(mode="python")) == state
+    for version in (1, 6, 8, None):
+        incompatible = state.model_dump(mode="python")
+        incompatible["schema_version"] = version
+        with pytest.raises(Exception) as caught:
+            parse_run_state(incompatible)
+        assert caught.value.code == "unsupported_run_state_schema"
+        assert caught.value.expected_version == 7
+        assert caught.value.actual_version == version

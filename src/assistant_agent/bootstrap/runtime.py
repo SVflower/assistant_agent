@@ -480,7 +480,7 @@ def create_runtime(
             mcp_servers=mcp_capabilities,
             extension_management=extension_management,
             profile=policy.profile,
-            chart_spec_versions=(1, 2) if chart_available else (),
+            chart_spec_versions=(2,) if chart_available else (),
         )
         # 到这里所有 adapter 已创建完成。AgentRuntime 接管它们的关闭责任；成功返回后，
         # composition root 不再单独拥有这些资源。

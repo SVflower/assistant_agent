@@ -6,8 +6,8 @@ from dataclasses import dataclass, field
 from typing import Any, Literal, TypeGuard
 
 from assistant_agent.contracts.charts import (
-    AnyChartArtifact,
     AssistantMessageSnapshot,
+    ChartArtifactV2,
     parse_chart_artifact,
 )
 from assistant_agent.contracts.sessions import PublicMessageSnapshot
@@ -66,7 +66,7 @@ class Session:
     model: str = ""
     messages: list[dict[str, Any]] = field(default_factory=list)
     compaction_checkpoint: dict[str, Any] | None = None
-    presentations: list[AnyChartArtifact] = field(default_factory=list)
+    presentations: list[ChartArtifactV2] = field(default_factory=list)
     assistant_messages: list[AssistantMessageSnapshot] = field(default_factory=list)
     message_ledger: list[PublicMessageSnapshot] = field(default_factory=list)
     fork_origin: dict[str, str] | None = None

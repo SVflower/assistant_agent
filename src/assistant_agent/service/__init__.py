@@ -10,6 +10,7 @@ from assistant_agent.application.runs import (
 from assistant_agent.application.runtime import AgentRuntime
 from assistant_agent.bootstrap.runtime import create_runtime
 from assistant_agent.bootstrap.service import AgentService
+from assistant_agent.contracts import AGENT_SERVICE_CONTRACT_VERSION
 from assistant_agent.contracts.capabilities import (
     MCPServerCapability,
     RuntimeCapabilities,
@@ -18,16 +19,9 @@ from assistant_agent.contracts.capabilities import (
     SkillCapability,
 )
 from assistant_agent.contracts.charts import (
-    AnyChartArtifact,
-    AnyPresentationArtifactRef,
     AssistantMessageSnapshot,
-    ChartArtifact,
-    ChartColumn,
-    ChartSeries,
-    ChartSpecV1,
     ChartSpecV2,
     PendingInteractionSnapshot,
-    PresentationArtifactRef,
     PresentationArtifactRefV2,
     RunSnapshot,
 )
@@ -61,6 +55,10 @@ from assistant_agent.contracts.errors import (
     SessionNotFoundError,
     SessionRunConflictError,
     SessionUnavailableError,
+    UnsupportedChartSchemaError,
+    UnsupportedRunStateSchemaError,
+    UnsupportedSchemaError,
+    UnsupportedSessionSchemaError,
     UserMessageNotFoundError,
 )
 from assistant_agent.contracts.events import (
@@ -81,19 +79,14 @@ from assistant_agent.contracts.sessions import (
 )
 
 __all__ = [
+    "AGENT_SERVICE_CONTRACT_VERSION",
     "AgentRuntime",
     "AgentService",
     "AgentServiceError",
-    "AnyChartArtifact",
-    "AnyPresentationArtifactRef",
     "ArtifactNotFoundError",
     "ArtifactUnavailableError",
     "AssistantMessageSnapshot",
-    "ChartArtifact",
     "ChartArtifactV2",
-    "ChartColumn",
-    "ChartSeries",
-    "ChartSpecV1",
     "ChartSpecV2",
     "DatasetColumnV1",
     "EVENT_CONTRACT_VERSION",
@@ -126,7 +119,6 @@ __all__ = [
     "SessionRunConflictError",
     "SessionRuntime",
     "SessionSnapshot",
-    "PresentationArtifactRef",
     "PresentationArtifactRefV2",
     "PublicMessageSnapshot",
     "StepEvent",
@@ -146,6 +138,10 @@ __all__ = [
     "SessionNotFoundError",
     "SessionSummary",
     "SessionUnavailableError",
+    "UnsupportedChartSchemaError",
+    "UnsupportedRunStateSchemaError",
+    "UnsupportedSchemaError",
+    "UnsupportedSessionSchemaError",
     "UserMessageNotFoundError",
     "UpdateSessionMetadataRequest",
     "TabularDatasetV1",

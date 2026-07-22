@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import pytest
+
 import assistant_agent.service as service
 from assistant_agent import contracts
-from assistant_agent.agent.run.state import RunState, migrate_run_document
+from assistant_agent.agent.run.state import RunState, parse_run_state
 from assistant_agent.contracts.events import EVENT_CONTRACT_VERSION
 
 
@@ -29,7 +31,7 @@ def test_m22_public_service_exports_are_stable():
     assert contracts.RunRecoveryRequiredError is service.RunRecoveryRequiredError
 
 
-def test_v5_migration_is_fail_closed_for_retry_and_baseline():
+def test_v5_checkpoint_is_rejected_without_migration():
     current = RunState(
         run_id="run-1",
         session_id="session-1",
@@ -50,7 +52,7 @@ def test_v5_migration_is_fail_closed_for_retry_and_baseline():
         updated_at="2026-01-01T00:00:00",
     ).model_dump(mode="python")
     current["schema_version"] = 5
-    migrated = migrate_run_document(current)
-    assert migrated["schema_version"] == 7
-    assert migrated["retry_safety"] == "unknown"
-    assert migrated["retry_baseline_available"] is False
+    with pytest.raises(Exception) as caught:
+        parse_run_state(current)
+    assert caught.value.code == "unsupported_run_state_schema"
+    assert caught.value.actual_version == 5

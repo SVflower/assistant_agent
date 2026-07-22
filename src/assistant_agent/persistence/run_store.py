@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 from assistant_agent.application.models import RunMeta, is_public_run_status
+from assistant_agent.contracts.errors import UnsupportedRunStateSchemaError
 from assistant_agent.contracts.time import parse_utc_timestamp
 from assistant_agent.persistence.session_lifecycle import RunLifecycle, SessionLifecycle
 
@@ -360,6 +361,7 @@ class RunStore:
             raise TypeError("Run checkpoint 必须是 JSON object")
         if document.get("run_id") != run_id:
             raise ValueError("Run checkpoint ID 与目标 ID 不一致")
+        RunStore._require_current_schema(document)
         text = json.dumps(
             document,
             ensure_ascii=False,
@@ -446,7 +448,18 @@ class RunStore:
             raise ValueError("Run checkpoint 根节点必须是 object")
         if document.get("run_id") != expected_id:
             raise ValueError("Run checkpoint ID 与文件名不一致")
+        RunStore._require_current_schema(document)
         return document
+
+    @staticmethod
+    def _require_current_schema(document: dict[str, Any]) -> None:
+        actual = document.get("schema_version")
+        if actual != 7:
+            raise UnsupportedRunStateSchemaError(
+                "Run checkpoint schema 不兼容：需要 v7",
+                expected_version=7,
+                actual_version=actual,
+            )
 
     def _load_unchecked(self, run_id: str) -> LoadedRun:
         current = self._path(run_id)

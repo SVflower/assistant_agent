@@ -56,6 +56,8 @@
 - **M28 高频普通图表**：新增逐版本受控 ChartSpecV2 和中立 TabularDatasetV1，覆盖 15 类图表、
   histogram/boxplot/percent/aggregate 确定性计算、多轴、多面板与白名单 overlay；V1 hash 逐字节兼容，
   Event v1 不变，Session schema/contract v3、RunState v7。
+- **M30 Heatmap 契约与纠错**：新建 Heatmap 固定 X/Y category axis，拒绝空数据、全 null value 和
+  空白坐标；多面板重复坐标错误提供精确 field path、聚合候选和按图表意图隔离的一次修正额度。
 - **工具**：读/写/局部编辑/列目录/shell/代码检索/git 只读/用户澄清，以及带来源的
   `web_search`/`fetch_url`；搜索 backend 可替换，抓取含 SSRF、重定向和响应上限防护。
 - **命令层**：slash 命令系统本地拦截不花 token；`/skills` 与 `/mcp` 支持列出、安装、诊断、
@@ -74,8 +76,8 @@
   已完成工具不重放，started 副作用需 retry/skip/abort；预算、重复熔断、权限和摘要状态跨进程恢复；
   trace/session/run/call 标识对齐，还清 D8。
 
-**质量**：856 测试通过（10 个平台能力测试跳过）、覆盖率 84%、22,878 行/138 文件生产 Python 源码 +
-1,629 行 eval 基础设施，Ruff/mypy 全绿。架构适应度测试（12 条声明式依赖契约 + 旧路径防回归 +
+**质量**：867 测试通过（10 个平台能力测试跳过）、覆盖率 84%、22,934 行/138 文件生产 Python 源码 +
+1,617 行 eval 基础设施，Ruff/mypy 全绿。架构适应度测试（12 条声明式依赖契约 + 旧路径防回归 +
 600 行非阻断评审）、技术债册、
 DoD 和里程碑工作流全在；CI 已加入 format/lint/mypy/coverage/scripted eval/recovery eval 与
 Windows/Linux、Python 3.11/3.13 矩阵。剩余 7 项技术债（4 中/3 低，无高优先级）。
@@ -83,8 +85,8 @@ Windows/Linux、Python 3.11/3.13 矩阵。剩余 7 项技术债（4 中/3 低，
 **边界（明确未做）**：外置 MCP/自定义 Python Tool 的容器化、远程 Workspace、子 Agent 编排、
 Web GUI、rewind/recap、非交互 init、PyPI 分发。
 
-**阶段状态**：第一至第二十阶段已完成；M28 Agent 侧已完成，API/Web V2 图表接入待下游仓库
-实现。M10c 的
+**阶段状态**：第一至第二十一阶段已完成；M30 Agent 侧已完成，API/Web 需保真映射新增的可选
+纠错 metadata；M28 V2 图表 renderer 仍由下游仓库接入。M10c 的
 “不做全栈 async”决策保持不变；M14 以同步 RunControl、跨平台 ProcessSupervisor 和 Workspace
 抽象补齐受控执行边界并还清 D18。
 
@@ -419,6 +421,20 @@ D14，M9c 已还清 D9，M10a 已还清 D16，M10b 已还清 D8，M11a 已还清
 > 12/12 import-linter、scripted 22/22、recovery 4/4 全绿；生产 Python 22,878 行/138 文件，
 > eval 基础设施 1,629 行，未修改 Loop。API/Web 按 [交接](docs/archive/phase20/m28-agent-api-handoff.md)
 > 接入 V2 renderer 与判别联合。
+
+### 第二十一阶段（Agent 侧已完成）
+
+| 里程碑 | 主题 | 状态 |
+|--------|------|------|
+| M30 Agent | Heatmap 契约与定向纠错 | ✅ Agent · [方案](docs/archive/phase21/m30-heatmap-contract-plan.md) · API/Web additive 接入 |
+
+> **M30 Agent 已完成**：新建 Heatmap canonical 输出固定 X/Y category axis，并拒绝空 rows、全 null
+> value、null/空白坐标和空 derived dataset；重复坐标仍要求模型显式选择 aggregate。首次可修正错误通过
+> `result_metadata` 提供 field path、候选值、重复坐标/数量和剩余修正次数，额度按图表意图隔离并可从
+> checkpoint 恢复。Event v1、Session contract/schema v3、RunState v7、ChartSpecV1/V2 DTO 均不变。
+> 867 passed、10 skipped、覆盖率 84%；Ruff、mypy、12/12 import-linter、scripted 23/23、recovery 4/4
+> 全绿；生产 Python 22,934 行/138 文件，eval 基础设施 1,617 行，未修改 Loop。API/Web 按
+> [交接](docs/archive/phase21/m30-agent-api-handoff.md)保真映射可选 metadata。
 
 ## 未来方向（P3，信号驱动，暂不做）
 

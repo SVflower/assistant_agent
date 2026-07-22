@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import json
 
 import pytest
 
@@ -58,9 +59,11 @@ def _coordinator(tmp_path):
     )
 
 
-def _plan(coordinator, call_id):
-    call = ToolCall(call_id, "present_chart", _args(call_id))
-    coordinator.model_completed(
+def _plan(coordinator, call_id, arguments=None):
+    call_arguments = arguments or _args(call_id)
+    call = ToolCall(call_id, "present_chart", call_arguments)
+    messages = list(coordinator.state.messages)
+    messages.extend(
         [
             {"role": "user", "content": "chart"},
             {
@@ -70,11 +73,17 @@ def _plan(coordinator, call_id):
                     {
                         "id": call_id,
                         "type": "function",
-                        "function": {"name": "present_chart", "arguments": "{}"},
+                        "function": {
+                            "name": "present_chart",
+                            "arguments": json.dumps(call_arguments),
+                        },
                     }
                 ],
             },
-        ],
+        ]
+    )
+    coordinator.model_completed(
+        messages,
         [call],
     )
 
@@ -201,7 +210,8 @@ def test_chart_correction_limit_survives_checkpoint_reload(tmp_path):
     coordinator = _coordinator(tmp_path)
     registry = ToolRegistry()
     registry.register(PresentChartTool())
-    _plan(coordinator, "call-1")
+    invalid_args = _draft([["a", None]])
+    _plan(coordinator, "call-1", invalid_args)
     ctx = ToolContextFixture(workspace_root=tmp_path)
     ctx.bind_run(
         "run-1",
@@ -209,7 +219,7 @@ def test_chart_correction_limit_survives_checkpoint_reload(tmp_path):
         result_count=coordinator.count_tool_results,
     )
     first = registry.execute(
-        "present_chart", _draft([["a", None]]), ctx, call_id="call-1", lifecycle=coordinator
+        "present_chart", invalid_args, ctx, call_id="call-1", lifecycle=coordinator
     )
     assert first.retryable
 
@@ -220,6 +230,7 @@ def test_chart_correction_limit_survives_checkpoint_reload(tmp_path):
         current_run_id="run-1",
         current_session_id="session-1",
         result_count=loaded.count_tool_results,
+        result_count_matching=loaded.count_tool_results_matching,
     )
     second = PresentChartTool().run(_draft([["a", None]]), resumed_ctx)
     assert not second.retryable
@@ -227,6 +238,92 @@ def test_chart_correction_limit_survives_checkpoint_reload(tmp_path):
 
     corrected = PresentChartTool().run(_draft(), resumed_ctx)
     assert not corrected.is_error
+
+
+def _duplicate_heatmap(title: str, *, aggregate=None, panels=False):
+    panel = {
+        "chart_type": "heatmap",
+        "x_key": "x",
+        "y_key": "group",
+        "value_key": "value",
+        "aggregate": aggregate,
+    }
+    args = {
+        "schema_version": 2,
+        "chart_type": "heatmap",
+        "title": title,
+        "columns": [
+            {"key": "x", "label": "X"},
+            {"key": "group", "label": "Group"},
+            {"key": "value", "label": "Value"},
+        ],
+        "rows": [["A", "G", 1], ["A", "G", 2]],
+        "x_key": "x",
+        "y_key": "group",
+        "value_key": "value",
+        "aggregate": aggregate,
+        "series": [],
+    }
+    if panels:
+        args["panels"] = [panel]
+    return args
+
+
+def test_multi_panel_aggregate_error_has_safe_structured_correction_metadata(tmp_path):
+    ctx = ToolContextFixture(
+        workspace_root=tmp_path,
+        current_call_id="call-1",
+        current_run_id="run-1",
+        current_session_id="session-1",
+    )
+    result = PresentChartTool().run(_duplicate_heatmap("Heat", panels=True), ctx)
+    assert result.is_error
+    assert result.retryable
+    assert result.metadata == {
+        "field_path": "panels[0].aggregate",
+        "allowed_values": ["count", "sum", "mean", "min", "max"],
+        "duplicate_coordinate": ["A", "G"],
+        "duplicate_count": 2,
+        "correction_remaining": 1,
+    }
+    assert "panels[0].aggregate" in result.output
+    assert "correction_remaining=1" in result.output
+
+
+def test_chart_correction_quota_is_isolated_by_chart_intent(tmp_path):
+    coordinator = _coordinator(tmp_path)
+    registry = ToolRegistry()
+    registry.register(PresentChartTool())
+    ctx = ToolContextFixture(workspace_root=tmp_path)
+    ctx.bind_run(
+        "run-1",
+        "session-1",
+        result_count=coordinator.count_tool_results,
+        result_count_matching=coordinator.count_tool_results_matching,
+    )
+
+    first_args = _duplicate_heatmap("First")
+    _plan(coordinator, "call-1", first_args)
+    first = registry.execute(
+        "present_chart", first_args, ctx, call_id="call-1", lifecycle=coordinator
+    )
+    assert first.retryable
+    coordinator.batch_completed(coordinator.state.messages)
+
+    second_args = _duplicate_heatmap("Second")
+    _plan(coordinator, "call-2", second_args)
+    second = registry.execute(
+        "present_chart", second_args, ctx, call_id="call-2", lifecycle=coordinator
+    )
+    assert second.retryable
+    coordinator.batch_completed(coordinator.state.messages)
+
+    _plan(coordinator, "call-3", second_args)
+    exhausted = registry.execute(
+        "present_chart", second_args, ctx, call_id="call-3", lifecycle=coordinator
+    )
+    assert not exhausted.retryable
+    assert exhausted.metadata["correction_remaining"] == 0
 
 
 def test_tool_rejects_unbound_or_invalid_artifact(tmp_path):

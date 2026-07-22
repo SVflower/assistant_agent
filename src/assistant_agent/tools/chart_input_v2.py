@@ -23,8 +23,10 @@ from assistant_agent.contracts.charts_v2 import (
 from assistant_agent.contracts.datasets import DatasetColumnV1, TabularDatasetV1
 from assistant_agent.tools.chart_input import ChartInputError, _infer_data_type
 from assistant_agent.tools.chart_transforms import (
+    DuplicateCoordinateError,
     aggregate_dataset,
     boxplot_dataset,
+    heatmap_dataset,
     histogram_dataset,
     percent_dataset,
 )
@@ -118,10 +120,26 @@ def normalize_chart_v2_input(args: dict[str, Any]) -> ChartSpecV2:
         datasets = [source]
         panels: list[ChartPanelV1] = []
         derivations: list[DerivationTraceV1] = []
+        explicit_panels = bool(draft.get("panels"))
         for index, panel_draft in enumerate(panel_drafts):
             if not isinstance(panel_draft, dict):
                 raise ChartInputError(f"panels[{index}] 必须是对象")
-            panel, derived, traces = _build_panel(panel_draft, source, index)
+            try:
+                panel, derived, traces = _build_panel(panel_draft, source, index)
+            except DuplicateCoordinateError as exc:
+                path = f"panels[{index}].aggregate" if explicit_panels else "aggregate"
+                coordinate = [item[:80] for item in exc.coordinate]
+                allowed = ["count", "sum", "mean", "min", "max"]
+                raise ChartInputError(
+                    f"{path}: 坐标 {coordinate!r} 重复 {exc.count} 次；"
+                    f"请显式选择 {'/'.join(allowed)}，Agent 不会猜测聚合语义",
+                    metadata={
+                        "field_path": path,
+                        "allowed_values": allowed,
+                        "duplicate_coordinate": coordinate,
+                        "duplicate_count": exc.count,
+                    },
+                ) from None
             panels.append(panel)
             datasets.extend(derived)
             derivations.extend(traces)
@@ -274,9 +292,10 @@ def _build_panel(
         x_key, y_key, value_key = (
             _required_key(draft, key) for key in ("x_key", "y_key", "value_key")
         )
-        dataset, aggregate_trace = aggregate_dataset(
+        dataset, aggregate_trace = heatmap_dataset(
             source,
-            [x_key, y_key],
+            x_key,
+            y_key,
             value_key,
             draft.get("aggregate"),
             output_id=f"ds_heat_{index + 1}",
@@ -406,6 +425,11 @@ def _axes(
 ) -> tuple[AxisSpecV1 | None, tuple[AxisSpecV1, ...]]:
     if chart_type in {"pie", "donut"}:
         return None, ()
+    if chart_type == "heatmap":
+        return (
+            AxisSpecV1(axis_id="axis_x", dimension="x", scale="category", position="bottom"),
+            (AxisSpecV1(axis_id="axis_y", dimension="y", scale="category", position="left"),),
+        )
     x_type = dataset.column_type(x_key) if x_key else "string"
     x_scale = (
         "linear"

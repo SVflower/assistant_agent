@@ -93,6 +93,61 @@ def test_all_frozen_chart_types_normalize_to_v2(chart_type, updates):
     assert len(spec.panels[0].series) >= 1
 
 
+def test_heatmap_normalizes_canonical_axes_as_two_categories():
+    spec = normalize_chart_v2_input(
+        _draft("heatmap", x_key="x", y_key="group", value_key="a", series=[])
+    )
+    panel = spec.panels[0]
+    assert panel.x_axis is not None
+    assert panel.x_axis.scale == "category"
+    assert panel.y_axes[0].scale == "category"
+    canonical = spec.model_dump(mode="json")
+    assert canonical["panels"][0]["x_axis"]["scale"] == "category"
+    assert canonical["panels"][0]["y_axes"] == [
+        {
+            "axis_id": "axis_y",
+            "dimension": "y",
+            "scale": "category",
+            "position": "left",
+            "title": None,
+        }
+    ]
+
+
+@pytest.mark.parametrize(
+    ("rows", "message"),
+    [
+        ([], "rows"),
+        ([[None, "G", 1, 2, 3, 1, 1, 3]], "x"),
+        ([["   ", "G", 1, 2, 3, 1, 1, 3]], "x"),
+        ([["A", None, 1, 2, 3, 1, 1, 3]], "group"),
+        ([["A", "", 1, 2, 3, 1, 1, 3]], "group"),
+        ([["A", "G", 1, None, 3, 1, 1, 3]], "value_key"),
+    ],
+)
+def test_heatmap_rejects_empty_or_non_renderable_data(rows, message):
+    with pytest.raises(ChartInputError, match=message):
+        normalize_chart_v2_input(
+            _draft(
+                "heatmap",
+                x_key="x",
+                y_key="group",
+                value_key="a",
+                series=[],
+                rows=rows,
+            )
+        )
+
+
+def test_local_model_heatmap_draft_can_omit_column_types():
+    draft = _draft("heatmap", x_key="x", y_key="group", value_key="a", series=[])
+    for column in draft["columns"]:
+        column.pop("data_type")
+    spec = normalize_chart_v2_input(draft)
+    assert spec.panels[0].chart_type == "heatmap"
+    assert spec.datasets[1].rows
+
+
 def test_histogram_and_boxplot_use_frozen_deterministic_algorithms():
     histogram = normalize_chart_v2_input(_draft("histogram", value_key="a", bin_count=2, series=[]))
     histogram_rows = histogram.datasets[1].rows

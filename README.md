@@ -291,8 +291,11 @@ Session/Run；Run 单删也持久 tombstone，CLI 删除统一走服务用例；
 把 Session schema/contract 升至 v2，以权威 ledger 持久化稳定 message ID/time/reply，并提供绑定源
 Session 的原子幂等 fork；fork 严格排除边界、深复制 Chart Artifact、设置 `run_id=null`，且不复制
 Run/Interaction/compaction。Event v1、RunState v6 与 Agent Loop 不变，API/Web 待按交接文档接入。
-当前 797 个测试通过（10 个平台能力测试跳过）、覆盖率 84%、20,921 行/132 文件生产 Python 源码 + 1,617 行 eval
-基础设施；scripted 19/19、
+M28 进一步新增逐字节兼容 V1 的受控 ChartSpecV2、15 类普通图表与确定性数据派生；M30 收紧 Heatmap
+新建路径为 X/Y category axis，拒绝空数据、全 null value 和空白坐标，并提供按图表意图隔离、可恢复的
+一次定向纠错 metadata。Event v1、Session contract/schema v3、RunState v7 保持不变。
+当前 867 个测试通过（10 个平台能力测试跳过）、覆盖率 84%、22,934 行/138 文件生产 Python 源码 + 1,617 行 eval
+基础设施；scripted 23/23、
 recovery 4/4；剩余 7 项技术债（4 中/3 低，无高优先级）。详见
 [架构事实源](docs/ARCHITECTURE.md)和[通用服务调用指南](docs/agent-service-integration-guide.md)。
 

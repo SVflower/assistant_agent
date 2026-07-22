@@ -976,6 +976,24 @@ M28 在不改变 Event v1 外壳的前提下，把 `chart` 扩展为按 `schema_
 - 固定 `SESSION_CONTRACT_VERSION == 3`。Session v1/v2 和 Run checkpoint v1-v6 的迁移均由 Agent
   在所有者边界完成，API 不复制迁移状态机。
 
+M30 保持 Event v1、Session contract v3、RunState v7 和 ChartSpecV2 字段不变，仅收紧 Agent 新建
+Heatmap 的模型输入边界：生成的 X/Y 轴均为 `category`，空 rows、全 null value、null/空白分类坐标
+和空 derived dataset 返回 `artifact_rejected`。历史 M28 V2 Artifact 继续按原 DTO 读取，不进行破坏性
+重写。重复坐标但缺少聚合语义时，首次失败的 `tool_result.result_metadata` 可 additive 包含：
+
+```text
+field_path: string                         # aggregate 或 panels[i].aggregate
+allowed_values: [count, sum, mean, min, max]
+duplicate_coordinate: string[]             # 有界、安全坐标摘要
+duplicate_count: integer >= 2
+correction_remaining: 0 | 1
+```
+
+这些字段仅是安全纠错事实。API/Web 不得解析中文 `text`，不得自动选择 aggregate，也不得因为
+`retryable=true` 自动重放工具；模型只可按同一图表意图修正一次。不同图表意图的修正额度相互隔离，
+额度从既有 checkpoint 消息账本重建，不增加 checkpoint 字段。`artifact_rejected` 仍只表示图表局部
+失败，不能改变文字回答、`final` 或唯一 `run_terminal`。
+
 ## 13. 常见错误
 
 - 启动 `python -m assistant_agent` 子进程并解析 stdout；

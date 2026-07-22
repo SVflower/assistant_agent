@@ -581,3 +581,71 @@
     required_tools: [present_chart]
     max_tool_calls: 1
     final_contains: [两个区间]
+
+- schema_version: 1
+  id: chart-v2-heatmap-directed-correction
+  title: 多面板热力图按精确路径修正聚合语义
+  tags: [scripted, chart, presentation, chart-v2, local-model, recovery]
+  task: 把重复的时段和产线数据展示为两个热力图面板，并给出文字结论。
+  budget:
+    max_context_tokens: 16000
+  script:
+    - tool_calls:
+        - name: present_chart
+          arguments:
+            schema_version: 2
+            chart_type: heatmap
+            title: 产线热力图
+            columns:
+              - {key: hour, label: 时段}
+              - {key: line, label: 产线}
+              - {key: output, label: 产量}
+            rows: [["08:00", A, 10], ["08:00", A, 14], ["10:00", B, 20]]
+            x_key: hour
+            y_key: line
+            value_key: output
+            series: []
+            panels:
+              - {chart_type: heatmap, x_key: hour, y_key: line, value_key: output}
+              - {chart_type: heatmap, x_key: hour, y_key: line, value_key: output}
+            layout: {columns: 2, shared_legend: true}
+    - tool_calls:
+        - name: present_chart
+          arguments:
+            schema_version: 2
+            chart_type: heatmap
+            title: 产线热力图
+            columns:
+              - {key: hour, label: 时段}
+              - {key: line, label: 产线}
+              - {key: output, label: 产量}
+            rows: [["08:00", A, 10], ["08:00", A, 14], ["10:00", B, 20]]
+            x_key: hour
+            y_key: line
+            value_key: output
+            series: []
+            panels:
+              - chart_type: heatmap
+                x_key: hour
+                y_key: line
+                value_key: output
+                aggregate: mean
+              - chart_type: heatmap
+                x_key: hour
+                y_key: line
+                value_key: output
+                aggregate: mean
+            layout: {columns: 2, shared_legend: true}
+    - final: 已按平均值生成两个产线热力图面板。
+  expect:
+    trajectory: strict
+    expected_calls:
+      - name: present_chart
+        output_contains: ["panels[0].aggregate", "correction_remaining=1"]
+        is_error: true
+      - name: present_chart
+        output_contains: [已创建图表]
+        is_error: false
+    required_tools: [present_chart]
+    max_tool_calls: 2
+    final_contains: [平均值]

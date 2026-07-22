@@ -12,6 +12,15 @@ from assistant_agent.contracts.datasets import DatasetCell, DatasetColumnV1, Tab
 Aggregate = Literal["count", "sum", "mean", "min", "max"]
 
 
+class DuplicateCoordinateError(ValueError):
+    """聚合语义不明确时，向模型输入边界交付有界重复事实。"""
+
+    def __init__(self, coordinate: tuple[str, ...], count: int) -> None:
+        super().__init__("重复分类/坐标必须显式设置 aggregate")
+        self.coordinate = coordinate
+        self.count = count
+
+
 def histogram_dataset(
     source: TabularDatasetV1,
     value_key: str,
@@ -221,7 +230,8 @@ def aggregate_dataset(
         duplicates = duplicates or group in grouped
         grouped.setdefault(group, []).append(float(value))
     if duplicates and aggregate is None:
-        raise ValueError("重复分类/坐标必须显式设置 aggregate")
+        coordinate, values = next(item for item in grouped.items() if len(item[1]) > 1)
+        raise DuplicateCoordinateError(coordinate, len(values))
     operation: Aggregate = aggregate or "sum"
     rows: list[list[DatasetCell]] = [
         [*group, _aggregate(values, operation)] for group, values in grouped.items()
@@ -245,6 +255,38 @@ def aggregate_dataset(
         group_key=",".join(group_keys),
         parameter=operation,
     )
+    return dataset, trace
+
+
+def heatmap_dataset(
+    source: TabularDatasetV1,
+    x_key: str,
+    y_key: str,
+    value_key: str,
+    aggregate: Aggregate | None,
+    *,
+    output_id: str,
+) -> tuple[TabularDatasetV1, DerivationTraceV1 | None]:
+    """校验 Heatmap 可渲染数据，再执行确定性坐标聚合。"""
+    indexes = _column_indexes(source)
+    if any(key not in indexes for key in (x_key, y_key, value_key)):
+        raise ValueError("heatmap 字段必须引用已声明列")
+    if not source.rows:
+        raise ValueError("heatmap rows 不能为空")
+    has_value = False
+    for row in source.rows:
+        for key in (x_key, y_key):
+            value = row[indexes[key]]
+            if value is None or isinstance(value, str) and not value.strip():
+                raise ValueError(f"heatmap {key} 不能为 null 或空白")
+        has_value = has_value or row[indexes[value_key]] is not None
+    if not has_value:
+        raise ValueError("heatmap value_key 不能全部为 null")
+    dataset, trace = aggregate_dataset(
+        source, [x_key, y_key], value_key, aggregate, output_id=output_id
+    )
+    if not dataset.rows:
+        raise ValueError("heatmap derived dataset 不能为空")
     return dataset, trace
 
 

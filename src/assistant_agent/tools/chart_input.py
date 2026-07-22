@@ -16,6 +16,10 @@ _ISO_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}(?:[Tt ].+)?$")
 class ChartInputError(ValueError):
     """可安全返回给模型的短小字段错误。"""
 
+    def __init__(self, message: str, *, metadata: dict[str, Any] | None = None) -> None:
+        super().__init__(message)
+        self.metadata = metadata or {}
+
 
 def normalize_chart_input(args: dict[str, Any]) -> ChartSpecV1:
     """只补齐缺失的列类型，其余结构继续交给严格公共契约校验。"""

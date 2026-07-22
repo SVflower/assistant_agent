@@ -17,6 +17,13 @@ def test_chart_prompt_tracks_runtime_capability():
     assert "present_chart" not in build_system_prompt(chart_presentation=False)
 
 
+def test_chart_prompt_directs_one_semantic_correction_without_guessing_aggregate():
+    prompt = build_system_prompt(chart_presentation=True)
+    assert "按 field_path 重调一次" in prompt
+    assert "panels[i]" in prompt
+    assert "聚合语义不猜" in prompt
+
+
 def test_system_prompt_names_all_tools():
     # 显式列出真实工具名，帮小模型对齐 function-calling schema
     for tool_name in ("read_file", "write_file", "list_dir", "run_shell"):

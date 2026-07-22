@@ -202,7 +202,11 @@ class PresentChartTool(Tool):
     ) -> ToolResult:
         path = ".".join(str(part) for part in metadata.get("path", [])) or "$"
         validator = str(metadata.get("validator", "invalid"))
-        return self._invalid(ctx, f"{path}: {validator} 校验失败")
+        return self._invalid(
+            ctx,
+            f"{path}: {validator} 校验失败",
+            metadata={"field_path": path},
+        )
 
     def run(self, args: dict[str, Any], ctx: ToolContext) -> ToolResult:
         if not ctx.current_session_id or not ctx.current_run_id or not ctx.current_call_id:
@@ -230,7 +234,7 @@ class PresentChartTool(Tool):
                     call_id=ctx.current_call_id,
                 )
         except ChartInputError as exc:
-            return self._invalid(ctx, str(exc))
+            return self._invalid(ctx, str(exc), args=args, metadata=exc.metadata)
         except (TypeError, ValueError):
             return self._invalid(ctx, "图表超过安全存储上限")
         return ToolResult.ok(
@@ -239,17 +243,65 @@ class PresentChartTool(Tool):
             chart=artifact,
         )
 
-    def _invalid(self, ctx: ToolContext, detail: str) -> ToolResult:
-        previous = ctx.result_count(self.name, "[chart_input_invalid]")
+    def _invalid(
+        self,
+        ctx: ToolContext,
+        detail: str,
+        *,
+        args: dict[str, Any] | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> ToolResult:
+        if args is None:
+            previous = ctx.result_count(self.name, "[chart_input_invalid]")
+        else:
+            identity = _correction_identity(args)
+            previous = ctx.result_count_matching(
+                self.name,
+                "[chart_input_invalid]",
+                lambda prior: _correction_identity(prior) == identity,
+            )
         retryable = previous == 0
+        correction_remaining = 1 if retryable else 0
         action = (
-            "请仅修正这一次调用。"
+            "请按 field_path 仅修正这一次调用并重新提交。"
             if retryable
             else "修正次数已用完，请停止调用图表工具并继续文字回答。"
         )
+        result_metadata = dict(metadata or {})
+        result_metadata["correction_remaining"] = correction_remaining
+        output = (
+            f"[chart_input_invalid] {detail}；correction_remaining={correction_remaining}；{action}"
+        )
         return ToolResult.error(
-            f"[chart_input_invalid] {detail}；{action}",
+            output,
             code="artifact_rejected",
             retryable=retryable,
+            metadata=result_metadata,
             executed=False,
         )
+
+
+def _correction_identity(args: dict[str, Any]) -> tuple[Any, ...]:
+    """忽略数据和可修正字段，只识别同一图表意图。"""
+    raw_panels = args.get("panels")
+    panels = raw_panels if isinstance(raw_panels, list) and raw_panels else [args]
+    mappings: list[tuple[str, ...]] = []
+    for panel in panels:
+        if not isinstance(panel, dict):
+            mappings.append(("invalid",))
+            continue
+        mappings.append(
+            tuple(
+                str(panel.get(key) or "")
+                for key in (
+                    "chart_type",
+                    "x_key",
+                    "y_key",
+                    "category_key",
+                    "value_key",
+                    "group_key",
+                    "size_key",
+                )
+            )
+        )
+    return (str(args.get("title") or ""), tuple(mappings))

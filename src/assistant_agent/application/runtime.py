@@ -113,6 +113,7 @@ class AgentRuntime:
             coordinator.run_id,
             session_id,
             result_count=coordinator.count_tool_results,
+            result_count_matching=coordinator.count_tool_results_matching,
         )
         return coordinator
 
@@ -121,6 +122,7 @@ class AgentRuntime:
             coordinator.run_id,
             coordinator.state.session_id,
             result_count=coordinator.count_tool_results,
+            result_count_matching=coordinator.count_tool_results_matching,
         )
 
     def bind_execution_close(self, close: Callable[[], None]) -> None:

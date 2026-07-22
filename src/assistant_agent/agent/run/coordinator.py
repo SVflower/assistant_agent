@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+import json
+from collections.abc import Callable, Sequence
 from copy import deepcopy
 from typing import Any, Literal
 
@@ -605,6 +606,46 @@ class RunCoordinator(ContinuationStateMixin, DefinitionStateMixin):
             and message.get("name") == tool_name
             and str(message.get("content", "")).startswith(marker)
         )
+
+    def count_tool_results_matching(
+        self,
+        tool_name: str,
+        marker: str,
+        matches: Callable[[dict[str, Any]], bool],
+    ) -> int:
+        """按持久化调用参数隔离有界纠错链，不向 checkpoint 增加工具专属状态。"""
+        arguments = self._persisted_tool_arguments()
+        return sum(
+            1
+            for message in self.state.messages
+            if message.get("role") == "tool"
+            and message.get("name") == tool_name
+            and str(message.get("content", "")).startswith(marker)
+            and matches(arguments.get(str(message.get("tool_call_id")), {}))
+        )
+
+    def _persisted_tool_arguments(self) -> dict[str, dict[str, Any]]:
+        result: dict[str, dict[str, Any]] = {}
+        for message in self.state.messages:
+            for raw_call in message.get("tool_calls") or []:
+                if not isinstance(raw_call, dict):
+                    continue
+                function = raw_call.get("function")
+                if not isinstance(function, dict):
+                    continue
+                raw_arguments = function.get("arguments")
+                try:
+                    arguments = (
+                        raw_arguments
+                        if isinstance(raw_arguments, dict)
+                        else json.loads(str(raw_arguments))
+                    )
+                except (TypeError, ValueError, json.JSONDecodeError):
+                    continue
+                call_id = raw_call.get("id")
+                if call_id and isinstance(arguments, dict):
+                    result[str(call_id)] = arguments
+        return result
 
     def call_state(self, call_id: str) -> ToolCallState:
         return self._call(call_id)

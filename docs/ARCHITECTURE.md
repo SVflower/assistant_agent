@@ -122,7 +122,8 @@ state <- recovery
 
 | 模块 | 行数 | 触发日期 | 结论 | 理由 | 复审信号 |
 |---|---:|---|---|---|---|
-| `agent/run/coordinator.py` | 606 | 2026-07-20 | 暂不拆分 | RunState 转换、checkpoint 顺序、工具批次与恢复共同维护单一 Run 状态机；纯预算、恢复策略、codec 已在 sibling 模块 | 新增独立状态域；增长超过约 20%；或 coordinator 出现第二个持久化后端职责 |
+| `agent/run/coordinator.py` | 657 | 2026-07-22 | 暂不拆分 | RunState 转换、checkpoint 顺序、工具批次与恢复共同维护单一 Run 状态机；M30 仅从既有 checkpoint 消息账本重建图表纠错计数，没有新增状态 owner 或持久化后端。纯预算、恢复策略、codec 已在 sibling 模块 | 新增独立状态域；自 657 行再增长约 20%；或 coordinator 出现第二个持久化后端职责 |
+| `tools/chart_input_v2.py` | 605 | 2026-07-22 | 暂不拆分 | 单一职责是把小模型友好 draft 确定性编译为严格 ChartSpecV2；panel/series/axis/overlay 交叉引用共享同一规范化上下文和错误路径。数据派生已独立在 `chart_transforms.py`，公共 DTO 在 `contracts/charts_v2.py` | 新增与图表无关的职责；出现可独立输入契约的第二种编译流程；或自 605 行增长约 20% |
 | `application/runs.py` | 1085 | 2026-07-20 | 暂不拆分，D25 跟踪 | SessionRuntime、事件 Iterator、lease 释放、terminal Session 同步及跨 Run 用例共享执行所有权；M23-R2 增加 ledger/snapshot/fork 后增长明显，但本期拆分会扩大冻结契约改动。RunState 改写仍委托 coordinator | 下一里程碑优先提取无状态 snapshot/ledger 映射和 fork 应用用例；不得拆散 `_stream/_finish_run/_end_run` |
 | `integrations/mcp/manager.py` | 720 | 2026-07-19 | 暂不拆分 | event loop 线程、连接表、惰性连接、后台目录发现、Runtime 工具可见性与关闭共同维护同一 server 生命周期；此时拆成多个有状态 owner 会增加竞态和清理遗漏。纯数据模型与目录持久化已分别抽到 `models.py`、`catalog.py` | 增加独立健康熔断职责；增长超过约 20%；或能以无共享可变状态的 port 分离连接 owner 与目录发现 owner |
 | `persistence/run_store.py` | 626 | 2026-07-20 | 暂不拆分 | 双槽 checkpoint、Session ref 索引、Run tombstone 与原子替换共同维护 `Session -> index -> Run` 锁序和崩溃恢复不变量；当前公共符号只有 `RunStore`/`LoadedRun`，拆出有状态 index owner 会增加锁重入和提交窗口。故障注入集中在 `test_run_store.py`，依赖只指向 application model、time contract 和 lifecycle | 索引出现第二个消费者或独立存储后端；可用单一无状态 codec 抽离 manifest/ref 编解码；或增长超过约 20% |

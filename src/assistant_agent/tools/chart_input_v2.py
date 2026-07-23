@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+import re
 from copy import deepcopy
 from typing import Any, Literal, cast
 
@@ -78,6 +79,15 @@ _PANEL_KEYS = _ROOT_KEYS - {
     "panels",
     "layout",
 } | {"panel_title"}
+_DATASET_KEY_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_.-]{0,63}$")
+_DIRECT_KEY_FIELDS = {
+    "x_key",
+    "y_key",
+    "category_key",
+    "value_key",
+    "group_key",
+    "size_key",
+}
 
 
 def normalize_chart_v2_input(args: dict[str, Any]) -> ChartSpecV2:
@@ -88,6 +98,7 @@ def normalize_chart_v2_input(args: dict[str, Any]) -> ChartSpecV2:
     draft["schema_version"] = 2
     _reject_forbidden_keys(draft)
     _reject_unknown_draft_keys(draft)
+    _normalize_dataset_keys(draft)
     try:
         source = _source_dataset(draft)
         panel_drafts = draft.get("panels") or [draft]
@@ -136,6 +147,70 @@ def normalize_chart_v2_input(args: dict[str, Any]) -> ChartSpecV2:
         raise
     except (TypeError, ValueError) as exc:
         raise ChartInputError(_safe_error(exc)) from None
+
+
+def _normalize_dataset_keys(draft: dict[str, Any]) -> None:
+    columns = draft.get("columns")
+    if not isinstance(columns, list):
+        return
+    originals = [column.get("key") for column in columns if isinstance(column, dict)]
+    string_keys = [key for key in originals if isinstance(key, str)]
+    if len(string_keys) != len(set(string_keys)):
+        raise ChartInputError("columns.key 必须唯一")
+
+    reserved = {key for key in string_keys if _DATASET_KEY_PATTERN.fullmatch(key)}
+    used: set[str] = set()
+    aliases: dict[str, str] = {}
+    next_alias = 1
+    for column in columns:
+        if not isinstance(column, dict) or not isinstance(column.get("key"), str):
+            continue
+        original = column["key"]
+        if _DATASET_KEY_PATTERN.fullmatch(original) and original not in used:
+            alias = original
+        else:
+            while f"field_{next_alias}" in reserved | used:
+                next_alias += 1
+            alias = f"field_{next_alias}"
+            next_alias += 1
+        used.add(alias)
+        if alias != original:
+            column["key"] = alias
+            column.setdefault("label", original)
+            aliases[original] = alias
+
+    if aliases:
+        _rewrite_key_references(draft, aliases)
+
+
+def _rewrite_key_references(draft: dict[str, Any], aliases: dict[str, str]) -> None:
+    for field in _DIRECT_KEY_FIELDS:
+        value = draft.get(field)
+        if isinstance(value, str) and value in aliases:
+            draft[field] = aliases[value]
+    series = draft.get("series")
+    if isinstance(series, list):
+        for item in series:
+            if not isinstance(item, dict):
+                continue
+            key = item.get("key")
+            if isinstance(key, str) and key in aliases:
+                item.setdefault("label", key)
+                item["key"] = aliases[key]
+    error_bars = draft.get("error_bars")
+    if isinstance(error_bars, list):
+        for item in error_bars:
+            if not isinstance(item, dict):
+                continue
+            for field in ("series_key", "lower_key", "upper_key"):
+                value = item.get(field)
+                if isinstance(value, str) and value in aliases:
+                    item[field] = aliases[value]
+    panels = draft.get("panels")
+    if isinstance(panels, list):
+        for panel in panels:
+            if isinstance(panel, dict):
+                _rewrite_key_references(panel, aliases)
 
 
 def _source_dataset(draft: dict[str, Any]) -> TabularDatasetV1:

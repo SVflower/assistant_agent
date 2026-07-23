@@ -272,6 +272,7 @@ class WebSearchConfig(BaseModel):
         default="duckduckgo", description="搜索 backend；duckduckgo 无需 key"
     )
     max_results: int = Field(default=10, ge=1, le=20, description="单次搜索结果硬上限")
+    retry_attempts: int = Field(default=1, ge=0, le=2, description="可重试搜索错误的额外尝试次数")
     searxng_url: str = Field(default="", description="SearXNG 实例 base URL")
 
     @model_validator(mode="after")

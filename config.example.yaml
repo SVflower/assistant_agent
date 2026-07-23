@@ -161,6 +161,7 @@ web:
   search:
     backend: duckduckgo             # duckduckgo / searxng
     max_results: 10                 # 单次搜索结果硬上限（最高 20）
+    retry_attempts: 1               # 超时/限流/服务端错误的额外尝试次数（0..2）
     searxng_url: ""                 # backend=searxng 时填写，如 https://search.example.com
   request_timeout: 15
   max_response_bytes: 2000000       # 解压后响应字节上限

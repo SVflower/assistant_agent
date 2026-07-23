@@ -105,6 +105,42 @@ def test_duckduckgo_backend_parses_results_and_unwraps_redirect():
     http.close()
 
 
+def test_web_search_retries_one_transient_timeout_by_default():
+    calls = 0
+    html = '<a class="result__a" href="https://example.com">Recovered</a>'
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise httpx.ReadTimeout("slow search", request=request)
+        return httpx.Response(200, text=html)
+
+    http, web = _client(handler)
+    rows, _searched_at = web.search("q")
+
+    assert calls == 2
+    assert [row.title for row in rows] == ["Recovered"]
+    http.close()
+
+
+def test_web_search_retry_can_be_disabled():
+    calls = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        raise httpx.ReadTimeout("slow search", request=request)
+
+    http, web = _client(handler, WebConfig(search={"retry_attempts": 0}))
+    with pytest.raises(WebError) as caught:
+        web.search("q")
+
+    assert calls == 1
+    assert caught.value.code == "timeout"
+    http.close()
+
+
 def test_searxng_backend_parses_json_and_limits_results():
     payload = {
         "results": [

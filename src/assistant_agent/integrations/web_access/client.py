@@ -81,22 +81,31 @@ class WebClient:
     def search(
         self, query: str, *, max_results: int | None = None, freshness: str | None = None
     ) -> tuple[list[SearchResult], str]:
-        self._check_control()
         limit = min(max_results or self.config.search.max_results, self.config.search.max_results)
-        try:
-            rows = self.backend.search(query, limit, freshness)
-        except httpx.TimeoutException as exc:
-            raise WebError("Web 搜索超时", code="timeout", retryable=True) from exc
-        except httpx.HTTPStatusError as exc:
-            retryable = exc.response.status_code in {408, 429} or exc.response.status_code >= 500
-            raise WebError(
-                f"Web 搜索返回 HTTP {exc.response.status_code}",
-                code="http_error",
-                retryable=retryable,
-            ) from exc
-        except (httpx.HTTPError, ValueError) as exc:
-            raise WebError(f"Web 搜索失败：{exc}", code="search_error", retryable=True) from exc
-        return rows[:limit], _now()
+        for attempt in range(self.config.search.retry_attempts + 1):
+            self._check_control()
+            try:
+                rows = self.backend.search(query, limit, freshness)
+                return rows[:limit], _now()
+            except httpx.TimeoutException as exc:
+                error = WebError("Web 搜索超时", code="timeout", retryable=True)
+                cause: Exception = exc
+            except httpx.HTTPStatusError as exc:
+                retryable = (
+                    exc.response.status_code in {408, 429} or exc.response.status_code >= 500
+                )
+                error = WebError(
+                    f"Web 搜索返回 HTTP {exc.response.status_code}",
+                    code="http_error",
+                    retryable=retryable,
+                )
+                cause = exc
+            except (httpx.HTTPError, ValueError) as exc:
+                error = WebError(f"Web 搜索失败：{exc}", code="search_error", retryable=True)
+                cause = exc
+            if not error.retryable or attempt >= self.config.search.retry_attempts:
+                raise error from cause
+        raise AssertionError("搜索重试循环必须返回或抛出错误")
 
     def fetch(self, url: str) -> FetchedPage:
         self._check_control()

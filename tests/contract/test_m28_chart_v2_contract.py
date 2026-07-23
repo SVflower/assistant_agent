@@ -85,6 +85,44 @@ def test_all_frozen_chart_types_normalize_to_v2(chart_type, updates):
     assert len(spec.panels[0].series) >= 1
 
 
+def test_model_friendly_draft_normalizes_non_ascii_column_keys_and_references():
+    spec = normalize_chart_v2_input(
+        {
+            "schema_version": 2,
+            "chart_type": "line",
+            "title": "收入趋势",
+            "columns": [
+                {"key": "年份", "data_type": "string"},
+                {"key": "税收收入（亿元）", "data_type": "number"},
+            ],
+            "rows": [["2023", 100], ["2024", 120]],
+            "x_key": "年份",
+            "series": [{"key": "税收收入（亿元）"}],
+        }
+    )
+
+    source = spec.datasets[0]
+    assert [(column.key, column.label) for column in source.columns] == [
+        ("field_1", "年份"),
+        ("field_2", "税收收入（亿元）"),
+    ]
+    assert spec.panels[0].series[0].x_key == "field_1"
+    assert spec.panels[0].series[0].y_key == "field_2"
+    assert spec.panels[0].series[0].label == "税收收入（亿元）"
+
+
+def test_generated_column_aliases_do_not_collide_with_valid_model_keys():
+    draft = _draft("line")
+    draft["columns"][0]["key"] = "年份"
+    draft["columns"][1]["key"] = "field_1"
+    draft["x_key"] = "年份"
+    spec = normalize_chart_v2_input(draft)
+
+    assert spec.datasets[0].columns[0].key == "field_2"
+    assert spec.datasets[0].columns[1].key == "field_1"
+    assert spec.panels[0].series[0].x_key == "field_2"
+
+
 def test_heatmap_normalizes_canonical_axes_as_two_categories():
     spec = normalize_chart_v2_input(
         _draft("heatmap", x_key="x", y_key="group", value_key="a", series=[])

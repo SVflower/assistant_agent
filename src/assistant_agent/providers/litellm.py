@@ -16,6 +16,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 from assistant_agent.config.schema import ProviderConfig
+from assistant_agent.providers.content_codec import AttachmentContentCodec
 from assistant_agent.providers.ports import (
     ProviderFailure,
     StreamEvent,
@@ -124,8 +125,13 @@ class LLMClient:
     转换成项目自己的 ``StreamEvent``，上层 Loop 不处理 provider 方言。
     """
 
-    def __init__(self, provider: ProviderConfig) -> None:
+    def __init__(
+        self,
+        provider: ProviderConfig,
+        content_codec: AttachmentContentCodec | None = None,
+    ) -> None:
         self._provider = provider
+        self._content_codec = content_codec
         _bypass_proxy_for_local(provider.api_base)
 
     def _build_kwargs(
@@ -136,7 +142,9 @@ class LLMClient:
         """构造 litellm.completion 的公共参数，流式/非流式共用。"""
         kwargs: dict[str, Any] = {
             "model": self._provider.model,
-            "messages": messages,
+            "messages": (
+                self._content_codec.materialize(messages) if self._content_codec else messages
+            ),
             "temperature": self._provider.temperature,
             "max_tokens": self._provider.max_tokens,
             "timeout": self._provider.request_timeout,

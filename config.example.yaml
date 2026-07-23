@@ -21,6 +21,8 @@ providers:
     max_tokens: 4096
     context_window: 32000     # 必须填写模型真实能力；Agent 会拒绝超配
     request_timeout: 120       # 同步模型请求的最大等待秒数；中断最迟在超时/下一流片段生效
+    image_input: auto          # auto 只信任可靠 metadata；未知模型按不支持图片处理
+    unknown_image_token_reserve: 2048
 
   # ---- 本地 LM Studio 示例 ----
   local_lmstudio:
@@ -32,6 +34,8 @@ providers:
     max_tokens: 4096
     context_window: 8192      # 示例值；必须改成 LM Studio 当前加载模型的真实窗口
     request_timeout: 120
+    image_input: disabled      # 视觉模型需由部署者明确改为 enabled
+    unknown_image_token_reserve: 2048
 
   # ---- 本地 vLLM 示例 ----
   local_vllm:
@@ -42,6 +46,21 @@ providers:
     max_tokens: 4096
     context_window: 32768     # 示例值；必须与 vLLM 启动时模型能力一致
     request_timeout: 120
+    image_input: disabled
+    unknown_image_token_reserve: 2048
+
+attachments:
+  max_attachments_per_message: 8
+  max_images_per_message: 4
+  max_total_bytes_per_run: 20971520
+  max_text_bytes: 524288
+  max_text_chars: 300000
+  max_image_bytes: 8388608
+  max_image_pixels: 20000000
+  max_image_edge: 8192
+  max_context_ratio: 0.30
+  max_context_tokens: 8192
+  unbound_ttl_seconds: 3600
 
 agent:
   # 单个任务最多允许多少轮模型调用，防止跑飞

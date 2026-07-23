@@ -22,7 +22,7 @@ def test_mixed_legacy_and_rfc3339_times_normalize_deterministically(monkeypatch)
 
 def test_new_run_timestamps_are_utc_rfc3339_z():
     assert now_iso().endswith("Z")
-    assert RunState.model_fields["schema_version"].default == 7
+    assert RunState.model_fields["schema_version"].default == 8
 
 
 def test_fractional_seconds_preserve_distinct_instants_and_normalize_offsets():

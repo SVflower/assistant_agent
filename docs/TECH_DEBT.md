@@ -2,7 +2,7 @@
 
 > AI 迭代开发中，债务会隐形复利（LLM 在每个决策点埋入未言明的假设）。
 > 这里显式追踪，防止"上次说的债"下次忘。每次里程碑评审更新本表。
-> 最后更新：2026-07-22（M31 current-schema hard cut：859 passed/10 skipped、覆盖率 84%，
+> 最后更新：2026-07-23（M32 按需定向验证：附件/上下文/配置/服务/Session/Run/恢复/契约 109 项通过；未运行全量 coverage，
 > Ruff/format/mypy、12 条 import-linter、scripted 23/23、recovery 4/4 全绿；生产源码
 > 19,753 行/138 文件。未新增技术债，现有 7 项。）
 

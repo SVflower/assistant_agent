@@ -21,6 +21,12 @@ from assistant_agent.agent.context.window import (
     truncate_text_to_tokens,
 )
 from assistant_agent.agent.prompts import build_system_prompt
+from assistant_agent.contracts.attachments import (
+    MessageContentV1,
+    UserMessageInputV1,
+    attachment_token_estimate,
+    parse_message_content,
+)
 
 
 def _estimate_message_tokens(message: dict[str, Any]) -> int:
@@ -58,6 +64,8 @@ class Conversation:
         tools_tokens: int = 0,
         reserved_output_tokens: int = 0,
         estimator: TokenEstimator = DEFAULT_ESTIMATOR,
+        attachment_context_limit: int = 0,
+        image_token_reserve: int = 2048,
     ) -> None:
         prompt = system_prompt if system_prompt is not None else build_system_prompt(interactive)
         self._system: dict[str, Any] = {"role": "system", "content": prompt}
@@ -69,6 +77,8 @@ class Conversation:
         self._tools_tokens = tools_tokens
         self._reserved_output_tokens = reserved_output_tokens
         self._estimator = estimator
+        self._attachment_context_limit = attachment_context_limit
+        self._image_token_reserve = image_token_reserve
         # M8b：摘要 checkpoint。None（默认）时下方全部逻辑等于 M8b 前——不压缩、硬截断。
         # {"summary": 摘要文本, "covered_upto": 已覆盖到的 _messages 游标}
         self._checkpoint: dict[str, Any] | None = None
@@ -78,8 +88,19 @@ class Conversation:
                 "上下文窗口过小：system、tools schema 与 reserved_output 已无消息空间"
             )
 
-    def add_user(self, content: str) -> None:
-        message = {"role": "user", "content": content}
+    def add_user(self, content: str | UserMessageInputV1 | MessageContentV1) -> None:
+        if isinstance(content, str):
+            parsed = UserMessageInputV1.from_text(content).content
+        elif isinstance(content, UserMessageInputV1):
+            parsed = content.content
+        else:
+            parsed = content
+        attachment_tokens = attachment_token_estimate(
+            parsed, image_reserve=self._image_token_reserve
+        )
+        if self._attachment_context_limit and attachment_tokens > self._attachment_context_limit:
+            raise ContextWindowError("附件上下文成本超过当前模型可用消息预算，请减少附件或缩小内容")
+        message = {"role": "user", "content": parsed.model_dump(mode="json")}
         if self._message_tokens(message) > self._message_budget():
             raise ContextWindowError(
                 f"用户输入过长，无法放入 {self._max_tokens} token 的上下文窗口；请缩短输入"
@@ -237,7 +258,15 @@ class Conversation:
 
     def load_history(self, messages: list[dict[str, Any]]) -> None:
         """载入历史（替换当前对话），用于恢复会话。"""
-        self._messages = [dict(m) for m in messages]
+        loaded: list[dict[str, Any]] = []
+        for message in messages:
+            copied = dict(message)
+            if copied.get("role") == "user":
+                copied["content"] = parse_message_content(copied.get("content")).model_dump(
+                    mode="json"
+                )
+            loaded.append(copied)
+        self._messages = loaded
 
     # ---- 截断（上下文工程）----
 

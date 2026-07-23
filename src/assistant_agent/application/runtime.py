@@ -15,6 +15,7 @@ from assistant_agent.agent.loop import AgentLoop
 from assistant_agent.agent.run.coordinator import RunCoordinator
 from assistant_agent.agent.run.ports import RunControlPort
 from assistant_agent.application.ports import (
+    AttachmentRepository,
     Closable,
     MCPRuntimePort,
     RunCatalogRepository,
@@ -50,6 +51,7 @@ class AgentRuntime:
     tool_context: ToolContext
     interaction: InteractionPort
     session_store: SessionRepository
+    attachment_store: AttachmentRepository
     run_store: RunCatalogRepository
     run_control: RunControlPort
     execution_leases: SessionExecutionLeaseManager
@@ -89,6 +91,10 @@ class AgentRuntime:
             extension_management=current.extension_management,
             profile=current.profile,
             chart_spec_versions=current.chart_spec_versions,
+            content_parts_version=current.content_parts_version,
+            input_modalities=current.input_modalities,
+            attachment_media_types=current.attachment_media_types,
+            attachment_limits=dict(current.attachment_limits),
         )
 
     def new_run(self, task: str, session_id: str | None = None) -> RunCoordinator | None:

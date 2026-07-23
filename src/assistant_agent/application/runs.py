@@ -21,6 +21,15 @@ from assistant_agent.application.ports import (
     SessionRepository,
 )
 from assistant_agent.application.runtime import AgentRuntime
+from assistant_agent.contracts.attachments import (
+    AttachmentPayloadV1,
+    AttachmentRefV1,
+    AttachmentSummaryV1,
+    AttachmentUploadV1,
+    UserMessageInputV1,
+    attachment_token_estimate,
+    parse_message_content,
+)
 from assistant_agent.contracts.capabilities import RuntimeCapabilities
 from assistant_agent.contracts.charts import (
     AssistantMessageSnapshot,
@@ -33,6 +42,8 @@ from assistant_agent.contracts.charts import (
 from assistant_agent.contracts.errors import (
     AgentServiceError,
     ArtifactNotFoundError,
+    AttachmentContextTooLargeError,
+    AttachmentInvalidError,
     IdempotencyConflictError,
     InvalidForkRequestError,
     InvalidIdempotencyKeyError,
@@ -47,6 +58,7 @@ from assistant_agent.contracts.errors import (
     SessionNotFoundError,
     SessionRunConflictError,
     SessionUnavailableError,
+    UnsupportedInputModalityError,
     UserMessageNotFoundError,
 )
 from assistant_agent.contracts.events import StepEvent, TerminalStatus
@@ -300,7 +312,13 @@ def _synchronize_run_ledger(session: Session, state: RunState) -> None:
     if len(public) < len(ledger):
         raise SessionMigrationRequiredError("Run 历史短于 Session ledger")
     for raw, saved in zip(public, ledger, strict=False):
-        if raw.get("role") != saved.role or str(raw.get("content") or "") != saved.content:
+        content_matches = (
+            parse_message_content(raw.get("content")).model_dump(mode="json")
+            == saved.content.model_dump(mode="json")
+            if saved.role == "user" and not isinstance(saved.content, str)
+            else str(raw.get("content") or "") == saved.content
+        )
+        if raw.get("role") != saved.role or not content_matches:
             raise SessionMigrationRequiredError("Run 历史与 Session ledger 冲突")
     current_user_id = next(
         (message.id for message in reversed(ledger) if message.role == "user"), None
@@ -334,7 +352,11 @@ def _synchronize_run_ledger(session: Session, state: RunState) -> None:
                 role=role,
                 created_at=created_at,
                 reply_to_message_id=reply_to,
-                content=str(raw.get("content") or ""),
+                content=(
+                    parse_message_content(raw.get("content"))
+                    if role == "user"
+                    else str(raw.get("content") or "")
+                ),
                 artifacts=artifacts,
             )
         )
@@ -371,7 +393,7 @@ def _session_snapshot(
     assistant_messages = tuple(
         AssistantMessageSnapshot(
             id=message.id,
-            content=message.content,
+            content=cast(str, message.content),
             artifacts=message.artifacts,
         )
         for message in session.message_ledger
@@ -508,6 +530,29 @@ class SessionRuntime:
             raise ArtifactNotFoundError("图表 Artifact 不存在")
         return artifact
 
+    def ingest_attachments(
+        self, uploads: list[AttachmentUploadV1] | tuple[AttachmentUploadV1, ...]
+    ) -> tuple[AttachmentSummaryV1, ...]:
+        with self._lock:
+            if self._closed or self.runtime.closed:
+                raise RuntimeClosedError("Session Runtime 已关闭")
+        return self.runtime.attachment_store.ingest(self.session.id, uploads)
+
+    def get_attachment(self, attachment_id: str) -> AttachmentPayloadV1:
+        return self.runtime.attachment_store.get_by_id(self.session.id, attachment_id)
+
+    def delete_unbound_attachments(self, attachment_ids: tuple[str, ...]) -> int:
+        return self.runtime.attachment_store.delete_unbound(self.session.id, attachment_ids)
+
+    def _attachment_refs_from_session(self) -> tuple[AttachmentRefV1, ...]:
+        refs: list[AttachmentRefV1] = []
+        for message in self.session.message_ledger:
+            if message.role == "user":
+                content = message.content
+                if not isinstance(content, str):
+                    refs.extend(content.attachment_refs())
+        return tuple(refs)
+
     def snapshot(self) -> SessionSnapshot:
         presentations = self.list_presentations()
         self.session = self.runtime.session_store.load(self.session.id)
@@ -592,7 +637,38 @@ class SessionRuntime:
             retry_of_run_id=state.retry_of_run_id,
         )
 
-    def start_run(self, task: str) -> RunExecution:
+    def start_run(self, task: str | UserMessageInputV1) -> RunExecution:
+        user_input = UserMessageInputV1.from_text(task) if isinstance(task, str) else task
+        task_text = user_input.content.safe_preview()
+        refs = user_input.content.attachment_refs()
+        if any(ref.session_id != self.session.id for ref in refs):
+            raise AttachmentInvalidError("Attachment 不属于当前 Session")
+        for ref in refs:
+            self.runtime.attachment_store.get(ref)
+        if (
+            any(ref.kind == "image" for ref in refs)
+            and "image" not in self.capabilities.input_modalities
+        ):
+            raise UnsupportedInputModalityError("当前模型不支持图片输入")
+        used_tokens = attachment_token_estimate(
+            user_input.content,
+            image_reserve=self.runtime.config.active_provider.unknown_image_token_reserve,
+        )
+        available = max(
+            self.runtime.config.agent.max_context_tokens
+            - self.runtime.config.agent.reserved_output_tokens,
+            0,
+        )
+        limit_tokens = min(
+            self.runtime.config.attachments.max_context_tokens,
+            int(available * self.runtime.config.attachments.max_context_ratio),
+        )
+        if used_tokens > limit_tokens:
+            raise AttachmentContextTooLargeError(
+                "附件上下文成本超过当前模型预算",
+                used_tokens=used_tokens,
+                limit_tokens=limit_tokens,
+            )
         self._begin_run(None)
         self._acquire_execution_lease()
         self.runtime.run_control.reset()
@@ -602,14 +678,20 @@ class SessionRuntime:
                 raise SessionRunConflictError(
                     f"Session 存在未完成 Run：{', '.join(item.id for item in unfinished)}"
                 )
-            coordinator = self.runtime.new_run(task, self.session.id)
+            coordinator = self.runtime.new_run(task_text, self.session.id)
             if coordinator is None:
                 raise SessionRunConflictError("公共服务运行要求启用 agent.recovery")
             self._set_active_id(coordinator.run_id)
-            self.runtime.logger.task(task)
+            self.runtime.attachment_store.bind(
+                self.session.id, tuple(ref.attachment_id for ref in refs)
+            )
+            self.runtime.logger.task(task_text)
             return self._owned_execution(
                 coordinator,
-                self._stream(coordinator, self.runtime.loop.run(task, coordinator=coordinator)),
+                self._stream(
+                    coordinator,
+                    self.runtime.loop.run(user_input, coordinator=coordinator),
+                ),
             )
         except BaseException:
             self._end_run()

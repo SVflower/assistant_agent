@@ -31,6 +31,28 @@ class ProviderConfig(BaseModel):
     request_timeout: float = Field(
         default=120, gt=0, le=3600, description="单次模型请求最大等待秒数"
     )
+    image_input: Literal["auto", "enabled", "disabled"] = Field(
+        default="auto", description="图片输入能力：显式启停，或使用可靠模型元数据自动判断"
+    )
+    unknown_image_token_reserve: int = Field(
+        default=2048, ge=256, le=32768, description="图片 token 无可靠算法时的内部安全预留"
+    )
+
+
+class AttachmentsConfig(BaseModel):
+    """用户输入附件的解析、存储与上下文硬限制。"""
+
+    max_attachments_per_message: int = Field(default=8, ge=1, le=32)
+    max_images_per_message: int = Field(default=4, ge=1, le=16)
+    max_total_bytes_per_run: int = Field(default=20 << 20, ge=1024)
+    max_text_bytes: int = Field(default=512 << 10, ge=1024)
+    max_text_chars: int = Field(default=300_000, ge=1000)
+    max_image_bytes: int = Field(default=8 << 20, ge=1024)
+    max_image_pixels: int = Field(default=20_000_000, ge=1)
+    max_image_edge: int = Field(default=8192, ge=1, le=32768)
+    max_context_ratio: float = Field(default=0.30, gt=0, le=0.5)
+    max_context_tokens: int = Field(default=8192, ge=128)
+    unbound_ttl_seconds: int = Field(default=3600, ge=60, le=604800)
 
 
 class CompactionConfig(BaseModel):
@@ -397,6 +419,7 @@ class AppConfig(BaseModel):
     web: WebConfig = Field(default_factory=WebConfig)
     skills: SkillsConfig = Field(default_factory=SkillsConfig)
     mcp: MCPConfig = Field(default_factory=MCPConfig)
+    attachments: AttachmentsConfig = Field(default_factory=AttachmentsConfig)
 
     @model_validator(mode="after")
     def _active_must_exist(self) -> AppConfig:

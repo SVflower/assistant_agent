@@ -6,13 +6,14 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from assistant_agent.contracts.attachments import MessageContentV1, parse_message_content
 from assistant_agent.contracts.charts import (
     AssistantMessageSnapshot,
     PresentationArtifactRefV2,
 )
 from assistant_agent.contracts.time import parse_utc_timestamp
 
-SESSION_CONTRACT_VERSION = 3
+SESSION_CONTRACT_VERSION = 4
 
 
 class _StrictModel(BaseModel):
@@ -81,7 +82,7 @@ class PublicMessageSnapshot(_StrictModel):
     role: Literal["user", "assistant"]
     created_at: str | None = None
     reply_to_message_id: str | None = Field(default=None, pattern=r"^msg_[a-f0-9]{24}$")
-    content: str = ""
+    content: str | MessageContentV1 = ""
     artifacts: tuple[PresentationArtifactRefV2, ...] = ()
 
     @field_validator("created_at")
@@ -100,12 +101,23 @@ class PublicMessageSnapshot(_StrictModel):
             raise ValueError("user message 的 reply_to_message_id 必须为 null")
         if self.role == "assistant" and self.reply_to_message_id is None:
             raise ValueError("assistant message 必须指向对应 user message")
+        if self.role == "user" and not isinstance(self.content, MessageContentV1):
+            raise ValueError("user message 必须使用 MessageContentV1")
+        if self.role == "assistant" and not isinstance(self.content, str):
+            raise ValueError("assistant message content 必须是文本")
         return self
+
+    @field_validator("content", mode="before")
+    @classmethod
+    def _parse_content(cls, value: Any) -> Any:
+        if isinstance(value, dict):
+            return parse_message_content(value)
+        return value
 
 
 class SessionSnapshot(_StrictModel):
     id: str = Field(min_length=1)
-    schema_version: Literal[3] = 3
+    schema_version: Literal[4] = 4
     title: str = Field(default="（空会话）", min_length=1, max_length=100)
     title_source: Literal["auto", "user"] = "auto"
     metadata_version: int = Field(default=1, ge=1)

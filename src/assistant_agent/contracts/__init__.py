@@ -1,5 +1,17 @@
 """跨进程调用方可依赖的稳定公共契约。"""
 
+from assistant_agent.contracts.attachments import (
+    ATTACHMENT_CONTRACT_VERSION,
+    CONTENT_PARTS_VERSION,
+    AttachmentPartV1,
+    AttachmentPayloadV1,
+    AttachmentRefV1,
+    AttachmentSummaryV1,
+    AttachmentUploadV1,
+    MessageContentV1,
+    TextPartV1,
+    UserMessageInputV1,
+)
 from assistant_agent.contracts.capabilities import (
     MCPServerCapability,
     MCPStatus,
@@ -35,6 +47,11 @@ from assistant_agent.contracts.errors import (
     AgentServiceError,
     ArtifactNotFoundError,
     ArtifactUnavailableError,
+    AttachmentContextTooLargeError,
+    AttachmentInvalidError,
+    AttachmentNotFoundError,
+    AttachmentTooLargeError,
+    AttachmentUnavailableError,
     IdempotencyConflictError,
     InvalidForkRequestError,
     InvalidIdempotencyKeyError,
@@ -60,6 +77,7 @@ from assistant_agent.contracts.errors import (
     SessionRunConflictError,
     SessionUnavailableError,
     UnsupportedChartSchemaError,
+    UnsupportedInputModalityError,
     UnsupportedRunStateSchemaError,
     UnsupportedSchemaError,
     UnsupportedSessionSchemaError,
@@ -110,9 +128,25 @@ from assistant_agent.contracts.sessions import (
     UpdateSessionMetadataRequest,
 )
 
-AGENT_SERVICE_CONTRACT_VERSION = 2
+AGENT_SERVICE_CONTRACT_VERSION = 3
 
 __all__ = [
+    "ATTACHMENT_CONTRACT_VERSION",
+    "CONTENT_PARTS_VERSION",
+    "AttachmentContextTooLargeError",
+    "AttachmentInvalidError",
+    "AttachmentNotFoundError",
+    "AttachmentPartV1",
+    "AttachmentPayloadV1",
+    "AttachmentRefV1",
+    "AttachmentSummaryV1",
+    "AttachmentTooLargeError",
+    "AttachmentUnavailableError",
+    "AttachmentUploadV1",
+    "MessageContentV1",
+    "TextPartV1",
+    "UserMessageInputV1",
+    "UnsupportedInputModalityError",
     "AGENT_SERVICE_CONTRACT_VERSION",
     "ActivityPhase",
     "AgentServiceError",

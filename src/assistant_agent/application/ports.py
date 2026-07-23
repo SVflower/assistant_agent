@@ -9,6 +9,12 @@ from typing import TYPE_CHECKING, Any, Protocol, TypeVar
 
 from assistant_agent.agent.run.ports import RunCheckpointRepository, RunTelemetry
 from assistant_agent.application.models import RunMeta, Session, SessionMeta
+from assistant_agent.contracts.attachments import (
+    AttachmentPayloadV1,
+    AttachmentRefV1,
+    AttachmentSummaryV1,
+    AttachmentUploadV1,
+)
 from assistant_agent.contracts.capabilities import MCPServerCapability
 from assistant_agent.contracts.interactions import InteractionPort
 from assistant_agent.tools.ports import ToolTelemetry
@@ -47,6 +53,33 @@ class SessionRepository(Protocol):
     ) -> tuple[Session, bool]: ...
 
     def delete(self, session_id: str) -> bool: ...
+
+
+class AttachmentRepository(Protocol):
+    """Session-scoped immutable attachment storage."""
+
+    def ingest(
+        self, session_id: str, uploads: Sequence[AttachmentUploadV1]
+    ) -> tuple[AttachmentSummaryV1, ...]: ...
+
+    def get(self, ref: AttachmentRefV1) -> AttachmentPayloadV1: ...
+
+    def get_by_id(self, session_id: str, attachment_id: str) -> AttachmentPayloadV1: ...
+
+    def bind(self, session_id: str, attachment_ids: Sequence[str]) -> None: ...
+
+    def delete_unbound(self, session_id: str, attachment_ids: Sequence[str]) -> int: ...
+
+    def collect_expired(self) -> int: ...
+
+    def delete_session(self, session_id: str) -> None: ...
+
+    def fork(
+        self,
+        source_session_id: str,
+        target_session_id: str,
+        refs: Sequence[AttachmentRefV1],
+    ) -> dict[str, AttachmentRefV1]: ...
 
 
 class RunCatalogRepository(RunCheckpointRepository, Protocol):

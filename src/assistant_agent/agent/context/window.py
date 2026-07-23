@@ -22,7 +22,13 @@ class ConservativeTokenEstimator:
     """按字符保守估算，适合中英文混合且不依赖具体 provider。"""
 
     def message_tokens(self, message: dict[str, Any]) -> int:
-        text = str(message.get("content") or "")
+        content = message.get("content") or ""
+        if isinstance(content, dict) and content.get("schema_version") == 1:
+            from assistant_agent.contracts.attachments import content_text
+
+            text = content_text(content)
+        else:
+            text = str(content)
         for call in message.get("tool_calls") or []:
             text += str(call.get("function", {}).get("arguments", ""))
         return len(text) + 4

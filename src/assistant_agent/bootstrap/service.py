@@ -17,6 +17,7 @@ from assistant_agent.config.loader import ConfigError, load_config
 from assistant_agent.config.paths import resolve_run_dir, state_paths
 from assistant_agent.contracts.errors import RuntimeConfigError
 from assistant_agent.contracts.interactions import InteractionPort
+from assistant_agent.persistence.attachments import AttachmentStore
 from assistant_agent.persistence.execution_lease import FileSessionExecutionLeaseManager
 from assistant_agent.persistence.run_store import RunStore
 from assistant_agent.persistence.store import SessionStore
@@ -67,7 +68,12 @@ class AgentService(ApplicationAgentService):
             raise RuntimeConfigError(str(exc)) from exc
         paths = state_paths(self.workspace_root)
         lifecycle_dir = paths.workspace / "session-lifecycle"
-        session_store = SessionStore(paths.sessions, lifecycle_dir=lifecycle_dir)
+        attachment_store = AttachmentStore(paths.attachments, config.attachments)
+        session_store = SessionStore(
+            paths.sessions,
+            lifecycle_dir=lifecycle_dir,
+            attachment_store=attachment_store,
+        )
         run_store = RunStore(
             resolve_run_dir(config.agent.recovery.dir, self.workspace_root),
             lifecycle_dir=lifecycle_dir,
@@ -82,4 +88,5 @@ class AgentService(ApplicationAgentService):
             run_store=run_store,
             session_leases=FileSessionExecutionLeaseManager(paths.workspace / "execution-leases"),
             max_completed_runs=config.agent.recovery.max_completed_runs,
+            attachment_store=attachment_store,
         )

@@ -24,6 +24,7 @@ class StatePaths:
     mcp_artifacts: Path
     mcp_stderr: Path
     mcp_catalog: Path
+    attachments: Path
 
 
 def assistant_home() -> Path:
@@ -54,6 +55,7 @@ def state_paths(workspace_root: Path | None = None) -> StatePaths:
         mcp_artifacts=artifacts / "mcp",
         mcp_stderr=workspace / "mcp-stderr",
         mcp_catalog=workspace / "cache" / "mcp-tools",
+        attachments=workspace / "attachments",
     )
 
 

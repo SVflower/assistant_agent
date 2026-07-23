@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Literal, TypeGuard
 
+from assistant_agent.contracts.attachments import content_text
 from assistant_agent.contracts.charts import (
     AssistantMessageSnapshot,
     ChartArtifactV2,
@@ -12,7 +13,7 @@ from assistant_agent.contracts.charts import (
 )
 from assistant_agent.contracts.sessions import PublicMessageSnapshot
 
-SESSION_SCHEMA_VERSION = 3
+SESSION_SCHEMA_VERSION = 4
 EMPTY_SESSION_TITLE = "（空会话）"
 _PREVIEW_LEN = 40
 PublicRunStatus = Literal["running", "paused", "cancelled", "completed", "failed"]
@@ -33,7 +34,7 @@ def automatic_session_title(messages: list[dict[str, Any]]) -> str:
     for message in messages:
         if message.get("role") != "user":
             continue
-        text = collapse_unicode_whitespace(str(message.get("content") or ""))
+        text = collapse_unicode_whitespace(content_text(message.get("content") or ""))
         if text:
             return text[:80]
     return EMPTY_SESSION_TITLE
@@ -47,7 +48,7 @@ def public_preview(messages: list[dict[str, Any]]) -> str:
     for message in messages:
         if message.get("role") not in {"user", "assistant"}:
             continue
-        text = collapse_unicode_whitespace(str(message.get("content") or ""))
+        text = collapse_unicode_whitespace(content_text(message.get("content") or ""))
         if text:
             return text[:_PREVIEW_LEN] + ("…" if len(text) > _PREVIEW_LEN else "")
     return EMPTY_SESSION_TITLE

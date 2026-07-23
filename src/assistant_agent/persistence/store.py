@@ -22,6 +22,13 @@ from assistant_agent.application.models import (
     SessionMeta,
     automatic_session_title,
 )
+from assistant_agent.application.ports import AttachmentRepository
+from assistant_agent.contracts.attachments import (
+    MessageContentV1,
+    UserMessageInputV1,
+    parse_message_content,
+    remap_content_attachments,
+)
 from assistant_agent.contracts.errors import (
     IdempotencyConflictError,
     SessionMigrationRequiredError,
@@ -149,6 +156,7 @@ class SessionStore:
         base_dir: str | Path | None = None,
         *,
         lifecycle_dir: str | Path | None = None,
+        attachment_store: AttachmentRepository | None = None,
     ) -> None:
         if base_dir is None:
             from assistant_agent.config.paths import state_paths
@@ -156,6 +164,7 @@ class SessionStore:
             base_dir = state_paths().sessions
         self._dir = Path(base_dir)
         self._lifecycle = SessionLifecycle(lifecycle_dir or self._dir.parent / "session-lifecycle")
+        self._attachments = attachment_store
 
     def _path(self, session_id: str) -> Path:
         if not isinstance(session_id, str) or not _SESSION_ID.fullmatch(session_id):
@@ -287,10 +296,26 @@ class SessionStore:
     def _synchronize_ledger(self, session: Session) -> None:
         # message_ledger 是公开会话的权威事实，messages 只是模型工作历史。只有当二者仍保持
         # 可证明的前缀关系时才能追加；compaction 改写 messages 后绝不能反推并覆盖 ledger。
+        # ``SessionStore.save`` is an internal write convenience used by CLI tests and tools.
+        # It canonicalizes a caller-provided plain user string before the v4 document is written;
+        # loading an old on-disk schema remains fail-closed.
+        for raw in session.messages:
+            if raw.get("role") == "user" and isinstance(raw.get("content"), str):
+                raw["content"] = UserMessageInputV1.from_text(raw["content"]).content.model_dump(
+                    mode="json"
+                )
+            elif raw.get("role") == "user" and isinstance(raw.get("content"), MessageContentV1):
+                raw["content"] = raw["content"].model_dump(mode="json")
         public = _public_raw_messages(session.messages)
         ledger = session.message_ledger
         prefix_matches = len(public) >= len(ledger) and all(
-            raw.get("role") == saved.role and str(raw.get("content") or "") == saved.content
+            raw.get("role") == saved.role
+            and (
+                parse_message_content(raw.get("content")).model_dump(mode="json")
+                == cast(MessageContentV1, saved.content).model_dump(mode="json")
+                if saved.role == "user"
+                else str(raw.get("content") or "") == saved.content
+            )
             for raw, saved in zip(public, ledger, strict=False)
         )
         if ledger and not prefix_matches:
@@ -324,7 +349,11 @@ class SessionStore:
                     role=role,
                     created_at=_proven_message_time(raw),
                     reply_to_message_id=reply_to,
-                    content=str(raw.get("content") or ""),
+                    content=(
+                        parse_message_content(raw.get("content"))
+                        if role == "user"
+                        else str(raw.get("content") or "")
+                    ),
                 )
             )
             used_ids.add(message_id)
@@ -400,12 +429,43 @@ class SessionStore:
                     key_hash=key_hash,
                     request_hash=request_hash,
                 )
+                refs = tuple(
+                    ref
+                    for message in target.message_ledger
+                    if message.role == "user"
+                    for ref in cast(MessageContentV1, message.content).attachment_refs()
+                )
+                if refs:
+                    if self._attachments is None:
+                        raise SessionMigrationRequiredError("Attachment Store 未配置")
+                    mapping = self._attachments.fork(source.id, target_id, refs)
+                    target.message_ledger = [
+                        message.model_copy(
+                            update={"content": remap_content_attachments(message.content, mapping)}
+                        )
+                        if message.role == "user"
+                        else message
+                        for message in target.message_ledger
+                    ]
+                    target.messages = [
+                        {
+                            "role": message.role,
+                            "content": (
+                                cast(MessageContentV1, message.content).model_dump(mode="json")
+                                if message.role == "user"
+                                else message.content
+                            ),
+                        }
+                        for message in target.message_ledger
+                    ]
                 with self._lifecycle.lock(target_id):
                     with self._document_lock(target_id):
                         try:
                             self._atomic_write_locked(target)
                         except BaseException:
                             self._path(target_id).unlink(missing_ok=True)
+                            if self._attachments is not None:
+                                self._attachments.delete_session(target_id)
                             raise
                 return target, True
 

@@ -9,6 +9,7 @@ from assistant_agent.contracts.capabilities import RuntimeProfile
 
 SandboxLevel = Literal["off", "workspace", "container"]
 MCPTransport = Literal["stdio", "http"]
+InputModality = Literal["text", "image"]
 
 
 @dataclass(frozen=True)
@@ -22,6 +23,7 @@ class RuntimePolicy:
     profile: RuntimeProfile = "custom"
     allowed_tools: frozenset[str] | None = None
     auto_allow_tools: frozenset[str] = frozenset()
+    allowed_input_modalities: frozenset[InputModality] = frozenset({"text", "image"})
 
     def __post_init__(self) -> None:
         invalid = self.allowed_mcp_transports - {"stdio", "http"}
@@ -33,6 +35,11 @@ class RuntimePolicy:
             raise ValueError(f"未知 runtime profile：{self.profile}")
         if self.allowed_tools is not None and not self.auto_allow_tools <= self.allowed_tools:
             raise ValueError("auto_allow_tools 必须是 allowed_tools 的子集")
+        if not self.allowed_input_modalities or not self.allowed_input_modalities <= {
+            "text",
+            "image",
+        }:
+            raise ValueError("allowed_input_modalities 不合法")
 
     def allows_tool(self, name: str) -> bool:
         return self.allowed_tools is None or name in self.allowed_tools

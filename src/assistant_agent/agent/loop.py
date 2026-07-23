@@ -24,6 +24,7 @@ from assistant_agent.agent.run.state import ToolCallState
 from assistant_agent.agent.tool_batch import LoopCursor, execute_tool_batch
 from assistant_agent.agent.turn import stream_model_turn
 from assistant_agent.config.schema import AppConfig
+from assistant_agent.contracts.attachments import UserMessageInputV1
 from assistant_agent.contracts.events import StepEvent
 from assistant_agent.contracts.failures import (
     BudgetResource,
@@ -77,6 +78,19 @@ class AgentLoop:
             system_prompt=self._system_prompt,
             tools_tokens=tools_tokens,
             reserved_output_tokens=config.agent.reserved_output_tokens,
+            attachment_context_limit=min(
+                config.attachments.max_context_tokens,
+                int(
+                    max(
+                        config.agent.max_context_tokens
+                        - config.agent.reserved_output_tokens
+                        - tools_tokens,
+                        0,
+                    )
+                    * config.attachments.max_context_ratio
+                ),
+            ),
+            image_token_reserve=config.active_provider.unknown_image_token_reserve,
         )
         self._compaction = config.agent.compaction
         self._compactor: Compactor | None = None
@@ -147,7 +161,12 @@ class AgentLoop:
             text="（已把早前对话压缩为摘要，节省上下文；完整历史仍存档）",
         )
 
-    def run(self, task: str, *, coordinator: RunCoordinator | None = None) -> Iterator[StepEvent]:
+    def run(
+        self,
+        task: str | UserMessageInputV1,
+        *,
+        coordinator: RunCoordinator | None = None,
+    ) -> Iterator[StepEvent]:
         """执行新任务；coordinator 为 None 时保持旧的非恢复路径。"""
         previous_budget = self._tool_ctx.budget
         budget = ToolBudget(
@@ -174,7 +193,8 @@ class AgentLoop:
                 return
             cursor = LoopCursor(0, self._config.agent.max_iterations)
             if coordinator is not None:
-                if coordinator.state.task != task:
+                task_text = task if isinstance(task, str) else task.content.safe_preview()
+                if coordinator.state.task != task_text:
                     raise ValueError("coordinator task 与 run(task) 不一致")
                 coordinator.initialize(self.export_history(), self.export_checkpoint(), budget)
             yield from self._drive(cursor, coordinator)

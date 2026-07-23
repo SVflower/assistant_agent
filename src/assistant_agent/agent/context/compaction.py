@@ -116,10 +116,16 @@ class Compactor:
 
 def _render(messages: list[dict[str, Any]]) -> str:
     """把消息列表渲染成给摘要模型看的纯文本。"""
+    from assistant_agent.contracts.attachments import parse_message_content
+
     lines: list[str] = []
     for m in messages:
         role = m.get("role", "?")
-        content = str(m.get("content") or "")
+        raw_content = m.get("content") or ""
+        if role == "user" and isinstance(raw_content, dict):
+            content = parse_message_content(raw_content).safe_preview()
+        else:
+            content = str(raw_content)
         for call in m.get("tool_calls") or []:
             fn = call.get("function", {})
             content += f"[调用 {fn.get('name')}({fn.get('arguments', '')})]"

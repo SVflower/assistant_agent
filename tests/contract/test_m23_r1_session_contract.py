@@ -12,8 +12,8 @@ from assistant_agent.contracts.events import EVENT_CONTRACT_VERSION
 
 
 def test_m23_r1_public_contract_is_strict_and_exported():
-    assert service.SESSION_CONTRACT_VERSION == 3
-    assert contracts.SESSION_CONTRACT_VERSION == 3
+    assert service.SESSION_CONTRACT_VERSION == 4
+    assert contracts.SESSION_CONTRACT_VERSION == 4
     assert hasattr(service.AgentService, "get_session_summary")
     assert tuple(service.LastRunSummary.model_fields) == ("id", "status", "updated_at")
     assert tuple(service.SessionSummary.model_fields) == (
@@ -71,4 +71,4 @@ def test_m23_r1_stable_errors_and_existing_versions():
     assert service.SessionMetadataConflictError.code == "session_metadata_conflict"
     assert service.SessionUnavailableError.code == "session_unavailable"
     assert EVENT_CONTRACT_VERSION == 1
-    assert RunState.model_fields["schema_version"].default == 7
+    assert RunState.model_fields["schema_version"].default == 8

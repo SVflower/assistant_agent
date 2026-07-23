@@ -11,6 +11,18 @@ from assistant_agent.application.runtime import AgentRuntime
 from assistant_agent.bootstrap.runtime import create_runtime
 from assistant_agent.bootstrap.service import AgentService
 from assistant_agent.contracts import AGENT_SERVICE_CONTRACT_VERSION
+from assistant_agent.contracts.attachments import (
+    ATTACHMENT_CONTRACT_VERSION,
+    CONTENT_PARTS_VERSION,
+    AttachmentPartV1,
+    AttachmentPayloadV1,
+    AttachmentRefV1,
+    AttachmentSummaryV1,
+    AttachmentUploadV1,
+    MessageContentV1,
+    TextPartV1,
+    UserMessageInputV1,
+)
 from assistant_agent.contracts.capabilities import (
     MCPServerCapability,
     RuntimeCapabilities,
@@ -31,6 +43,11 @@ from assistant_agent.contracts.errors import (
     AgentServiceError,
     ArtifactNotFoundError,
     ArtifactUnavailableError,
+    AttachmentContextTooLargeError,
+    AttachmentInvalidError,
+    AttachmentNotFoundError,
+    AttachmentTooLargeError,
+    AttachmentUnavailableError,
     IdempotencyConflictError,
     InvalidForkRequestError,
     InvalidIdempotencyKeyError,
@@ -56,6 +73,7 @@ from assistant_agent.contracts.errors import (
     SessionRunConflictError,
     SessionUnavailableError,
     UnsupportedChartSchemaError,
+    UnsupportedInputModalityError,
     UnsupportedRunStateSchemaError,
     UnsupportedSchemaError,
     UnsupportedSessionSchemaError,
@@ -79,6 +97,22 @@ from assistant_agent.contracts.sessions import (
 )
 
 __all__ = [
+    "ATTACHMENT_CONTRACT_VERSION",
+    "CONTENT_PARTS_VERSION",
+    "AttachmentContextTooLargeError",
+    "AttachmentInvalidError",
+    "AttachmentNotFoundError",
+    "AttachmentPartV1",
+    "AttachmentPayloadV1",
+    "AttachmentRefV1",
+    "AttachmentSummaryV1",
+    "AttachmentTooLargeError",
+    "AttachmentUnavailableError",
+    "AttachmentUploadV1",
+    "MessageContentV1",
+    "TextPartV1",
+    "UserMessageInputV1",
+    "UnsupportedInputModalityError",
     "AGENT_SERVICE_CONTRACT_VERSION",
     "AgentRuntime",
     "AgentService",

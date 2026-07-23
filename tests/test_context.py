@@ -20,7 +20,13 @@ def test_export_load_roundtrip():
     c.add_assistant("回答一")
     hist = c.export_history()
     assert hist == [
-        {"role": "user", "content": "问题一"},
+        {
+            "role": "user",
+            "content": {
+                "schema_version": 1,
+                "parts": [{"type": "text", "text": "问题一"}],
+            },
+        },
         {"role": "assistant", "content": "回答一"},
     ]
 
@@ -55,7 +61,7 @@ def test_token_budget_truncates_oldest():
     # 预算约束下只保留最近的少数几条，不是全部 20 条
     assert 0 < len(body) < 20
     # 保留的是最新的（尾部）
-    assert body[-1]["content"] == "x" * 20
+    assert body[-1]["content"]["parts"][0]["text"] == "x" * 20
 
 
 def test_truncation_drops_orphan_tool_message():
@@ -151,7 +157,11 @@ def test_final_envelope_never_exceeds_window_with_huge_summary():
     messages = c.messages()
     report = c.budget_report()
     assert report["used"] <= report["total"] == 100
-    assert any(message.get("content") == "recent" for message in messages)
+    assert any(
+        isinstance(message.get("content"), dict)
+        and message["content"]["parts"][0]["text"] == "recent"
+        for message in messages
+    )
 
 
 def test_huge_tool_result_keeps_complete_protocol_block():

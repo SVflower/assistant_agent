@@ -297,7 +297,7 @@ Run/Interaction/compaction。Event v1、RunState v6 与 Agent Loop 不变，API/
 M28 曾新增逐字节兼容 V1 的受控 ChartSpecV2、15 类普通图表与确定性数据派生；M30 收紧 Heatmap
 新建路径为 X/Y category axis，拒绝空数据、全 null value 和空白坐标，并提供按图表意图隔离、可恢复的
 一次定向纠错 metadata。Event v1、Session contract/schema v3、RunState v7 保持不变。
-M31 开发期 hard cut 后，当前只支持 RunState v7、Session v3 和 Chart V2；旧格式不迁移，版本不匹配 fail closed。
+M31/M32 开发期 hard cut 后，当前只支持 RunState v8、Session v4、Chart V2 和 Attachment/Content v1；旧格式不迁移，版本不匹配 fail closed。
 当前 859 个测试通过（10 个平台能力测试跳过）、覆盖率 84%、19,753 行/138 文件生产 Python 源码 + 1,411 行 eval
 基础设施；scripted 23/23、
 recovery 4/4；剩余 7 项技术债（4 中/3 低，无高优先级）。详见

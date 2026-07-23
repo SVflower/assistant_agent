@@ -6,9 +6,13 @@
 
 ---
 
-## 项目当前状态（截至 2026-07-22）
+## 项目当前状态（截至 2026-07-23）
 
 **一句话**：从"能跑的 MVP"长成了一个功能相当完整、多平台实测、可观测且运行时预算可控、全程守调研→方案→测试→验收纪律的本地 Agent。
+
+**M32 当前状态**：Agent 侧已完成通用 Attachment/Content v1。当前公共契约为 service v3、Session v4、
+RunState v8、Event v1；API/Web 按 `docs/archive/phase23/m32-agent-api-handoff.md` 接入。M32 按需定向集
+109 项通过（附件/上下文/配置/服务/Session/Run/恢复/契约），未运行全量 pytest/coverage。
 
 **已具备能力**：
 - **模型**：后端可切换（云端 OpenAI 兼容 / Anthropic / 本地 LM Studio·Ollama·vLLM），config/`--provider`/对话内 `/model` 三种切法，切换保留上下文。

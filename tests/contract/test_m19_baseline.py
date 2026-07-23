@@ -203,7 +203,7 @@ def test_interaction_request_field_baseline():
         assert tuple(field.name for field in fields(model)) == names
 
 
-def test_run_state_v7_field_baseline():
+def test_run_state_v8_field_baseline():
     assert tuple(RunState.model_fields) == (
         "schema_version",
         "run_id",
@@ -263,4 +263,4 @@ def test_run_state_v7_field_baseline():
         created_at="2026-07-19T00:00:00",
         updated_at="2026-07-19T00:00:00",
     )
-    assert state.schema_version == 7
+    assert state.schema_version == 8

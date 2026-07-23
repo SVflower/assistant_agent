@@ -13,6 +13,7 @@ import assistant_agent.contracts as contracts
 import assistant_agent.service as service_contract
 from assistant_agent.agent.run.state import canonical_hash
 from assistant_agent.bootstrap import runtime as runtime_module
+from assistant_agent.contracts.attachments import MessageContentV1, TextPartV1
 from assistant_agent.contracts.charts import (
     build_chart_artifact_v2,
 )
@@ -28,6 +29,10 @@ from assistant_agent.persistence.store import SessionStore
 from assistant_agent.providers.ports import StreamEvent
 from assistant_agent.service import AgentService
 from assistant_agent.tools.chart_input_v2 import normalize_chart_v2_input
+
+
+def _content(text: str) -> MessageContentV1:
+    return MessageContentV1(parts=(TextPartV1(text=text),))
 
 
 class _FakeClient:
@@ -75,7 +80,7 @@ def _source_with_three_turns(store: SessionStore):
         assistant_id = f"msg_{index * 2 + 2:024x}"
         messages.extend(
             [
-                {"role": "user", "content": f"user-{index}"},
+                {"role": "user", "content": _content(f"user-{index}").model_dump(mode="json")},
                 {"role": "assistant", "content": f"assistant-{index}"},
             ]
         )
@@ -85,7 +90,7 @@ def _source_with_three_turns(store: SessionStore):
                     id=user_id,
                     role="user",
                     created_at=None,
-                    content=f"user-{index}",
+                    content=_content(f"user-{index}"),
                 ),
                 PublicMessageSnapshot(
                     id=assistant_id,
@@ -104,8 +109,8 @@ def _source_with_three_turns(store: SessionStore):
 
 
 def test_public_contract_exports_schema_v3_without_event_upgrade():
-    assert contracts.SESSION_CONTRACT_VERSION == 3
-    assert service_contract.SESSION_CONTRACT_VERSION == 3
+    assert contracts.SESSION_CONTRACT_VERSION == 4
+    assert service_contract.SESSION_CONTRACT_VERSION == 4
     assert EVENT_CONTRACT_VERSION == 1
     assert contracts.PublicMessageSnapshot is service_contract.PublicMessageSnapshot
     assert contracts.SessionSnapshot is service_contract.SessionSnapshot
@@ -120,7 +125,9 @@ def test_public_contract_exports_schema_v3_without_event_upgrade():
 
 
 def test_session_snapshot_rejects_assistant_to_assistant_reply():
-    user = PublicMessageSnapshot(id="msg_111111111111111111111111", role="user")
+    user = PublicMessageSnapshot(
+        id="msg_111111111111111111111111", role="user", content=_content("user")
+    )
     first = PublicMessageSnapshot(
         id="msg_222222222222222222222222",
         role="assistant",
@@ -200,7 +207,7 @@ def test_fork_deep_copies_artifact_and_rebinds_public_identity(tmp_path):
         {"role": "user", "content": "next"},
     ]
     source.message_ledger = [
-        PublicMessageSnapshot(id=user_id, role="user", content="chart"),
+        PublicMessageSnapshot(id=user_id, role="user", content=_content("chart")),
         PublicMessageSnapshot(
             id=artifact.message_id,
             role="assistant",
@@ -208,7 +215,7 @@ def test_fork_deep_copies_artifact_and_rebinds_public_identity(tmp_path):
             content="ready",
             artifacts=(artifact.ref,),
         ),
-        PublicMessageSnapshot(id=next_user_id, role="user", content="next"),
+        PublicMessageSnapshot(id=next_user_id, role="user", content=_content("next")),
     ]
     source.presentations = [artifact]
     store.save(source, must_exist=False)

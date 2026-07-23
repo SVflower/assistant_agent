@@ -145,3 +145,38 @@ class ArtifactNotFoundError(AgentServiceError):
 
 class ArtifactUnavailableError(AgentServiceError):
     code = "artifact_unavailable"
+
+
+class AttachmentNotFoundError(AgentServiceError):
+    code = "attachment_not_found"
+
+
+class AttachmentUnavailableError(AgentServiceError):
+    code = "attachment_unavailable"
+
+
+class AttachmentInvalidError(AgentServiceError):
+    code = "attachment_invalid"
+
+
+class AttachmentTooLargeError(AgentServiceError):
+    code = "attachment_too_large"
+
+    def __init__(self, message: str, *, resource: str, used: int, limit: int) -> None:
+        self.resource = resource
+        self.used = used
+        self.limit = limit
+        super().__init__(message)
+
+
+class AttachmentContextTooLargeError(AgentServiceError):
+    code = "attachment_context_too_large"
+
+    def __init__(self, message: str, *, used_tokens: int, limit_tokens: int) -> None:
+        self.used_tokens = used_tokens
+        self.limit_tokens = limit_tokens
+        super().__init__(message)
+
+
+class UnsupportedInputModalityError(AgentServiceError):
+    code = "unsupported_input_modality"

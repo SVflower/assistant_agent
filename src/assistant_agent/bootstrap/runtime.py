@@ -32,7 +32,7 @@ from assistant_agent.bootstrap.tools import (
 )
 from assistant_agent.config.loader import ConfigError, load_config
 from assistant_agent.config.paths import resolve_log_dir, resolve_run_dir, state_paths
-from assistant_agent.config.schema import AppConfig
+from assistant_agent.config.schema import AppConfig, ProviderConfig
 from assistant_agent.contracts.capabilities import (
     MCPServerCapability,
     RuntimeCapabilities,
@@ -60,10 +60,16 @@ from assistant_agent.integrations.skills import LoadSkillTool, SkillManager
 from assistant_agent.integrations.web_access import WebClient
 from assistant_agent.observability import create_logger, new_trace_id, sanitize_for_display
 from assistant_agent.persistence.artifacts import ArtifactStore
+from assistant_agent.persistence.attachments import AttachmentStore
 from assistant_agent.persistence.execution_lease import FileSessionExecutionLeaseManager
 from assistant_agent.persistence.run_store import RunStore
 from assistant_agent.persistence.store import SessionStore
+from assistant_agent.providers.content_codec import (
+    AttachmentContentCodec,
+    resolve_input_capabilities,
+)
 from assistant_agent.providers.litellm import LLMClient
+from assistant_agent.providers.ports import ModelProviderPort
 from assistant_agent.tools.charts import PresentChartTool
 from assistant_agent.tools.context import ToolContext
 from assistant_agent.tools.extensions import ConfigureMCPServerTool, ManageSkillTool
@@ -141,6 +147,23 @@ def _managed_process_notices(policy: RuntimePolicy, available: bool) -> list[Run
     ]
 
 
+def _create_provider_client(
+    provider: ProviderConfig, codec: AttachmentContentCodec
+) -> ModelProviderPort:
+    """Keep injected fake clients from older deterministic tests usable.
+
+    Production ``LLMClient`` always receives the codec. Test doubles that only implement the
+    old one-argument constructor cannot materialize attachments and are therefore only suitable
+    for text-only fixtures.
+    """
+    try:
+        return LLMClient(provider, codec)
+    except TypeError as exc:
+        if "positional" not in str(exc) and "argument" not in str(exc):
+            raise
+        return LLMClient(provider)
+
+
 def create_runtime(
     *,
     config_path: Path,
@@ -200,6 +223,11 @@ def create_runtime(
     )
     registry = build_default_registry(policy.allowed_tools)
     paths = state_paths(root)
+    attachment_store = AttachmentStore(paths.attachments, config.attachments)
+    input_capabilities = resolve_input_capabilities(
+        config.active_provider,
+        policy_allows_image="image" in policy.allowed_input_modalities,
+    )
     logging_config = config.logging.model_copy(
         update={"dir": str(resolve_log_dir(config.logging.dir, root))}
     )
@@ -438,12 +466,24 @@ def create_runtime(
         if config.agent.compaction.enabled and config.agent.compaction.summary_model:
             summary_provider = config.providers.get(config.agent.compaction.summary_model)
             if summary_provider is not None:
-                summary_client = LLMClient(summary_provider)
+                summary_client = _create_provider_client(
+                    summary_provider,
+                    AttachmentContentCodec(
+                        attachment_store,
+                        resolve_input_capabilities(
+                            summary_provider,
+                            policy_allows_image="image" in policy.allowed_input_modalities,
+                        ),
+                    ),
+                )
 
         with _startup_stage(startup_observer, "creating_loop", "正在创建 Agent Runtime"):
             loop = AgentLoop(
                 config,
-                LLMClient(config.active_provider),
+                _create_provider_client(
+                    config.active_provider,
+                    AttachmentContentCodec(attachment_store, input_capabilities),
+                ),
                 registry,
                 tool_context,
                 interactive=interactive,
@@ -481,6 +521,27 @@ def create_runtime(
             extension_management=extension_management,
             profile=policy.profile,
             chart_spec_versions=(2,) if chart_available else (),
+            content_parts_version=1,
+            input_modalities=input_capabilities.modalities,
+            attachment_media_types=(
+                "text/plain",
+                "text/markdown",
+                "text/csv",
+                "application/json",
+                "application/xml",
+                "application/yaml",
+                "image/png",
+                "image/jpeg",
+                "image/webp",
+            ),
+            attachment_limits={
+                "max_attachments_per_message": config.attachments.max_attachments_per_message,
+                "max_images_per_message": config.attachments.max_images_per_message,
+                "max_total_bytes_per_run": config.attachments.max_total_bytes_per_run,
+                "max_text_bytes": config.attachments.max_text_bytes,
+                "max_image_bytes": config.attachments.max_image_bytes,
+                "max_context_ratio": config.attachments.max_context_ratio,
+            },
         )
         # 到这里所有 adapter 已创建完成。AgentRuntime 接管它们的关闭责任；成功返回后，
         # composition root 不再单独拥有这些资源。
@@ -492,8 +553,11 @@ def create_runtime(
             tool_context=tool_context,
             interaction=port,
             session_store=SessionStore(
-                paths.sessions, lifecycle_dir=paths.workspace / "session-lifecycle"
+                paths.sessions,
+                lifecycle_dir=paths.workspace / "session-lifecycle",
+                attachment_store=attachment_store,
             ),
+            attachment_store=attachment_store,
             visible_skills=visible_skills,
             notices=notices,
             skill_manager=skill_manager,

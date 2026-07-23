@@ -76,3 +76,7 @@ class RuntimeCapabilities:
     extension_management: bool
     profile: RuntimeProfile = "custom"
     chart_spec_versions: tuple[int, ...] = ()
+    content_parts_version: int = 0
+    input_modalities: tuple[Literal["text", "image"], ...] = ("text",)
+    attachment_media_types: tuple[str, ...] = ()
+    attachment_limits: dict[str, int | float] = field(default_factory=dict)

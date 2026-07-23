@@ -4,6 +4,7 @@ from assistant_agent.config.loader import ConfigError, load_config
 from assistant_agent.config.schema import (
     AgentConfig,
     AppConfig,
+    AttachmentsConfig,
     ProviderConfig,
     ToolsConfig,
     UIConfig,
@@ -15,6 +16,7 @@ __all__ = [
     "AppConfig",
     "ProviderConfig",
     "AgentConfig",
+    "AttachmentsConfig",
     "ToolsConfig",
     "UIConfig",
 ]

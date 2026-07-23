@@ -39,7 +39,7 @@ ReplayPolicy = Literal["safe_readonly", "safe_idempotent", "requires_decision"]
 RetrySafety = Literal["safe", "unsafe", "uncertain", "unknown"]
 
 _RESOLVED_TOOL_STATUSES = {"completed", "failed", "skipped"}
-_SCHEMA_VERSION: Literal[7] = 7
+_SCHEMA_VERSION: Literal[8] = 8
 
 
 def now_iso() -> str:
@@ -160,7 +160,7 @@ class RunState(StrictStateModel):
     成功写入 Session 后才能置真。三者用途不同，不能为了减少字段而互相重建。
     """
 
-    schema_version: Literal[7] = _SCHEMA_VERSION
+    schema_version: Literal[8] = _SCHEMA_VERSION
     run_id: str = Field(min_length=1)
     session_id: str | None = None
     task: str

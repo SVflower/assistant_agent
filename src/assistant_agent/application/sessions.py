@@ -25,6 +25,7 @@ from assistant_agent.application.models import (
     is_public_run_status,
 )
 from assistant_agent.application.ports import (
+    AttachmentRepository,
     RunCatalogRepository,
     RuntimeFactoryPort,
     SessionExecutionLeaseManager,
@@ -139,12 +140,14 @@ class AgentService:
         run_store: RunCatalogRepository,
         session_leases: SessionExecutionLeaseManager,
         max_completed_runs: int,
+        attachment_store: AttachmentRepository,
     ) -> None:
         self._runtime_factory = runtime_factory
         self._session_store = session_store
         self._run_store = run_store
         self._session_leases = session_leases
         self._max_completed_runs = max_completed_runs
+        self._attachment_store = attachment_store
 
     def create_session(
         self,
@@ -393,6 +396,7 @@ class AgentService:
             deleted = self._session_store.delete(session_id)
             if deleted:
                 self._run_store.delete_session_runs(session_id)
+                self._attachment_store.delete_session(session_id)
             return deleted
         finally:
             if lease is not None:

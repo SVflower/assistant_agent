@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import hashlib
-from typing import Any
+from typing import Any, cast
 
 from assistant_agent.application.models import (
     SESSION_SCHEMA_VERSION,
@@ -79,7 +79,17 @@ def build_forked_session(
                 artifacts=tuple(refs),
             )
         )
-    raw_messages = [{"role": message.role, "content": message.content} for message in ledger]
+    raw_messages = [
+        {
+            "role": message.role,
+            "content": (
+                cast(Any, message.content).model_dump(mode="json")
+                if message.role == "user"
+                else message.content
+            ),
+        }
+        for message in ledger
+    ]
     title = automatic_session_title(raw_messages)
     return Session(
         id=target_session_id,

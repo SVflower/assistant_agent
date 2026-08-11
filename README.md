@@ -4,6 +4,10 @@
 
 核心卖点：换模型只改 `config.yaml`，业务代码零改动。
 
+面向企业工业问答、知识/MCP/分析模块化接入与工业数据分析的长期产品方向，见
+[工业智能 Agent 产品蓝图](docs/INDUSTRIAL_AGENT_PRODUCT_BLUEPRINT.md)。该文档描述目标产品和演进路线，
+当前已交付能力仍以 [ROADMAP.md](ROADMAP.md) 为准。
+
 ## 安装
 
 ```bash

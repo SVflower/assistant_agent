@@ -10,6 +10,7 @@ crudtest/
 test_crud/
 tmp_agent_demo/
 .playwright-mcp/
+.worktrees/
 
 # Python
 __pycache__/

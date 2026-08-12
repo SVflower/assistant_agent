@@ -148,6 +148,7 @@ def test_mcp_lists_servers(tmp_path):
     ctx.mcp_servers = [("web", ["nav", "click"]), ("db", ["query"])]
     build_default_slash_registry().dispatch("/mcp", ctx)
     out = ctx.console.text()
+    assert "MCP server：2 个；暴露工具：3 个" in out
     assert "web（2 个工具）" in out and "nav, click" in out and "db（1 个工具）" in out
 
 

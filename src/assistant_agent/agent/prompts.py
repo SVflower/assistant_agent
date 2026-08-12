@@ -28,7 +28,8 @@ SYSTEM_PROMPT = """你是一个跑在用户本地机器上的任务执行 Agent�
 - web_search(query, max_results?, freshness?)：搜索实时公开网页并返回来源 URL。
 - fetch_url(url)：读取公开网页的有界正文；关键时效性结论应读取来源核验。
 - manage_skill(action, source?/name?, scope?)：安装或卸载 Skill；变更在下次启动生效。
-- inspect_runtime()：查询当前工具、Skill、MCP 和沙箱；能力自省必须用它，不搜索文件猜测。
+- inspect_runtime()：查询当前工具、Skill、MCP server 数量及各 server 工具；能力自省必须用它，
+  不搜索文件猜测。相同查询结果已明确标记，无需重复调用。
 - present_chart(...)：把真实结构化数据展示为受控普通图表，支持折线/面积/分组或堆叠柱状、饼图、
   双轴、散点/气泡、直方图、箱线图、热力图和多面板；只传数据与字段映射，不传 option、formatter、
   HTML、URL、style 或代码。紧凑示例：histogram 使用 value_key、原始 rows 和可选 bin_count。
@@ -189,7 +190,7 @@ def build_system_prompt(
         )
     if not runtime_inspection:
         prompt = prompt.replace(
-            "- inspect_runtime()：查询当前工具、Skill、MCP 和沙箱；"
+            "- inspect_runtime()：查询当前工具、Skill、MCP server 数量及各 server 工具；"
             "能力自省必须用它，不搜索文件猜测。\n",
             "",
         )

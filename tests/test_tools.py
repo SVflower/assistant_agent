@@ -58,6 +58,43 @@ def test_runtime_inspection_uses_live_capabilities_without_permission():
     assert tool.permission_requests({}, _ctx()) == []
 
 
+def test_runtime_inspection_reports_server_and_tool_counts_and_suppresses_repeat():
+    tool = InspectRuntimeTool(
+        sandbox="workspace",
+        tool_names=lambda: ["inspect_runtime", "mcp__web__search"],
+        skills=lambda: [],
+        mcp_servers=lambda: [
+            MCPServerCapability(
+                name="web",
+                transport="stdio",
+                startup="optional",
+                status="connected",
+                tool_names=("search",),
+            ),
+            MCPServerCapability(
+                name="db",
+                transport="http",
+                startup="required",
+                status="degraded_connection",
+                tool_names=("query", "schema"),
+            ),
+        ],
+    )
+
+    first = tool.run({}, _ctx())
+    second = tool.run({}, _ctx())
+
+    assert "当前 MCP server：2 个；暴露工具：3 个" in first.output
+    assert first.metadata["server_count"] == 2
+    assert first.metadata["tool_count"] == 3
+    assert first.metadata["tool_names"] == ["inspect_runtime", "mcp__web__search"]
+    assert first.metadata["mcp_servers"][0]["tool_count"] == 1
+    assert first.metadata["mcp_servers"][1]["tool_names"] == ["query", "schema"]
+    assert first.metadata["repeated"] is False
+    assert "无需重复处理" in second.output
+    assert second.metadata["repeated"] is True
+
+
 # ---- file_ops ----
 
 

@@ -151,7 +151,8 @@ def _list_mcp(ctx: ExtensionCommandContext) -> None:
             "未接入 MCP server。可用 /mcp add playwright 安装 Playwright MCP。"
         )
         return
-    lines = ["MCP server："]
+    lines: list[str] = []
+    total_tools = 0
     names = sorted(set(configured) | set(running) | set(statuses))
     for name in names:
         item = configured.get(name)
@@ -160,10 +161,12 @@ def _list_mcp(ctx: ExtensionCommandContext) -> None:
         trusted = item[1].auto_approve if item else False
         status = statuses.get(name)
         tools = list(status.tool_names) if status is not None else running.get(name, [])
+        total_tools += len(tools)
         state = status.status if status is not None else ("enabled" if enabled else "disabled")
         trust = " · trusted" if trusted else ""
         detail = f"：{', '.join(tools)}" if tools else ""
         lines.append(f"  {name}（{len(tools)} 个工具） · {source} · {state}{trust}{detail}")
+    lines.insert(0, f"MCP server：{len(names)} 个；暴露工具：{total_tools} 个")
     ctx.console.command_info("\n".join(lines))
 
 

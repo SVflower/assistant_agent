@@ -29,6 +29,7 @@ class InspectRuntimeTool(Tool):
         self._tool_names = tool_names
         self._skills = skills
         self._mcp_servers = mcp_servers
+        self._last_snapshot: tuple[object, ...] | None = None
 
     @property
     def parameters(self) -> dict[str, Any]:
@@ -38,35 +39,51 @@ class InspectRuntimeTool(Tool):
         tools = tuple(self._tool_names())
         skills = tuple(self._skills())
         servers = tuple(self._mcp_servers())
+        server_count = len(servers)
+        tool_count = sum(len(server.tool_names) for server in servers)
+        snapshot = (self._sandbox, tools, skills, servers)
+        repeated = snapshot == self._last_snapshot
+        self._last_snapshot = snapshot
         lines = [f"当前 Runtime（sandbox={self._sandbox}）："]
         lines.append("工具：" + ("、".join(tools) if tools else "无"))
         lines.append(
             "Skills："
             + ("、".join(f"{name}（{source}）" for name, source in skills) if skills else "无")
         )
-        lines.append("MCP：" if servers else "MCP：无")
+        lines.append(f"当前 MCP server：{server_count} 个；暴露工具：{tool_count} 个")
         safe_servers = []
         for server in servers:
             tool_names = list(server.tool_names)
-            detail = f"，工具：{'、'.join(tool_names)}" if tool_names else ""
-            lines.append(
-                f"- {server.name}（{server.transport} / {server.startup} / "
-                f"{server.status}{detail}）"
-            )
             safe_servers.append(
                 {
                     "name": server.name,
                     "transport": server.transport,
                     "startup": server.startup,
                     "status": server.status,
+                    "tool_count": len(tool_names),
                     "tool_names": tool_names,
                 }
             )
+        if repeated:
+            lines.append("本次结果与上次 inspect_runtime 查询相同，无需重复处理。")
+        else:
+            lines.append("MCP：" if servers else "MCP：无")
+            for server in servers:
+                tool_names = list(server.tool_names)
+                detail = f"，工具：{'、'.join(tool_names)}" if tool_names else ""
+                lines.append(
+                    f"- {server.name}（{server.transport} / {server.startup} / "
+                    f"{server.status}{detail}）"
+                )
         metadata: dict[str, object] = {
             "sandbox": self._sandbox,
             "tools": list(tools),
+            "tool_names": list(tools),
             "skills": [{"name": name, "source": source} for name, source in skills],
+            "server_count": server_count,
+            "tool_count": tool_count,
             "mcp_servers": safe_servers,
+            "repeated": repeated,
         }
         return ToolResult.ok("\n".join(lines), metadata=metadata)
 

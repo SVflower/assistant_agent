@@ -9,6 +9,13 @@ from assistant_agent.integrations.mcp.configure import MCPProbeResult, MCPServic
 from assistant_agent.integrations.skills import SkillManager
 from assistant_agent.persistence.store import SessionStore
 from assistant_agent.providers.ports import StreamEvent
+from assistant_agent.tools.permissions import (
+    PUBLIC_WEB_RUNTIME_SCOPE,
+    Capability,
+    PermissionRequest,
+    PermissionRule,
+)
+from assistant_agent.tools.policy import PermissionPolicy
 from assistant_agent.tools.registry import build_default_registry
 from tests.support import ToolContextFixture
 
@@ -63,11 +70,12 @@ def _config(**providers) -> AppConfig:
 
 def _ctx(tmp_path):
     config = _config()
-    loop = AgentLoop(config, _FakeClient(), build_default_registry(), ToolContextFixture())
+    tool_context = ToolContextFixture()
+    loop = AgentLoop(config, _FakeClient(), build_default_registry(), tool_context)
     console = FakeConsole()
     store = SessionStore(base_dir=tmp_path / "sessions")
     session = store.new_session(provider="cloud", model="openai/a")
-    return ChatContext(config, loop, console, store, session)
+    return ChatContext(config, loop, console, store, session, tool_context=tool_context)
 
 
 def test_help_lists_commands(tmp_path):
@@ -75,7 +83,7 @@ def test_help_lists_commands(tmp_path):
     reg = build_default_slash_registry()
     reg.dispatch("/help", ctx)
     out = ctx.console.text()
-    for name in ("model", "sessions", "clear", "context", "exit"):
+    for name in ("model", "sessions", "clear", "context", "permissions", "exit"):
         assert f"/{name}" in out
 
 
@@ -135,6 +143,78 @@ def test_display_command_rejects_unknown_mode(tmp_path):
     ctx = _ctx(tmp_path)
     build_default_slash_registry().dispatch("/display noisy", ctx)
     assert "未知展示模式" in ctx.console.text()
+
+
+def test_permissions_command_reports_and_switches_runtime_mode(tmp_path):
+    ctx = _ctx(tmp_path)
+    registry = build_default_slash_registry()
+
+    registry.dispatch("/permissions", ctx)
+    assert "当前权限模式：工作区（workspace）" in ctx.console.text()
+    assert "readonly（只读）" in ctx.console.text()
+    assert "ask（请求批准）" in ctx.console.text()
+
+    registry.dispatch("/permissions ask", ctx)
+    assert ctx.tool_context is not None
+    assert ctx.tool_context.permission_policy.mode == "strict"
+    assert ctx.config.permissions.mode == "workspace"
+    assert "请求批准（strict）" in ctx.console.text()
+
+
+def test_permissions_modes_apply_immediately_and_preserve_runtime_grants(tmp_path):
+    ctx = _ctx(tmp_path)
+    assert ctx.tool_context is not None
+    registry = build_default_slash_registry()
+    request = PermissionRequest(
+        "effect", Capability.FILESYSTEM_WRITE, str(tmp_path / "outside.txt"), "write"
+    )
+    ctx.tool_context.permission_grants.add(PUBLIC_WEB_RUNTIME_SCOPE)
+    ctx.tool_context.always_allowed.add("legacy")
+
+    registry.dispatch("/permissions readonly", ctx)
+    assert (
+        ctx.tool_context.permission_policy.decide(
+            request, workspace_root=ctx.tool_context.workspace_root, grants=set()
+        ).effect
+        == "deny"
+    )
+    registry.dispatch("/permissions full", ctx)
+    assert (
+        ctx.tool_context.permission_policy.decide(
+            request, workspace_root=ctx.tool_context.workspace_root, grants=set()
+        ).effect
+        == "allow"
+    )
+    assert ctx.tool_context.permission_grants == {PUBLIC_WEB_RUNTIME_SCOPE}
+    assert ctx.tool_context.always_allowed == {"legacy"}
+
+
+def test_permissions_full_warns_and_explicit_deny_still_wins(tmp_path):
+    ctx = _ctx(tmp_path)
+    assert ctx.tool_context is not None
+    request = PermissionRequest("effect", Capability.NETWORK_ACCESS, "blocked", "network")
+    ctx.tool_context.permission_policy = PermissionPolicy(
+        rules=[PermissionRule("deny", Capability.NETWORK_ACCESS, "blocked", "effect")]
+    )
+
+    build_default_slash_registry().dispatch("/permissions full", ctx)
+
+    assert "危险：完全访问" in ctx.console.text()
+    assert "仅当前 CLI Runtime 生效，不影响 Web/API" in ctx.console.text()
+    assert (
+        ctx.tool_context.permission_policy.decide(
+            request, workspace_root=tmp_path, grants=set()
+        ).effect
+        == "deny"
+    )
+
+
+def test_permissions_rejects_unknown_mode_without_changing_policy(tmp_path):
+    ctx = _ctx(tmp_path)
+    assert ctx.tool_context is not None
+    build_default_slash_registry().dispatch("/permissions unsafe", ctx)
+    assert ctx.tool_context.permission_policy.mode == "workspace"
+    assert "用法：/permissions <readonly|workspace|ask|full>" in ctx.console.text()
 
 
 def test_mcp_empty(tmp_path):

@@ -11,6 +11,8 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
+from assistant_agent.tools.permissions import permission_mode_label
+
 
 def read_input(prompt: str = "") -> str:
     """用纯文本提示符读取一行输入。
@@ -45,7 +47,13 @@ def build_banner(
     info.append("\n位置  ", style="dim")
     info.append(cwd, style="green")
     info.append("\n权限  ", style="dim")
-    info.append(permission_mode, style=style)
+    known_modes = {"readonly", "workspace", "strict", "unrestricted"}
+    label = (
+        permission_mode_label(permission_mode)
+        if permission_mode in known_modes
+        else permission_mode
+    )
+    info.append(f"{label}（{permission_mode}）", style=style)
     info.append("  · 应用策略", style=style)
     execution_label, execution_style = _execution_label(execution_backend)
     info.append("\n执行  ", style="dim")

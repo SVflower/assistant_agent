@@ -21,6 +21,17 @@ class Capability(StrEnum):
 PermissionEffect = Literal["allow", "ask", "deny"]
 PermissionMode = Literal["readonly", "workspace", "strict", "unrestricted"]
 
+PERMISSION_MODE_LABELS: dict[PermissionMode, str] = {
+    "readonly": "只读",
+    "workspace": "工作区",
+    "strict": "请求批准",
+    "unrestricted": "完全访问",
+}
+
+
+def permission_mode_label(mode: PermissionMode) -> str:
+    return PERMISSION_MODE_LABELS[mode]
+
 
 @dataclass(frozen=True)
 class PermissionRequest:

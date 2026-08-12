@@ -20,6 +20,11 @@ from assistant_agent.integrations.mcp import MCPService
 from assistant_agent.integrations.skills import SkillManager
 from assistant_agent.observability import NullLogger
 from assistant_agent.providers.litellm import LLMClient
+from assistant_agent.tools.context import ToolContext
+from assistant_agent.tools.permissions import (
+    PermissionMode,
+    permission_mode_label,
+)
 from assistant_agent.ui.console import Console, DisplayMode
 
 
@@ -42,6 +47,7 @@ class ChatContext:
     mcp_runtime: MCPRuntimePort | None = None
     skill_manager: SkillManager | None = None
     mcp_service: MCPService | None = None
+    tool_context: ToolContext | None = None
     should_exit: bool = False
 
 
@@ -182,6 +188,49 @@ def _cmd_display(args: str, ctx: ChatContext) -> None:
     ctx.console.command_info(f"展示模式已切换为 {target}。")
 
 
+def _cmd_permissions(args: str, ctx: ChatContext) -> None:
+    """查看或切换当前 CLI Runtime 的权限模式。"""
+    aliases: dict[str, PermissionMode] = {
+        "readonly": "readonly",
+        "workspace": "workspace",
+        "ask": "strict",
+        "full": "unrestricted",
+    }
+    target = args.strip().lower()
+    if ctx.tool_context is None:
+        ctx.console.error("当前入口不支持动态权限切换。")
+        return
+    if not target:
+        current = ctx.tool_context.permission_policy.mode
+        options = "、".join(
+            f"{name}（{permission_mode_label(mode)}）" for name, mode in aliases.items()
+        )
+        ctx.console.command_info(
+            f"当前权限模式：{permission_mode_label(current)}（{current}）。\n"
+            f"可选：{options}\n用法：/permissions <readonly|workspace|ask|full>"
+        )
+        return
+    mode = aliases.get(target)
+    if mode is None:
+        ctx.console.error(
+            f"未知权限模式：{target}。用法：/permissions <readonly|workspace|ask|full>"
+        )
+        return
+    ctx.tool_context.permission_policy.mode = mode
+    message = (
+        f"权限模式已切换为 {permission_mode_label(mode)}（{mode}）。"
+        "已有本会话授权保持有效；显式 deny 规则仍优先。"
+    )
+    if mode == "unrestricted":
+        message += (
+            "\n危险：完全访问会默认允许高风险工具操作。"
+            "仅当前 CLI Runtime 生效，不影响 Web/API，退出后恢复配置默认值。"
+        )
+    else:
+        message += "仅当前 CLI Runtime 生效，退出后恢复配置默认值。"
+    ctx.console.command_info(message)
+
+
 def _cmd_exit(args: str, ctx: ChatContext) -> None:
     """退出交互模式。"""
     ctx.should_exit = True
@@ -198,5 +247,6 @@ def build_default_slash_registry() -> SlashRegistry:
     reg.register(SlashCommand("skills", "管理 Skill（list/install/remove/doctor）", cmd_skills))
     reg.register(SlashCommand("mcp", "管理 MCP server（list/add/test/remove 等）", cmd_mcp))
     reg.register(SlashCommand("display", "查看或切换展示模式", _cmd_display))
+    reg.register(SlashCommand("permissions", "查看或切换当前 Runtime 权限模式", _cmd_permissions))
     reg.register(SlashCommand("exit", "退出（也可输入 exit/quit）", _cmd_exit))
     return reg

@@ -171,6 +171,7 @@ def chat(
             mcp_runtime=rt.mcp,
             skill_manager=rt.skill_manager,
             mcp_service=rt.mcp_service,
+            tool_context=rt.tool_context,
         )
         registry = build_default_slash_registry()
         console.set_slash_commands(registry.descriptions())

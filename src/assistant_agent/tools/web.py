@@ -8,8 +8,17 @@ from assistant_agent.integrations.web_access.client import WebClient, WebError, 
 from assistant_agent.tools.context import ToolContext
 from assistant_agent.tools.display import ToolDisplay, safe_text
 from assistant_agent.tools.models import ToolResult
-from assistant_agent.tools.permissions import Capability, PermissionRequest
+from assistant_agent.tools.permissions import (
+    PUBLIC_WEB_RUNTIME_SCOPE,
+    Capability,
+    PermissionRequest,
+)
 from assistant_agent.tools.tool import Tool
+
+_PUBLIC_WEB_RISK = (
+    "仅访问当前 Runtime 的受控网络工具和公开网络；不包含 Shell、任意 Python "
+    "或服务器文件权限"
+)
 
 
 class WebSearchTool(Tool):
@@ -90,7 +99,12 @@ class WebSearchTool(Tool):
                 self.name,
                 Capability.NETWORK_ACCESS,
                 self._client.search_target,
-                "搜索词将发送给配置的公开搜索服务",
+                _PUBLIC_WEB_RISK,
+                metadata={
+                    "controlled_public_web": True,
+                    "broader_scope_label": "本会话允许当前联网工具访问公开网络",
+                },
+                broader_scope=PUBLIC_WEB_RUNTIME_SCOPE,
             )
         ]
 
@@ -165,7 +179,12 @@ class FetchURLTool(Tool):
                 self.name,
                 Capability.NETWORK_ACCESS,
                 hostname_for_url(url),
-                "将连接外部站点并把公开页面正文返回给模型",
+                _PUBLIC_WEB_RISK,
+                metadata={
+                    "controlled_public_web": True,
+                    "broader_scope_label": "本会话允许当前联网工具访问公开网络",
+                },
+                broader_scope=PUBLIC_WEB_RUNTIME_SCOPE,
             )
         ]
 

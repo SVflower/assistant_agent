@@ -7,6 +7,7 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from assistant_agent.tools.permissions import (
+    PUBLIC_WEB_RUNTIME_SCOPE,
     Capability,
     PermissionDecision,
     PermissionMode,
@@ -57,8 +58,15 @@ class PermissionPolicy:
         if matched_ask is not None:
             return PermissionDecision("ask", "命中显式 ask 规则", matched_ask)
 
+        runtime_web_grant = (
+            request.capability.value == "network.access"
+            and request.metadata.get("controlled_public_web") is True
+            and request.broader_scope == PUBLIC_WEB_RUNTIME_SCOPE
+        )
         if request.scope in grants or (
-            request.broader_scope is not None and request.broader_scope in grants
+            request.broader_scope is not None
+            and request.broader_scope in grants
+            and (request.broader_scope != PUBLIC_WEB_RUNTIME_SCOPE or runtime_web_grant)
         ):
             return PermissionDecision("allow", "命中本会话精确授权", remembered=True)
 

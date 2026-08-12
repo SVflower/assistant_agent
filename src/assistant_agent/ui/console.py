@@ -200,21 +200,31 @@ class Console:
         return choice
 
     def confirm_scoped(self, message: str, broader_label: str) -> ConfirmChoice:
-        """带上级会话 scope 的确认；当前用于 MCP server 会话信任。"""
+        """带上级会话 scope 的确认；公开 Web 使用短三选一文案。"""
         suspend_active(self)
         if not self._at_line_start:
             self._console.print()
             self._at_line_start = True
         self._console.print("[bold yellow]确认执行[/bold yellow]")
         self._console.print(message, style="yellow", markup=False)
-        self._console.print(
-            "[green]1[/green] 允许一次  [cyan]2[/cyan] 本会话允许此工具  "
-            f"[blue]3[/blue] {broader_label}  [red]4[/red] 拒绝（默认）"
-        )
-        answer = self.input("[bold]选择 [1/2/3/4]: [/bold]").strip()
+        public_web = broader_label == "本会话允许当前联网工具访问公开网络"
+        if public_web:
+            self._console.print(
+                "[green]1[/green] 仅本次  [cyan]2[/cyan] 本会话允许当前联网工具访问公开网络  "
+                "[red]3[/red] 拒绝（默认）"
+            )
+            answer = self.input("[bold]选择 [1/2/3]: [/bold]").strip()
+        else:
+            self._console.print(
+                "[green]1[/green] 允许一次  [cyan]2[/cyan] 本会话允许此工具  "
+                f"[blue]3[/blue] {broader_label}  [red]4[/red] 拒绝（默认）"
+            )
+            answer = self.input("[bold]选择 [1/2/3/4]: [/bold]").strip()
         choice: ConfirmChoice = "deny"
         if answer == "1":
             choice = "allow"
+        elif answer == "2" and public_web:
+            choice = "broader"
         elif answer == "2":
             choice = "always"
         elif answer == "3":

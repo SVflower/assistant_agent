@@ -7,6 +7,7 @@ from typing import Any
 
 from assistant_agent.observability import NullLogger
 from assistant_agent.tools.permissions import (
+    PUBLIC_WEB_RUNTIME_SCOPE,
     Capability,
     PermissionRequest,
     PermissionRule,
@@ -43,6 +44,78 @@ def test_exact_grant_does_not_spread_to_other_target(tmp_path):
     not_granted = policy.decide(second, workspace_root=tmp_path, grants={first.scope})
     assert granted.effect == "allow" and granted.remembered
     assert not_granted.effect == "ask"
+
+
+def test_public_web_runtime_grant_covers_tools_and_domains_but_not_other_network(tmp_path):
+    policy = PermissionPolicy(mode="strict")
+    web = PermissionRequest(
+        "fetch_url",
+        Capability.NETWORK_ACCESS,
+        "example.com",
+        "public web",
+        metadata={"controlled_public_web": True},
+        broader_scope=PUBLIC_WEB_RUNTIME_SCOPE,
+    )
+    other_web = PermissionRequest(
+        "fetch_url",
+        Capability.NETWORK_ACCESS,
+        "github.com",
+        "public web",
+        metadata={"controlled_public_web": True},
+        broader_scope=PUBLIC_WEB_RUNTIME_SCOPE,
+    )
+    shell = PermissionRequest("run_shell", Capability.NETWORK_ACCESS, "github.com", "network")
+    grants = {PUBLIC_WEB_RUNTIME_SCOPE}
+    assert policy.decide(web, workspace_root=tmp_path, grants=grants).effect == "allow"
+    assert policy.decide(other_web, workspace_root=tmp_path, grants=grants).effect == "allow"
+    assert policy.decide(shell, workspace_root=tmp_path, grants=grants).effect == "ask"
+
+
+def test_public_web_runtime_grant_does_not_override_explicit_deny(tmp_path):
+    request = PermissionRequest(
+        "fetch_url",
+        Capability.NETWORK_ACCESS,
+        "blocked.example",
+        "public web",
+        metadata={"controlled_public_web": True},
+        broader_scope=PUBLIC_WEB_RUNTIME_SCOPE,
+    )
+    policy = PermissionPolicy(
+        mode="strict",
+        rules=[PermissionRule("deny", Capability.NETWORK_ACCESS, "blocked.example", "fetch_url")],
+    )
+    assert (
+        policy.decide(request, workspace_root=tmp_path, grants={PUBLIC_WEB_RUNTIME_SCOPE}).effect
+        == "deny"
+    )
+
+
+def test_public_web_session_choice_is_reused_without_prompt(tmp_path):
+    prompts = 0
+
+    def confirm_scoped(_message: str, _label: str) -> str:
+        nonlocal prompts
+        prompts += 1
+        return "broader"
+
+    def web_request(tool: str, host: str) -> PermissionRequest:
+        return PermissionRequest(
+            tool,
+            Capability.NETWORK_ACCESS,
+            host,
+            "public web",
+            metadata={"controlled_public_web": True},
+            broader_scope=PUBLIC_WEB_RUNTIME_SCOPE,
+        )
+
+    ctx = ToolContextFixture(
+        workspace_root=tmp_path,
+        permission_policy=PermissionPolicy(mode="strict"),
+        confirm_scoped=confirm_scoped,
+    )
+    assert ctx.request_permissions([web_request("web_search", "duckduckgo.com")])
+    assert ctx.request_permissions([web_request("fetch_url", "github.com")])
+    assert prompts == 1
 
 
 def test_broader_grant_is_explicit_and_does_not_use_wildcard_matching(tmp_path):

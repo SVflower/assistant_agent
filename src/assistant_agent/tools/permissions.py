@@ -56,6 +56,12 @@ class PermissionScope:
     target: str
 
 
+# 仅供 Runtime 注册的受控公开 Web 工具使用；不是通用网络或 Shell 授权。
+PUBLIC_WEB_RUNTIME_SCOPE = PermissionScope(
+    Capability.NETWORK_ACCESS, "controlled_public_web", "public-network"
+)
+
+
 @dataclass(frozen=True)
 class PermissionRule:
     effect: PermissionEffect

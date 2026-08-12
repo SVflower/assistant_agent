@@ -18,10 +18,12 @@ from assistant_agent.config.schema import AppConfig
 from assistant_agent.integrations.skills import SkillStore
 from assistant_agent.interaction import SafeDefaultInteractionPort
 from assistant_agent.observability import NullLogger
+from assistant_agent.persistence.attachments import AttachmentStore
 from assistant_agent.persistence.execution_lease import FileSessionExecutionLeaseManager
 from assistant_agent.persistence.run_store import RunStore
 from assistant_agent.persistence.store import SessionStore
 from assistant_agent.service import AgentRuntime
+from assistant_agent.tools.permissions import Capability, PermissionScope
 from tests.support import ToolContextFixture
 
 
@@ -104,6 +106,10 @@ def test_runtime_close_is_idempotent(tmp_path):
     mcp = _MCP()
     interaction = SafeDefaultInteractionPort()
     ctx = ToolContextFixture(interaction=interaction, workspace_root=tmp_path)
+    ctx.permission_grants.add(
+        PermissionScope(Capability.NETWORK_ACCESS, "controlled_public_web", "public-network")
+    )
+    ctx.always_allowed.add("network.access")
     runtime = AgentRuntime(
         config=config,
         loop=object(),  # type: ignore[arg-type]
@@ -112,6 +118,7 @@ def test_runtime_close_is_idempotent(tmp_path):
         tool_context=ctx,
         interaction=interaction,
         session_store=SessionStore(tmp_path / "sessions"),
+        attachment_store=AttachmentStore(tmp_path / "attachments", config.attachments),
         run_store=RunStore(tmp_path / "runs"),
         execution_leases=FileSessionExecutionLeaseManager(tmp_path / "leases"),
         run_control=ctx.run_control,
@@ -123,6 +130,8 @@ def test_runtime_close_is_idempotent(tmp_path):
     runtime.close("again")
     assert mcp.closed is True
     assert logger.end_reasons == ["done"]
+    assert not ctx.permission_grants
+    assert not ctx.always_allowed
 
 
 def test_untrusted_skills_are_not_injected_and_return_notice(tmp_path, monkeypatch):

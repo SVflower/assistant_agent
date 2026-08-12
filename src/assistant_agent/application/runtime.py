@@ -181,4 +181,7 @@ class AgentRuntime:
             except Exception as exc:  # noqa: BLE001
                 self.notices.append(RuntimeNotice("runtime_close_failed", str(exc)))
         self.tool_context.clear_run()
+        # 会话授权只存在于当前 Runtime；不得进入 Session/Run 持久化数据。
+        self.tool_context.permission_grants.clear()
+        self.tool_context.always_allowed.clear()
         self.logger.session_end(reason=reason)

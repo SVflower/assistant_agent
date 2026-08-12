@@ -22,6 +22,7 @@ class RuntimePolicy:
     minimum_sandbox: SandboxLevel = "off"
     profile: RuntimeProfile = "custom"
     allowed_tools: frozenset[str] | None = None
+    excluded_tools: frozenset[str] = frozenset()
     auto_allow_tools: frozenset[str] = frozenset()
     allowed_input_modalities: frozenset[InputModality] = frozenset({"text", "image"})
 
@@ -35,6 +36,8 @@ class RuntimePolicy:
             raise ValueError(f"未知 runtime profile：{self.profile}")
         if self.allowed_tools is not None and not self.auto_allow_tools <= self.allowed_tools:
             raise ValueError("auto_allow_tools 必须是 allowed_tools 的子集")
+        if self.auto_allow_tools & self.excluded_tools:
+            raise ValueError("auto_allow_tools 不能包含 excluded_tools")
         if not self.allowed_input_modalities or not self.allowed_input_modalities <= {
             "text",
             "image",
@@ -42,12 +45,14 @@ class RuntimePolicy:
             raise ValueError("allowed_input_modalities 不合法")
 
     def allows_tool(self, name: str) -> bool:
-        return self.allowed_tools is None or name in self.allowed_tools
+        return name not in self.excluded_tools and (
+            self.allowed_tools is None or name in self.allowed_tools
+        )
 
     @classmethod
     def cli(cls) -> RuntimePolicy:
-        """保持现有本机 CLI 行为的兼容策略。"""
-        return cls(profile="cli")
+        """本机 CLI 工具策略；不注册需要 Web 展示能力的图表工具。"""
+        return cls(profile="cli", excluded_tools=frozenset({"present_chart"}))
 
     @classmethod
     def service(cls) -> RuntimePolicy:

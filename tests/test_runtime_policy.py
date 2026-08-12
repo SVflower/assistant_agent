@@ -161,6 +161,8 @@ def test_web_profile_only_exposes_server_safe_tools_and_search_needs_no_approval
         names = set(runtime.capabilities.tools)
         assert "web_search" in names
         assert "present_chart" in names
+        assert runtime.capabilities.chart_spec_versions == (2,)
+        assert "present_chart" in {item["function"]["name"] for item in runtime.loop.tool_schemas}
         assert (
             not {
                 "read_file",
@@ -214,6 +216,11 @@ def test_cli_profile_keeps_network_approval_and_full_local_tools(tmp_path: Path)
         assert {"read_file", "write_file", "run_shell", "manage_process"} <= set(
             runtime.capabilities.tools
         )
+        assert "present_chart" not in runtime.capabilities.tools
+        assert runtime.capabilities.chart_spec_versions == ()
+        assert "present_chart" not in {
+            item["function"]["name"] for item in runtime.loop.tool_schemas
+        }
         worker = threading.Thread(
             target=lambda: result.append(
                 runtime.loop._registry.execute(  # noqa: SLF001 - verifies composed registry

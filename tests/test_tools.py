@@ -304,6 +304,51 @@ def test_shell_runs_safe_command():
     assert "hello" in result.output
 
 
+def test_shell_rejects_sparse_checkout_that_relies_on_cd(tmp_path):
+    """Windows 的 cd 跨盘失败后，Git 不得回退修改当前 Agent 仓库。"""
+    workspace = tmp_path / "agent"
+    workspace.mkdir()
+    git_dir = workspace / ".git"
+    git_dir.mkdir()
+    config = git_dir / "config"
+    index = git_dir / "index"
+    config.write_bytes(b"[core]\n\tsparseCheckout = false\n")
+    index.write_bytes(b"unchanged-index")
+    source_dir = workspace / "src"
+    source_dir.mkdir()
+    ctx = _ctx(workspace_root=workspace)
+
+    result = ShellTool().run(
+        {"command": "cd C:\\tmp\\skills && git sparse-checkout set skills/frontend"}, ctx
+    )
+
+    assert result.is_error
+    assert result.code == "unsafe_git_repository_target"
+    assert result.executed is False
+    assert source_dir.is_dir()
+    assert config.read_bytes() == b"[core]\n\tsparseCheckout = false\n"
+    assert index.read_bytes() == b"unchanged-index"
+
+
+def test_shell_sparse_checkout_requires_independent_existing_git_clone(tmp_path):
+    workspace = tmp_path / "agent"
+    workspace.mkdir()
+    (workspace / ".git").mkdir()
+    ctx = _ctx(workspace_root=workspace)
+
+    host_result = ShellTool().run(
+        {"command": f'git -C "{workspace}" sparse-checkout set skills/frontend'}, ctx
+    )
+    missing_result = ShellTool().run(
+        {"command": f'git -C "{workspace / "missing"}" sparse-checkout set skills/frontend'},
+        ctx,
+    )
+
+    assert host_result.code == "unsafe_git_repository_target"
+    assert missing_result.code == "unsafe_git_repository_target"
+    assert host_result.executed is False and missing_result.executed is False
+
+
 def test_shell_dangerous_denied_by_default():
     # 默认 confirm 回调返回 False（拒绝）
     result = _execute(

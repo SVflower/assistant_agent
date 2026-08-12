@@ -17,7 +17,16 @@ from assistant_agent.ui.interaction import ConsoleInteractionAdapter
 Runtime = AgentRuntime
 
 
+def _available_mcp_server_count(runtime: AgentRuntime) -> int:
+    """统计当前 Runtime 实际向模型暴露工具的 MCP Server。"""
+    return sum(bool(server.tool_names) for server in runtime.capabilities.mcp_servers)
+
+
 def _show_notice(console: Console, notice: RuntimeNotice) -> None:
+    # MCP Server 数已经进入启动 Banner；保留 Runtime notice 给非 CLI 调用方，
+    # CLI 不再紧跟 Banner 重复打印同一事实。
+    if notice.code == "mcp_tools_registered":
+        return
     details = ""
     if notice.code == "container_host_capabilities":
         raw_servers = notice.details.get("mcp_servers")
@@ -71,11 +80,13 @@ def build_runtime(
     console.set_display_mode(runtime.config.ui.display_mode)
     console.set_context_limit(runtime.config.agent.max_context_tokens)
     backend = runtime.workspace.backend if runtime.workspace is not None else "host"
+    mcp_server_count = _available_mcp_server_count(runtime)
     console.banner(
         runtime.config.active,
         runtime.config.active_provider.model,
         runtime.config.permissions.mode,
         backend,
+        mcp_server_count=mcp_server_count,
     )
     for notice in runtime.notices:
         _show_notice(console, notice)

@@ -243,12 +243,18 @@ def start_mcp(
             )
         )
     if registered:
+        registered_servers = sorted({tool.server_name for tool in registered})
         notices.append(
             RuntimeNotice(
                 "mcp_tools_registered",
-                f"已接入 {len(registered)} 个外部 MCP 工具。",
+                f"已接入 {len(registered_servers)} 个 MCP Server。",
                 level="info",
-                details={"count": len(registered)},
+                details={
+                    "count": len(registered_servers),
+                    "server_count": len(registered_servers),
+                    "tool_count": len(registered),
+                    "servers": registered_servers,
+                },
             )
         )
     return manager, notices

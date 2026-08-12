@@ -86,7 +86,13 @@ class Console:
             self._console.print(f"Run ID：{run_id}", style="dim")
 
     def banner(
-        self, provider_name: str, model: str, permission_mode: str, execution_backend: str
+        self,
+        provider_name: str,
+        model: str,
+        permission_mode: str,
+        execution_backend: str,
+        *,
+        mcp_server_count: int = 0,
     ) -> None:
         self.set_model_label(model)
         if self._display_mode == "quiet":
@@ -98,6 +104,7 @@ class Console:
                 os.getcwd(),
                 permission_mode,
                 execution_backend,
+                mcp_server_count=mcp_server_count,
                 verbose=self._display_mode == "verbose",
             )
         )

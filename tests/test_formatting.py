@@ -27,7 +27,8 @@ def test_banner_discloses_permission_mode_separately_from_execution(mode):
     assert "模型" in output and "位置" in output and "权限" in output
     assert "/workspace" in output
     assert "执行  host" in output
-    assert len(output.splitlines()) == 6
+    assert "已接入 0 个 MCP Server" in output
+    assert len(output.splitlines()) == 7
 
 
 @pytest.mark.parametrize(
@@ -53,6 +54,7 @@ def test_verbose_banner_discloses_full_runtime_details():
             "/workspace/project",
             "workspace",
             "confined",
+            mcp_server_count=2,
             verbose=True,
         )
     )
@@ -60,6 +62,26 @@ def test_verbose_banner_discloses_full_runtime_details():
     assert "deepseek-v4-pro" in output
     assert "后端  cloud" in output
     assert "/workspace/project" in output
+    assert "已接入 2 个 MCP Server" in output
+    assert "MCP 工具" not in output
+
+
+def test_banner_counts_mcp_servers_instead_of_tools():
+    console = Console(record=True, width=160)
+    console.print(
+        build_banner(
+            "cloud",
+            "model",
+            "/workspace",
+            "workspace",
+            "host",
+            mcp_server_count=2,
+        )
+    )
+
+    output = console.export_text()
+    assert "已接入 2 个 MCP Server" in output
+    assert "25 个外部 MCP 工具" not in output
 
 
 def test_response_panel_has_stable_agent_label_and_horizontal_frame():

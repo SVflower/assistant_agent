@@ -32,6 +32,7 @@ def build_banner(
     permission_mode: str,
     execution_backend: str,
     *,
+    mcp_server_count: int = 0,
     verbose: bool = False,
 ) -> Panel:
     """构建有明确层级的紧凑启动面板。"""
@@ -58,6 +59,8 @@ def build_banner(
     execution_label, execution_style = _execution_label(execution_backend)
     info.append("\n执行  ", style="dim")
     info.append(execution_label, style=execution_style)
+    info.append("\nMCP   ", style="dim")
+    info.append(f"已接入 {mcp_server_count} 个 MCP Server", style="cyan")
     return Panel(
         info,
         title=Text("Assistant Agent", style="bold"),

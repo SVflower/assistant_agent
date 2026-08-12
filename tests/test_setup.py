@@ -8,6 +8,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 import typer
@@ -15,6 +16,7 @@ import typer
 from assistant_agent.bootstrap import runtime as service_runtime
 from assistant_agent.cli import setup
 from assistant_agent.config.schema import AppConfig
+from assistant_agent.contracts.capabilities import MCPServerCapability
 from assistant_agent.integrations.skills import SkillStore
 from assistant_agent.interaction import SafeDefaultInteractionPort
 from assistant_agent.observability import NullLogger
@@ -36,6 +38,15 @@ class _Console:
 
     def info(self, _text):
         pass
+
+
+class _NoticeConsole(_Console):
+    def __init__(self) -> None:
+        super().__init__()
+        self.infos: list[str] = []
+
+    def info(self, text):
+        self.infos.append(text)
 
 
 class _Logger(NullLogger):
@@ -68,6 +79,52 @@ def test_cli_adapter_reports_missing_config(tmp_path, monkeypatch):
     with pytest.raises(typer.Exit):
         setup.build_runtime(None, console, interactive=False)  # type: ignore[arg-type]
     assert any("未找到 config.yaml" in item for item in console.errors)
+
+
+def test_cli_does_not_repeat_mcp_tool_notice_below_banner():
+    console = _NoticeConsole()
+    setup._show_notice(  # noqa: SLF001 - 定向验证 CLI 启动 notice 适配
+        console,  # type: ignore[arg-type]
+        setup.RuntimeNotice(
+            "mcp_tools_registered",
+            "已接入 2 个 MCP Server。",
+            level="info",
+            details={"server_count": 2, "tool_count": 25},
+        ),
+    )
+
+    assert console.infos == []
+
+
+def test_cli_banner_count_uses_servers_not_tool_total():
+    runtime = SimpleNamespace(
+        capabilities=SimpleNamespace(
+            mcp_servers=(
+                MCPServerCapability(
+                    name="web",
+                    transport="stdio",
+                    startup="optional",
+                    status="connected",
+                    tool_names=tuple(f"web_{index}" for index in range(20)),
+                ),
+                MCPServerCapability(
+                    name="db",
+                    transport="http",
+                    startup="required",
+                    status="connected",
+                    tool_names=tuple(f"db_{index}" for index in range(5)),
+                ),
+                MCPServerCapability(
+                    name="blocked",
+                    transport="stdio",
+                    startup="optional",
+                    status="blocked_by_policy",
+                ),
+            )
+        )
+    )
+
+    assert setup._available_mcp_server_count(runtime) == 2  # type: ignore[arg-type]
 
 
 def test_public_runtime_rolls_back_mcp_and_logger(tmp_path, monkeypatch):

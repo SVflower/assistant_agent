@@ -184,6 +184,9 @@ assistant_agent.tools
 - Web profile 注册 `web_search`、受信 `load_skill`、`inspect_runtime`、`ask_user` 和 `present_chart`
   （后两项仍受实际配置/上下文预算影响）；不注册服务器文件、Git、Shell、进程、扩展管理、任意 MCP
   或 `fetch_url`。
+- Web profile 会发现服务器管理员预装在 `~/.assistant_agent/skills` 的 personal Skill，并通过
+  capabilities 和 `load_skill` 只读使用。浏览器请求和模型不能安装、删除或修改 Skill；Skill 指令也
+  不能扩大 Web 工具白名单，因此不会获得服务器文件、Shell 或进程能力。
 - `fetch_url` 暂缓是因为现有 URL 校验尚未把 DNS 结果绑定实际连接，不能证明抵御 DNS rebinding。
 - Web allowlist 工具的权限请求由部署策略自动允许，不产生 approval；config 显式 deny 仍可收紧。
 - `InteractionRequestBase.expires_at` 是 UTC RFC 3339 字符串，由 `BlockingInteractionPort` 入队时按实际
@@ -218,7 +221,7 @@ from assistant_agent.service import AgentService, RuntimePolicy
 
 policy = RuntimePolicy(
     allow_extension_management=False,
-    allow_personal_skills=False,
+    allow_personal_skills=True,
     allowed_mcp_transports=frozenset({"http"}),
     minimum_sandbox="workspace",
 )
@@ -237,7 +240,8 @@ service = AgentService(
 `AgentLoop`，否则需要自行承担 Session 同步和恢复正确性。
 
 `RuntimePolicy` 是调用方给 config 设置的不可绕过上限。config 可以继续收紧，不能重新启用被 policy
-禁止的扩展管理、personal Skill 或 MCP transport，也不能把 sandbox 降到 policy 下限以下。CLI 使用
+禁止的扩展管理或 MCP transport，也不能把 sandbox 降到 policy 下限以下。是否读取管理员预装的
+personal Skill 由 policy 决定；Web profile 允许只读发现，但始终关闭扩展管理。CLI 使用
 `RuntimePolicy.cli()` 保持本机行为；长期服务应显式传入部署 policy，不要依赖默认值。
 
 ## 4. 最小非交互调用

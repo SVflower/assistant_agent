@@ -138,8 +138,11 @@ def test_required_mcp_blocked_by_policy_is_typed_dependency_error(tmp_path: Path
 
 
 def test_web_profile_only_exposes_server_safe_tools_and_search_needs_no_approval(
-    tmp_path: Path,
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    home = tmp_path / "home"
+    monkeypatch.setenv("ASSISTANT_AGENT_HOME", str(home))
+    _skill(home, "skills", "admin-installed")
     config = _config(
         tmp_path / "config.yaml",
         "agent:\n  max_context_tokens: 16000\n"
@@ -158,6 +161,8 @@ def test_web_profile_only_exposes_server_safe_tools_and_search_needs_no_approval
     try:
         assert runtime.capabilities is not None
         assert runtime.capabilities.profile == "web"
+        assert [item.name for item in runtime.capabilities.skills] == ["admin-installed"]
+        assert runtime.capabilities.skills[0].source == "personal"
         names = set(runtime.capabilities.tools)
         assert "web_search" in names
         assert "present_chart" in names
@@ -181,6 +186,11 @@ def test_web_profile_only_exposes_server_safe_tools_and_search_needs_no_approval
             & names
         )
         assert runtime.web is not None
+        loaded = runtime.loop._registry.execute(  # noqa: SLF001
+            "load_skill", {"name": "admin-installed"}, runtime.tool_context
+        )
+        assert loaded.is_error is False
+        assert "body" in loaded.output
         runtime.web.backend = _SearchBackend()  # type: ignore[attr-defined]
         result = runtime.loop._registry.execute(  # noqa: SLF001 - verifies composed registry
             "web_search", {"query": "agent"}, runtime.tool_context

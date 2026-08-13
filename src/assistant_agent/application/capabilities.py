@@ -67,7 +67,7 @@ class RuntimePolicy:
 
     @classmethod
     def web(cls) -> RuntimePolicy:
-        """浏览器访问服务器 Agent 时使用的只读展示策略。"""
+        """浏览器访问服务器 Agent 时使用的管理员预装扩展策略。"""
         tools = frozenset(
             {
                 "ask_user",
@@ -79,7 +79,7 @@ class RuntimePolicy:
         )
         return cls(
             allow_extension_management=False,
-            allow_personal_skills=False,
+            allow_personal_skills=True,
             allowed_mcp_transports=frozenset(),
             minimum_sandbox="workspace",
             profile="web",

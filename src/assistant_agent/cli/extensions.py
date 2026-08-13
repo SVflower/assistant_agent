@@ -7,7 +7,6 @@ from pathlib import Path
 from typing import Protocol, cast
 
 from assistant_agent.application.ports import MCPRuntimePort
-from assistant_agent.config.paths import legacy_project_skills_dirs
 from assistant_agent.config.schema import MCPServerConfig
 from assistant_agent.config.writer import ConfigScope, ConfigWriteError, SkillsConfigStore
 from assistant_agent.integrations.mcp import MCPConfigureError, MCPService
@@ -43,9 +42,6 @@ def cmd_skills(args: str, ctx: ExtensionCommandContext) -> None:
     if action == "doctor":
         roots = [manager.root("project"), manager.root("user")]
         lines = ["Skill 目录诊断：", *(f"  {root}" for root in roots)]
-        for legacy in legacy_project_skills_dirs(manager.workspace_root):
-            if legacy.exists():
-                lines.append(f"  发现旧只读目录：{legacy}（建议迁移，不会自动删除）")
         trusted_names = set(ctx.skills_config_store.trusted()) if ctx.skills_config_store else set()
         project_names, invalid = _project_skill_diagnostics(manager)
         untrusted = sorted(project_names - trusted_names)

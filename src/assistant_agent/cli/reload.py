@@ -9,7 +9,6 @@ from typing import Literal
 
 from assistant_agent.application.runtime import AgentRuntime
 from assistant_agent.cli.commands import ChatContext
-from assistant_agent.config.paths import legacy_project_skills_dirs
 from assistant_agent.contracts.capabilities import RuntimeCapabilities
 from assistant_agent.execution import RunControl
 from assistant_agent.service import SessionRuntime
@@ -160,9 +159,6 @@ def _skill_snapshot(manager: object | None) -> tuple[tuple[str, int, int], ...]:
     if not callable(root_method):
         return ()
     roots = [root_method("project"), root_method("user")]
-    workspace_root = getattr(manager, "workspace_root", None)
-    if workspace_root is not None:
-        roots.extend(legacy_project_skills_dirs(workspace_root))
     entries: list[tuple[str, int, int]] = []
     for root in roots:
         try:

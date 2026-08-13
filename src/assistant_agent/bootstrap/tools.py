@@ -5,11 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from assistant_agent.agent.context.window import estimate_message_tokens, estimate_tools_tokens
-from assistant_agent.config.paths import (
-    legacy_project_skills_dirs,
-    project_skills_dir,
-    user_skills_dir,
-)
+from assistant_agent.config.paths import project_skills_dir, user_skills_dir
 from assistant_agent.config.schema import AppConfig, MCPConfig, SkillsConfig, WebConfig
 from assistant_agent.contracts.capabilities import RuntimeNotice
 from assistant_agent.contracts.errors import RuntimeDependencyError
@@ -55,9 +51,6 @@ def discover_skills(
         if allow_personal:
             dirs.append(user_skills_dir())
             sources.append("personal")
-        for legacy_dir in legacy_project_skills_dirs(workspace_root):
-            dirs.append(legacy_dir)
-            sources.append("legacy")
     return SkillStore.discover(
         dirs,
         sources=sources,

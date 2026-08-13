@@ -130,8 +130,7 @@ sandbox:
 ## 技能（Skills）
 
 把某类任务的做法手册写成 `SKILL.md`，放到 `./skills/<名>/`
-（项目级）或 `~/.assistant_agent/skills/<名>/`（个人级），Agent 会自动发现。旧的
-`./.agents/skills/` 和 `./.assistant_agent/skills/` 仅做低优先级只读兼容，不会自动移动或删除。
+（项目级）或 `~/.assistant_agent/skills/<名>/`（个人级），Agent 会自动发现。
 个人 Skill 默认受信；通过 `/skills install ... project` 安装的项目 Skill 会在安装确认时记录信任，
 手工复制的项目/自定义 Skill 仍需显式信任。Skill 目录变化会在下一轮对话前自动刷新；渐进披露只注入已授权技能的
 name/description（省 token），模型判断相关时才

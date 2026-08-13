@@ -77,23 +77,20 @@ def test_default_stores_use_isolated_home(tmp_path, monkeypatch):
     assert Path(run_store._dir).is_relative_to((tmp_path / "home").resolve())
 
 
-def test_skill_discovery_prefers_project_then_user_then_legacy(tmp_path, monkeypatch):
+def test_skill_discovery_prefers_project_then_user(tmp_path, monkeypatch):
     home = tmp_path / "home"
     monkeypatch.setenv("ASSISTANT_AGENT_HOME", str(home))
     monkeypatch.chdir(tmp_path)
     project = tmp_path / "skills"
-    old_agents = tmp_path / ".agents" / "skills"
-    legacy = tmp_path / ".assistant_agent" / "skills"
     _write_skill(project, "dup", "project")
-    _write_skill(old_agents, "old-agents", "old agents")
-    _write_skill(old_agents, "personal-wins", "legacy shadow")
     _write_skill(user_skills_dir(), "dup", "user")
-    _write_skill(user_skills_dir(), "personal-wins", "personal")
-    _write_skill(legacy, "old", "legacy")
     metas = {meta.name: meta for meta in discover_skills(SkillsConfig(), tmp_path).list()}
     assert metas["dup"].source == "project"
-    assert metas["personal-wins"].source == "personal"
-    assert metas["personal-wins"].trusted
-    assert metas["old-agents"].source == "legacy"
-    assert metas["old"].source == "legacy"
-    assert not metas["old"].trusted
+
+
+def test_old_project_skill_directories_are_not_discovered(tmp_path, monkeypatch):
+    monkeypatch.setenv("ASSISTANT_AGENT_HOME", str(tmp_path / "home"))
+    _write_skill(tmp_path / ".agents" / "skills", "old-agents", "old agents")
+    _write_skill(tmp_path / ".assistant_agent" / "skills", "old-state", "old state")
+
+    assert discover_skills(SkillsConfig(), tmp_path).list() == []

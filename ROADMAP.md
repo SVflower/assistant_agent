@@ -70,8 +70,8 @@ RunState v8、Event v1；API/Web 按 `docs/archive/phase23/m32-agent-api-handoff
 - **健壮性**：对"笨模型"容错、Windows/Linux 终端适配、保存不崩、自动保存非致命。
 - **可观测（M6）**：结构化 JSONL 事件日志（工具调用/耗时/成败/授权决策留痕）+ 尽力脱敏 + 禁用零副作用。
 - **运行时预算（M6.5）**：任务级工具调用总数 + 单次/累计工具输出上限；预算耗尽时补齐当前批次结果再安全终止，不留悬空 tool call。
-- **技能（M7a/M11c）**：SKILL.md 发现 + 渐进披露；project 使用 `.agents/skills/`，user 使用
-  `~/.assistant_agent/skills/`，旧项目目录只读兼容；`/skills` 支持受管安装/卸载，脚本仍走既有权限门。
+- **技能（M7a/M11c）**：SKILL.md 发现 + 渐进披露；project 使用 `skills/`，user 使用
+  `~/.assistant_agent/skills/`；`/skills` 支持受管安装/卸载和下一轮自动刷新，脚本仍走既有权限门。
 - **MCP（M7b/M7c）**：MCP client（stdio + HTTP 两种 transport）——外部 server 工具接入，命名空间 `mcp__<server>__<tool>`；同步桥（守护线程常驻 loop + run_coroutine_threadsafe）；每工具主动确认（category 按 server+tool 细分）；工具白/黑名单 + 每 server/全局数量上限防 schema 撑爆；HTTP 走 Streamable HTTP，session/协议头/重连交 SDK 代管、调用层不自动重放；`/mcp` 命令；`cli/setup.py` Runtime 统管生命周期（还清 D7）。
 - **上下文进化（M8a/M8b）**：M8a 统一预算口径——可用消息预算 = 窗口 − system − tools schema − reserved_output，`/context` 分项显示真实占用（还 D10）；M8b 摘要压缩替代硬截断——双历史（raw + checkpoint + tail）、按完整用户轮分组、checkpoint 随 Session 持久化（resume 不重复摘要）、摘要 token 独立计入 usage、摘要失败降级硬截断，默认关闭时上下文逐字节等于现状。
 - **行为评测（M9c/M10b）**：scripted/real 双轨 eval；18 个 scripted 案例覆盖轨迹、权限、预算、终止、压缩和文件副作用，另有 4 个真实故障注入 recovery eval；真实 provider 报告支持重复运行与 A/B compare。
@@ -215,7 +215,7 @@ D14，M9c 已还清 D9，M10a 已还清 D16，M10b 已还清 D8，M11a 已还清
 > 还清 D19。
 
 > **M11b/M11c 已完成**：新增 DuckDuckGo/SearXNG 可替换搜索、结构化来源和受限网页抓取；
-> Skill 采用 `.agents/skills` project scope 与用户安装目录；MCP 支持 user/project 原子配置、隔离探测、
+> Skill 当前采用 `skills/` project scope 与用户安装目录；MCP 支持 user/project 原子配置、隔离探测、
 > 最小子进程环境、会话级工具/server 信任及 `/mcp` 自助控制面。真实 Playwright MCP 与 Skill 生命周期
 > 验收通过。467 passed、3 skipped、覆盖率 82%，18/18 scripted 与 4/4 recovery eval 全绿；未修改 Loop。
 
@@ -748,7 +748,7 @@ Console 流式渲染（Live spinner 与正文时间错开）、show_reasoning �
 **解决**：能力全靠内置工具 + 静态提示词，无法复用"针对某类任务的做法手册"。Skill = 可复用指示书（SKILL.md 文件夹），模型按需加载、按其指示用现有工具完成任务。
 
 **已实现**（方案见 [计划文档](docs/archive/phase2/m7a-skills-plan.md)，**内核仅轻碰**）：
-- **新增 `skills/` 层（rank 2，叶子能力）**：`SkillStore` 扫描 `./.assistant_agent/skills/` 与 `~/.assistant_agent/skills/`，解析 SKILL.md frontmatter；坏文件跳过不崩、同名"项目覆盖个人"。
+- **新增 `skills/` 层（rank 2，叶子能力）**：`SkillStore` 当前只扫描 `./skills/` 与 `~/.assistant_agent/skills/`，解析 SKILL.md frontmatter；坏文件跳过不崩、同名"项目覆盖个人"。
 - **渐进披露三级**：L1 启动只注入 name/description（几十 token/个）；L2 模型调 `load_skill(name)` 返回正文；L3 正文指向的脚本/参考文件由模型用现有 read_file/run_shell 读或跑（零新机制）。
 - **prompt 动态注入**：`build_system_prompt(interactive, skills)` 加"# 可用技能"节；复用 `Conversation` 已有的 `system_prompt` 接缝——`/clear`/`/model` 都不动 system，注入一次天然存活。
 - **安全**：技能脚本经现有 shell 工具 → 自动走危险确认门；`load_skill` 只按已发现名查、不接受路径（杜绝穿越）；文档提示第三方技能需代码审查。

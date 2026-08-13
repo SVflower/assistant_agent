@@ -62,7 +62,7 @@ def test_service_policy_hides_extension_tools_and_personal_skills(
     home = tmp_path / "home"
     monkeypatch.setenv("ASSISTANT_AGENT_HOME", str(home))
     _skill(home, "skills", "personal")
-    _skill(tmp_path, ".agents/skills", "project")
+    _skill(tmp_path, "skills", "project")
     config = _config(
         tmp_path / "config.yaml",
         "agent:\n  max_context_tokens: 16000\n"

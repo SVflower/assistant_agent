@@ -18,6 +18,7 @@ from assistant_agent.application.ports import (
     AttachmentRepository,
     Closable,
     MCPRuntimePort,
+    OutputRepository,
     RunCatalogRepository,
     RuntimeTelemetry,
     SessionExecutionLeaseManager,
@@ -52,6 +53,7 @@ class AgentRuntime:
     interaction: InteractionPort
     session_store: SessionRepository
     attachment_store: AttachmentRepository
+    output_store: OutputRepository
     run_store: RunCatalogRepository
     run_control: RunControlPort
     execution_leases: SessionExecutionLeaseManager

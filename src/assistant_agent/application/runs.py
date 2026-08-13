@@ -68,6 +68,7 @@ from assistant_agent.contracts.interactions import (
     DefinitionDifferenceInfo,
     RecoveryRequest,
 )
+from assistant_agent.contracts.outputs import OutputArtifactV1, OutputPayload
 from assistant_agent.contracts.sessions import PublicMessageSnapshot, SessionSnapshot
 
 _PUBLIC_MESSAGE_ID = re.compile(r"^msg_[a-f0-9]{24}$")
@@ -278,6 +279,13 @@ def sync_terminal_session(
             continue
         by_id.setdefault(artifact.artifact_id, artifact)
     session.presentations = list(by_id.values())
+    output_by_id = {item.output_id: item for item in session.outputs}
+    for output in state.outputs:
+        existing_output = output_by_id.get(output.output_id)
+        if existing_output is not None and existing_output.content_hash != output.content_hash:
+            continue
+        output_by_id.setdefault(output.output_id, output)
+    session.outputs = list(output_by_id.values())
     _synchronize_run_ledger(session, state)
     message_id = stable_message_id(state.run_id)
     if not any(item.id == message_id for item in session.assistant_messages):
@@ -294,6 +302,7 @@ def sync_terminal_session(
                 id=message_id,
                 content=assistant_content,
                 artifacts=tuple(item.ref for item in state.presentations),
+                outputs=tuple(state.outputs),
             )
         )
     store.save(session, state.messages, must_exist=True)
@@ -327,12 +336,14 @@ def _synchronize_run_ledger(session: Session, state: RunState) -> None:
     for offset, raw in enumerate(appended):
         role = cast(Literal["user", "assistant"], raw.get("role"))
         artifacts: tuple[PresentationArtifactRefV2, ...]
+        outputs: tuple[OutputArtifactV1, ...]
         if role == "user":
             message_id = _run_message_id(state.run_id, "user", offset)
             current_user_id = message_id
             reply_to = None
             created_at = state.created_at
             artifacts = ()
+            outputs = ()
         else:
             if current_user_id is None:
                 raise SessionMigrationRequiredError("assistant message 缺少对应 user")
@@ -344,6 +355,7 @@ def _synchronize_run_ledger(session: Session, state: RunState) -> None:
             reply_to = current_user_id
             created_at = state.updated_at
             artifacts = tuple(item.ref for item in state.presentations)
+            outputs = tuple(state.outputs)
             if any(ref.message_id != message_id for ref in artifacts):
                 raise SessionMigrationRequiredError("Run Artifact 与 assistant message 不一致")
         ledger.append(
@@ -358,6 +370,7 @@ def _synchronize_run_ledger(session: Session, state: RunState) -> None:
                     else str(raw.get("content") or "")
                 ),
                 artifacts=artifacts,
+                outputs=outputs,
             )
         )
     artifact_message_id = stable_message_id(state.run_id)
@@ -375,6 +388,23 @@ def _synchronize_run_ledger(session: Session, state: RunState) -> None:
                 reply_to_message_id=current_user_id,
                 content="",
                 artifacts=refs,
+                outputs=(),
+            )
+        )
+    output_message_id = stable_message_id(state.run_id)
+    if state.outputs and not any(item.id == output_message_id for item in ledger):
+        if current_user_id is None:
+            raise SessionMigrationRequiredError("Run Output 缺少对应 user")
+        if any(item.message_id != output_message_id for item in state.outputs):
+            raise SessionMigrationRequiredError("Run Output message ID 不一致")
+        ledger.append(
+            PublicMessageSnapshot(
+                id=output_message_id,
+                role="assistant",
+                created_at=state.updated_at,
+                reply_to_message_id=current_user_id,
+                content="",
+                outputs=tuple(state.outputs),
             )
         )
 
@@ -395,6 +425,7 @@ def _session_snapshot(
             id=message.id,
             content=cast(str, message.content),
             artifacts=message.artifacts,
+            outputs=message.outputs,
         )
         for message in session.message_ledger
         if message.role == "assistant"
@@ -411,6 +442,7 @@ def _session_snapshot(
             item.ref
             for item in (presentations if presentations is not None else session.presentations)
         ),
+        outputs=tuple(session.outputs),
         assistant_messages=assistant_messages,
         fork_created=fork_created,
     )
@@ -530,6 +562,29 @@ class SessionRuntime:
             raise ArtifactNotFoundError("图表 Artifact 不存在")
         return artifact
 
+    def list_outputs(self) -> tuple[OutputArtifactV1, ...]:
+        merged = {item.output_id: item for item in self.session.outputs}
+        for meta in self.runtime.run_store.list():
+            if meta.session_id != self.session.id:
+                continue
+            try:
+                state = RunCoordinator.load(self.runtime.run_store, meta.id).state
+            except Exception:
+                continue
+            for output in state.outputs:
+                merged.setdefault(output.output_id, output)
+        return tuple(merged.values())
+
+    def get_output(self, output_id: str) -> OutputArtifactV1:
+        return self.runtime.output_store.get(self.session.id, output_id)
+
+    def get_output_payload(self, output_id: str) -> OutputPayload:
+        return self.runtime.output_store.get_payload(self.session.id, output_id)
+
+    def output_local_path(self, output_id: str):
+        local_path = getattr(self.runtime.output_store, "local_path", None)
+        return local_path(self.session.id, output_id) if callable(local_path) else None
+
     def ingest_attachments(
         self, uploads: list[AttachmentUploadV1] | tuple[AttachmentUploadV1, ...]
     ) -> tuple[AttachmentSummaryV1, ...]:
@@ -628,6 +683,7 @@ class SessionRuntime:
             pending_interaction=self._pending_interaction(run_id),
             final_candidate=state.terminal_text if state.status == "completed" else None,
             artifacts=tuple(item.ref for item in state.presentations),
+            outputs=tuple(state.outputs),
             allowed_actions=self._allowed_actions(coordinator),
             execution_status=(
                 "active"

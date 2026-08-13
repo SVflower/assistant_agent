@@ -26,6 +26,7 @@ from assistant_agent.application.models import (
 )
 from assistant_agent.application.ports import (
     AttachmentRepository,
+    OutputRepository,
     RunCatalogRepository,
     RuntimeFactoryPort,
     SessionExecutionLeaseManager,
@@ -47,6 +48,7 @@ from assistant_agent.contracts.errors import (
     SessionUnavailableError,
 )
 from assistant_agent.contracts.interactions import InteractionPort
+from assistant_agent.contracts.outputs import OutputArtifactV1, OutputPayload
 from assistant_agent.contracts.sessions import (
     LastRunSummary,
     SessionCatalogPage,
@@ -141,6 +143,7 @@ class AgentService:
         session_leases: SessionExecutionLeaseManager,
         max_completed_runs: int,
         attachment_store: AttachmentRepository,
+        output_store: OutputRepository,
     ) -> None:
         self._runtime_factory = runtime_factory
         self._session_store = session_store
@@ -148,6 +151,7 @@ class AgentService:
         self._session_leases = session_leases
         self._max_completed_runs = max_completed_runs
         self._attachment_store = attachment_store
+        self._output_store = output_store
 
     def create_session(
         self,
@@ -397,6 +401,7 @@ class AgentService:
             if deleted:
                 self._run_store.delete_session_runs(session_id)
                 self._attachment_store.delete_session(session_id)
+                self._output_store.delete_session(session_id)
             return deleted
         finally:
             if lease is not None:
@@ -426,6 +431,21 @@ class AgentService:
         except Exception as exc:
             raise ArtifactUnavailableError("图表 Artifact 暂不可用") from exc
         raise ArtifactNotFoundError("图表 Artifact 不存在")
+
+    def list_outputs(self, session_id: str) -> tuple[OutputArtifactV1, ...]:
+        try:
+            self._session_store.load(session_id)
+        except FileNotFoundError as exc:
+            from assistant_agent.contracts.outputs import OutputNotFoundError
+
+            raise OutputNotFoundError("输出不存在") from exc
+        return tuple(self._output_store.list(session_id))
+
+    def get_output(self, session_id: str, output_id: str) -> OutputArtifactV1:
+        return self._output_store.get(session_id, output_id)
+
+    def get_output_payload(self, session_id: str, output_id: str) -> OutputPayload:
+        return self._output_store.get_payload(session_id, output_id)
 
     def probe_capabilities(self) -> RuntimeCapabilities:
         runtime = self._runtime_factory(None, False, None)

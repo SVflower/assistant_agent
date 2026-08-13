@@ -11,9 +11,10 @@ from assistant_agent.contracts.charts import (
     ChartArtifactV2,
     parse_chart_artifact,
 )
+from assistant_agent.contracts.outputs import OutputArtifactV1
 from assistant_agent.contracts.sessions import PublicMessageSnapshot
 
-SESSION_SCHEMA_VERSION = 4
+SESSION_SCHEMA_VERSION = 5
 EMPTY_SESSION_TITLE = "（空会话）"
 _PREVIEW_LEN = 40
 PublicRunStatus = Literal["running", "paused", "cancelled", "completed", "failed"]
@@ -68,6 +69,7 @@ class Session:
     messages: list[dict[str, Any]] = field(default_factory=list)
     compaction_checkpoint: dict[str, Any] | None = None
     presentations: list[ChartArtifactV2] = field(default_factory=list)
+    outputs: list[OutputArtifactV1] = field(default_factory=list)
     assistant_messages: list[AssistantMessageSnapshot] = field(default_factory=list)
     message_ledger: list[PublicMessageSnapshot] = field(default_factory=list)
     fork_origin: dict[str, str] | None = None
@@ -86,6 +88,7 @@ class Session:
             "messages": self.messages,
             "compaction_checkpoint": self.compaction_checkpoint,
             "presentations": [item.model_dump(mode="json") for item in self.presentations],
+            "outputs": [item.model_dump(mode="json") for item in self.outputs],
             "assistant_messages": [
                 item.model_dump(mode="json") for item in self.assistant_messages
             ],
@@ -109,6 +112,10 @@ class Session:
             compaction_checkpoint=data.get("compaction_checkpoint"),
             presentations=[
                 parse_chart_artifact(item, strict=True) for item in data.get("presentations", [])
+            ],
+            outputs=[
+                OutputArtifactV1.model_validate(item, strict=True)
+                for item in data.get("outputs", [])
             ],
             assistant_messages=[
                 AssistantMessageSnapshot.model_validate(item)

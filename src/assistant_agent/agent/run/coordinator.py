@@ -333,6 +333,8 @@ class RunCoordinator(ContinuationStateMixin, DefinitionStateMixin):
             return
         if result.chart is not None:
             self._record_presentation(result)
+        if result.output_artifact is not None:
+            self._record_output(result)
         if result.executed and replay_policy == "requires_decision":
             self.state.retry_safety = "unsafe"
         call.status = (
@@ -375,6 +377,33 @@ class RunCoordinator(ContinuationStateMixin, DefinitionStateMixin):
             self._reject_chart(result, "图表超过当前 Run 的安全存储上限，已忽略。")
             return
         self.state.presentations.append(artifact)
+
+    def _record_output(self, result: ToolResult) -> None:
+        artifact = result.output_artifact
+        if artifact is None:
+            return
+        existing = next(
+            (item for item in self.state.outputs if item.output_id == artifact.output_id), None
+        )
+        if existing is not None:
+            if existing.content_hash == artifact.content_hash:
+                result.output_artifact = existing
+                return
+            self._reject_output(result, "输出标识冲突，已保留原有输出。", "output_conflict")
+            return
+        if artifact.run_id != self.run_id or artifact.session_id != self.state.session_id:
+            self._reject_output(result, "输出归属无效，已拒绝。", "output_invalid")
+            return
+        self.state.outputs.append(artifact)
+
+    @staticmethod
+    def _reject_output(result: ToolResult, message: str, code: str) -> None:
+        result.output = message
+        result.is_error = True
+        result.code = code
+        result.retryable = False
+        result.executed = False
+        result.output_artifact = None
 
     @staticmethod
     def _reject_chart(result: ToolResult, message: str) -> None:

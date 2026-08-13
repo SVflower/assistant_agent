@@ -48,6 +48,7 @@ def encode_result(result: ToolResult) -> ToolResultState:
         executed=result.executed,
         budget_exhausted=result.budget_exhausted,
         chart=result.chart,
+        output_artifact=result.output_artifact,
     )
 
 
@@ -60,4 +61,5 @@ def decode_result(result: ToolResultState) -> ToolResult:
         executed=result.executed,
         budget_exhausted=result.budget_exhausted,
         chart=result.chart,
+        output_artifact=result.output_artifact,
     )

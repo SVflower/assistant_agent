@@ -22,7 +22,7 @@ from assistant_agent.application.models import (
     SessionMeta,
     automatic_session_title,
 )
-from assistant_agent.application.ports import AttachmentRepository
+from assistant_agent.application.ports import AttachmentRepository, OutputRepository
 from assistant_agent.contracts.attachments import (
     MessageContentV1,
     UserMessageInputV1,
@@ -157,6 +157,7 @@ class SessionStore:
         *,
         lifecycle_dir: str | Path | None = None,
         attachment_store: AttachmentRepository | None = None,
+        output_store: OutputRepository | None = None,
     ) -> None:
         if base_dir is None:
             from assistant_agent.config.paths import state_paths
@@ -165,6 +166,7 @@ class SessionStore:
         self._dir = Path(base_dir)
         self._lifecycle = SessionLifecycle(lifecycle_dir or self._dir.parent / "session-lifecycle")
         self._attachments = attachment_store
+        self._outputs = output_store
 
     def _path(self, session_id: str) -> Path:
         if not isinstance(session_id, str) or not _SESSION_ID.fullmatch(session_id):
@@ -428,6 +430,7 @@ class SessionStore:
                     committed_at=committed_at,
                     key_hash=key_hash,
                     request_hash=request_hash,
+                    output_store=self._outputs,
                 )
                 refs = tuple(
                     ref
@@ -466,6 +469,8 @@ class SessionStore:
                             self._path(target_id).unlink(missing_ok=True)
                             if self._attachments is not None:
                                 self._attachments.delete_session(target_id)
+                            if self._outputs is not None:
+                                self._outputs.delete_session(target_id)
                             raise
                 return target, True
 

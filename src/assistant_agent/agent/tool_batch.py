@@ -121,6 +121,7 @@ def execute_tool_batch(
             result_metadata=result.metadata,
             failure=failure,
             chart=result.chart,
+            output=result.output_artifact,
         )
         if result.code == "artifact_rejected":
             yield StepEvent(

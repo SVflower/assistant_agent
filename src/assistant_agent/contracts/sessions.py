@@ -11,9 +11,10 @@ from assistant_agent.contracts.charts import (
     AssistantMessageSnapshot,
     PresentationArtifactRefV2,
 )
+from assistant_agent.contracts.outputs import OutputArtifactV1
 from assistant_agent.contracts.time import parse_utc_timestamp
 
-SESSION_CONTRACT_VERSION = 4
+SESSION_CONTRACT_VERSION = 5
 
 
 class _StrictModel(BaseModel):
@@ -84,13 +85,14 @@ class PublicMessageSnapshot(_StrictModel):
     reply_to_message_id: str | None = Field(default=None, pattern=r"^msg_[a-f0-9]{24}$")
     content: str | MessageContentV1 = ""
     artifacts: tuple[PresentationArtifactRefV2, ...] = ()
+    outputs: tuple[OutputArtifactV1, ...] = ()
 
     @field_validator("created_at")
     @classmethod
     def _optional_time_is_utc(cls, value: str | None) -> str | None:
         return _require_utc(value) if value is not None else None
 
-    @field_validator("artifacts", mode="before")
+    @field_validator("artifacts", "outputs", mode="before")
     @classmethod
     def _artifacts_to_tuple(cls, value: Any) -> Any:
         return tuple(value) if isinstance(value, list) else value
@@ -117,7 +119,7 @@ class PublicMessageSnapshot(_StrictModel):
 
 class SessionSnapshot(_StrictModel):
     id: str = Field(min_length=1)
-    schema_version: Literal[4] = 4
+    schema_version: Literal[5] = 5
     title: str = Field(default="（空会话）", min_length=1, max_length=100)
     title_source: Literal["auto", "user"] = "auto"
     metadata_version: int = Field(default=1, ge=1)
@@ -125,6 +127,7 @@ class SessionSnapshot(_StrictModel):
     updated_at: str | None = None
     messages: tuple[PublicMessageSnapshot, ...] = ()
     artifacts: tuple[PresentationArtifactRefV2, ...] = ()
+    outputs: tuple[OutputArtifactV1, ...] = ()
     assistant_messages: tuple[AssistantMessageSnapshot, ...] = ()
     fork_created: bool | None = None
 
@@ -133,7 +136,7 @@ class SessionSnapshot(_StrictModel):
     def _optional_times_are_utc(cls, value: str | None) -> str | None:
         return _require_utc(value) if value is not None else None
 
-    @field_validator("messages", "artifacts", "assistant_messages", mode="before")
+    @field_validator("messages", "artifacts", "outputs", "assistant_messages", mode="before")
     @classmethod
     def _items_to_tuple(cls, value: Any) -> Any:
         return tuple(value) if isinstance(value, list) else value
@@ -154,8 +157,14 @@ class SessionSnapshot(_StrictModel):
                 for ref in message.artifacts
             ):
                 raise ValueError("message Artifact 归属不一致")
+            if any(
+                ref.session_id != self.id or ref.message_id != message.id for ref in message.outputs
+            ):
+                raise ValueError("message Output 归属不一致")
         if any(ref.session_id != self.id for ref in self.artifacts):
             raise ValueError("Session Artifact 归属不一致")
+        if any(ref.session_id != self.id for ref in self.outputs):
+            raise ValueError("Session Output 归属不一致")
         return self
 
 

@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from assistant_agent.contracts.charts import ChartArtifactV2
+from assistant_agent.contracts.outputs import OutputArtifactV1
 
 
 @dataclass
@@ -71,12 +72,14 @@ class ToolResult:
     budget_exhausted: str | None = None
     executed: bool = True
     chart: ChartArtifactV2 | None = None
+    output_artifact: OutputArtifactV1 | None = None
 
     def __post_init__(self) -> None:
         if not self.code:
             self.code = "tool_error" if self.is_error else "ok"
         if self.is_error:
             self.chart = None
+            self.output_artifact = None
 
     @classmethod
     def ok(
@@ -87,6 +90,7 @@ class ToolResult:
         metadata: dict[str, Any] | None = None,
         artifacts: list[ArtifactRef] | None = None,
         chart: ChartArtifactV2 | None = None,
+        output_artifact: OutputArtifactV1 | None = None,
     ) -> ToolResult:
         return cls(
             output=output,
@@ -95,6 +99,7 @@ class ToolResult:
             metadata=metadata or {},
             artifacts=artifacts or [],
             chart=chart,
+            output_artifact=output_artifact,
         )
 
     @classmethod

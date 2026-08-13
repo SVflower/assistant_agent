@@ -63,6 +63,7 @@ from assistant_agent.observability import create_logger, new_trace_id, sanitize_
 from assistant_agent.persistence.artifacts import ArtifactStore
 from assistant_agent.persistence.attachments import AttachmentStore
 from assistant_agent.persistence.execution_lease import FileSessionExecutionLeaseManager
+from assistant_agent.persistence.outputs import OutputStore
 from assistant_agent.persistence.run_store import RunStore
 from assistant_agent.persistence.store import SessionStore
 from assistant_agent.providers.content_codec import (
@@ -74,6 +75,7 @@ from assistant_agent.providers.ports import ModelProviderPort
 from assistant_agent.tools.charts import PresentChartTool
 from assistant_agent.tools.context import ToolContext
 from assistant_agent.tools.extensions import ConfigureMCPServerTool, ManageSkillTool
+from assistant_agent.tools.outputs import CreateOutputTool
 from assistant_agent.tools.processes import ManageProcessTool
 from assistant_agent.tools.registry import ToolRegistry, build_default_registry
 from assistant_agent.tools.runtime_inspection import InspectRuntimeTool
@@ -135,6 +137,25 @@ def _configure_chart_tool(
         ),
     )
     return prompt, False, [notice]
+
+
+def _configure_output_tool(
+    policy: RuntimePolicy,
+    config: AppConfig,
+    registry: ToolRegistry,
+    system_prompt: str,
+) -> list[RuntimeNotice]:
+    if policy.profile not in {"cli", "web"}:
+        return []
+    available = _register_policy_tool(policy, config, registry, system_prompt, CreateOutputTool())
+    if available or not policy.allows_tool("create_output"):
+        return []
+    return [
+        RuntimeNotice(
+            "output_tool_omitted_context_limit",
+            "上下文窗口不足，当前 Runtime 未注册受管输出工具。",
+        )
+    ]
 
 
 def _managed_process_notices(policy: RuntimePolicy, available: bool) -> list[RuntimeNotice]:
@@ -225,6 +246,7 @@ def create_runtime(
     registry = build_default_registry(policy.allowed_tools)
     paths = state_paths(root)
     attachment_store = AttachmentStore(paths.attachments, config.attachments)
+    output_store = OutputStore(root, config.outputs)
     input_capabilities = resolve_input_capabilities(
         config.active_provider,
         policy_allows_image="image" in policy.allowed_input_modalities,
@@ -320,6 +342,7 @@ def create_runtime(
                 max_files=config.tools.max_artifact_files,
                 root=paths.tool_artifacts,
             ),
+            output_store=OutputStore(root, config.outputs),
             process_manager=process_manager,
             confirm_dangerous_shell=config.tools.confirm_dangerous_shell,
             shell_timeout=config.tools.shell_timeout,
@@ -440,6 +463,7 @@ def create_runtime(
                 allowed_tools=policy.allowed_tools,
             )
         notices.extend(mcp_notices)
+        notices.extend(_configure_output_tool(policy, config, registry, system_prompt))
 
         stage = "loop"
 
@@ -561,8 +585,10 @@ def create_runtime(
                 paths.sessions,
                 lifecycle_dir=paths.workspace / "session-lifecycle",
                 attachment_store=attachment_store,
+                output_store=output_store,
             ),
             attachment_store=attachment_store,
+            output_store=output_store,
             visible_skills=visible_skills,
             notices=notices,
             skill_manager=skill_manager,

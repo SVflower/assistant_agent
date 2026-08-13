@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol
 
 from assistant_agent.contracts.events import ToolDisplay
+from assistant_agent.contracts.outputs import OutputArtifactV1, OutputPayload
 from assistant_agent.tools.models import ArtifactRef, ToolResult
 
 if TYPE_CHECKING:
@@ -141,6 +142,28 @@ class ArtifactStorePort(Protocol):
     def write_text(
         self, content: str, *, prefix: str = "tool-output", complete: bool = True
     ) -> ArtifactRef: ...
+
+
+class OutputStorePort(Protocol):
+    def publish_text(
+        self,
+        *,
+        session_id: str,
+        run_id: str,
+        call_id: str,
+        filename: str,
+        media_type: str,
+        content: str,
+        disposition: str = "download",
+        message_id: str | None = None,
+        title: str | None = None,
+    ) -> OutputArtifactV1: ...
+
+    def list(self, session_id: str, *, run_id: str | None = None) -> list[OutputArtifactV1]: ...
+    def get(self, session_id: str, output_id: str) -> OutputArtifactV1: ...
+    def get_payload(self, session_id: str, output_id: str) -> OutputPayload: ...
+    def local_path(self, session_id: str, output_id: str) -> Path: ...
+    def delete(self, session_id: str, output_id: str) -> None: ...
 
 
 class ToolTelemetry(Protocol):

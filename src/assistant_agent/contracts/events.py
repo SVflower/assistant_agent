@@ -11,6 +11,7 @@ from typing import Any, Literal
 
 from assistant_agent.contracts.charts import ChartArtifactV2
 from assistant_agent.contracts.failures import ActivityPhase, BudgetSnapshot, RunFailure
+from assistant_agent.contracts.outputs import OutputArtifactV1
 
 
 @dataclass(frozen=True)
@@ -78,6 +79,7 @@ class StepEvent:
     phase: ActivityPhase | None = None
     budget: BudgetSnapshot | None = None
     chart: ChartArtifactV2 | None = None
+    output: OutputArtifactV1 | None = None
 
     def __post_init__(self) -> None:
         if self.kind == "reasoning":

@@ -17,6 +17,7 @@ from assistant_agent.contracts.attachments import (
 )
 from assistant_agent.contracts.capabilities import MCPServerCapability
 from assistant_agent.contracts.interactions import InteractionPort
+from assistant_agent.contracts.outputs import OutputArtifactV1, OutputPayload
 from assistant_agent.tools.ports import ToolTelemetry
 
 if TYPE_CHECKING:
@@ -80,6 +81,21 @@ class AttachmentRepository(Protocol):
         target_session_id: str,
         refs: Sequence[AttachmentRefV1],
     ) -> dict[str, AttachmentRefV1]: ...
+
+
+class OutputRepository(Protocol):
+    def list(self, session_id: str, *, run_id: str | None = None) -> list[OutputArtifactV1]: ...
+    def get(self, session_id: str, output_id: str) -> OutputArtifactV1: ...
+    def get_payload(self, session_id: str, output_id: str) -> OutputPayload: ...
+    def delete(self, session_id: str, output_id: str) -> None: ...
+    def delete_session(self, session_id: str) -> None: ...
+    def fork(
+        self,
+        source: OutputArtifactV1,
+        *,
+        target_session_id: str,
+        target_message_id: str,
+    ) -> OutputArtifactV1: ...
 
 
 class RunCatalogRepository(RunCheckpointRepository, Protocol):

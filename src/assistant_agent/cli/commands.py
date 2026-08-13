@@ -174,6 +174,28 @@ def _cmd_context(args: str, ctx: ChatContext) -> None:
     )
 
 
+def _cmd_outputs(args: str, ctx: ChatContext) -> None:
+    """列出当前 Session 的受管交付文件。"""
+    store = ctx.tool_context.output_store if ctx.tool_context is not None else None
+    if store is None:
+        ctx.console.error("当前 Runtime 未配置 Output Store。")
+        return
+    if args:
+        ctx.console.error("用法：/outputs")
+        return
+    items = store.list(ctx.session.id)
+    if not items:
+        ctx.console.command_info("当前 Session 暂无输出文件。")
+        return
+    lines = ["当前 Session 输出："]
+    for item in items:
+        lines.append(
+            f"  {item.output_id} · {item.filename} · {item.size_bytes} bytes\n"
+            f"    {store.local_path(ctx.session.id, item.output_id)}"
+        )
+    ctx.console.command_info("\n".join(lines))
+
+
 def _cmd_display(args: str, ctx: ChatContext) -> None:
     """查看或切换当前会话的展示密度。"""
     modes = ("normal", "verbose", "quiet")
@@ -265,6 +287,7 @@ def build_default_slash_registry() -> SlashRegistry:
     reg.register(SlashCommand("sessions", "列出历史会话", _cmd_sessions))
     reg.register(SlashCommand("clear", "开新会话（清空上下文）", _cmd_clear))
     reg.register(SlashCommand("context", "查看会话状态与用量", _cmd_context))
+    reg.register(SlashCommand("outputs", "列出当前会话输出", _cmd_outputs))
     reg.register(SlashCommand("skills", "管理 Skill（安装后自动刷新）", cmd_skills))
     reg.register(SlashCommand("mcp", "管理 MCP server（list/add/test/remove 等）", cmd_mcp))
     reg.register(SlashCommand("reload", "刷新 Skill/MCP Runtime（skills|mcp|all）", _cmd_reload))

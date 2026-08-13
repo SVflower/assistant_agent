@@ -17,6 +17,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from assistant_agent.contracts.charts import ChartArtifactV2
 from assistant_agent.contracts.errors import UnsupportedRunStateSchemaError
 from assistant_agent.contracts.failures import BudgetResource, RunFailure
+from assistant_agent.contracts.outputs import OutputArtifactV1
 from assistant_agent.contracts.time import utc_now_rfc3339
 
 RunStatus = Literal["running", "paused", "cancelled", "completed", "failed"]
@@ -39,7 +40,7 @@ ReplayPolicy = Literal["safe_readonly", "safe_idempotent", "requires_decision"]
 RetrySafety = Literal["safe", "unsafe", "uncertain", "unknown"]
 
 _RESOLVED_TOOL_STATUSES = {"completed", "failed", "skipped"}
-_SCHEMA_VERSION: Literal[8] = 8
+_SCHEMA_VERSION: Literal[9] = 9
 
 
 def now_iso() -> str:
@@ -120,6 +121,7 @@ class ToolResultState(StrictStateModel):
     executed: bool = True
     budget_exhausted: str | None = None
     chart: ChartArtifactV2 | None = None
+    output_artifact: OutputArtifactV1 | None = None
 
 
 class PermissionRequestState(StrictStateModel):
@@ -160,7 +162,7 @@ class RunState(StrictStateModel):
     成功写入 Session 后才能置真。三者用途不同，不能为了减少字段而互相重建。
     """
 
-    schema_version: Literal[8] = _SCHEMA_VERSION
+    schema_version: Literal[9] = _SCHEMA_VERSION
     run_id: str = Field(min_length=1)
     session_id: str | None = None
     task: str
@@ -199,6 +201,7 @@ class RunState(StrictStateModel):
     repeat_count: int = Field(default=0, ge=0)
     tool_calls: list[ToolCallState] = Field(default_factory=list)
     presentations: list[ChartArtifactV2] = Field(default_factory=list, max_length=16)
+    outputs: list[OutputArtifactV1] = Field(default_factory=list, max_length=200)
     permission_grants: list[PermissionGrantState] = Field(default_factory=list)
     terminal_text: str = ""
     failure: RunFailure | None = None
@@ -253,6 +256,13 @@ class RunState(StrictStateModel):
             raise ValueError("Artifact 不属于当前 Session")
         if sum(item.size_bytes for item in self.presentations) > 2 * 1024 * 1024:
             raise ValueError("Run Artifact 总量超过 2 MiB")
+        output_ids = [item.output_id for item in self.outputs]
+        if len(output_ids) != len(set(output_ids)):
+            raise ValueError("Run 存在重复 output_id")
+        if any(item.run_id != self.run_id for item in self.outputs):
+            raise ValueError("Output 不属于当前 Run")
+        if any(item.session_id != self.session_id for item in self.outputs):
+            raise ValueError("Output 不属于当前 Session")
         retry_hashes = (self.retry_idempotency_key_hash, self.retry_request_hash)
         if (retry_hashes[0] is None) != (retry_hashes[1] is None):
             raise ValueError("重试幂等键哈希与请求哈希必须同时存在")

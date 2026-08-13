@@ -6,9 +6,22 @@
 > 本文是公共服务契约的长期唯一正式入口；里程碑归档和阶段性交接不能替代本文。
 > 当前公共事件契约：`EVENT_CONTRACT_VERSION == 1`；Session 服务契约：
 > `SESSION_CONTRACT_VERSION == 4`；当前 Run checkpoint：schema v8；当前 Session 文档：schema v4。
-> 最近同步：M32 versioned Attachments/content parts（2026-07-23）。
+> 最近同步：M33 Managed Outputs（2026-08-13）。
 >
-> **破坏性契约版本：`AGENT_SERVICE_CONTRACT_VERSION = 3`。** Agent 只读取和写入 RunState v8、
+> **破坏性契约版本：`AGENT_SERVICE_CONTRACT_VERSION = 4`。** Agent 只读取和写入 RunState v9、
+> Session v5、Chart V2、Attachment/Content v1 和 Output v1；旧状态不迁移。
+
+## M33 Managed Output
+
+`create_output` 生成受管 UTF-8 HTML/CSV/JSON/Markdown/文本交付物。成功的 `tool_result` 通过
+`StepEvent.output: OutputArtifactV1 | None` 发布小型引用，Event contract 保持 v1；内容不进入事件。
+Output ref 包含 opaque `output_id`、Session/Run/message/call 归属、filename/title、MIME、大小、SHA-256、
+时间、disposition 和 preview_supported，绝不包含服务器路径。
+
+调用方只使用 `SessionRuntime.list_outputs()`、`get_output()`、`get_output_payload()`，或 AgentService
+同名 Session-scoped 接口。API 不扫描 `outputs/`、不读取 sidecar、不复制幂等或删除状态机。Session
+删除级联 Output；fork 深复制边界前关联文件；Run 失败不删除已发布文件。HTML 仅作为数据，Web 预览
+必须严格 sandbox。稳定错误类型为 OutputInvalid/LimitExceeded/NotFound/Conflict/Unavailable。
 > Session v4、ChartSpec/ChartArtifact V2 与 Attachment/Content v1；不再读取或迁移旧版本。调用方
 > 升级前必须清理旧测试状态，并删除所有 V1 图表与旧迁移分支。
 

@@ -14,6 +14,7 @@ from assistant_agent.contracts.charts_v2 import (
 )
 from assistant_agent.contracts.errors import UnsupportedChartSchemaError
 from assistant_agent.contracts.failures import AllowedAction, BudgetSnapshot, RunFailure
+from assistant_agent.contracts.outputs import OutputArtifactV1
 from assistant_agent.contracts.presentation_common import (
     MAX_ARTIFACT_BYTES,
     MAX_RUN_ARTIFACT_BYTES,
@@ -54,8 +55,9 @@ class AssistantMessageSnapshot(_StrictModel):
     role: Literal["assistant"] = "assistant"
     content: str = ""
     artifacts: tuple[PresentationArtifactRefV2, ...] = ()
+    outputs: tuple[OutputArtifactV1, ...] = ()
 
-    @field_validator("artifacts", mode="before")
+    @field_validator("artifacts", "outputs", mode="before")
     @classmethod
     def _artifacts_to_tuple(cls, value: Any) -> Any:
         return tuple(value) if isinstance(value, list) else value
@@ -82,11 +84,12 @@ class RunSnapshot(_StrictModel):
     pending_interaction: PendingInteractionSnapshot | None = None
     final_candidate: str | None = None
     artifacts: tuple[PresentationArtifactRefV2, ...] = ()
+    outputs: tuple[OutputArtifactV1, ...] = ()
     allowed_actions: tuple[AllowedAction, ...] = ()
     execution_status: Literal["active", "inactive", "unknown"]
     retry_of_run_id: str | None = None
 
-    @field_validator("artifacts", mode="before")
+    @field_validator("artifacts", "outputs", mode="before")
     @classmethod
     def _items_to_tuple(cls, value: Any) -> Any:
         return tuple(value) if isinstance(value, list) else value

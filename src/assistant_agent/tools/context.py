@@ -21,6 +21,7 @@ from assistant_agent.tools.policy import PermissionPolicy
 from assistant_agent.tools.ports import (
     ArtifactStorePort,
     ManagedProcessRegistryPort,
+    OutputStorePort,
     ProcessResultPort,
     RunControlPort,
     ToolTelemetry,
@@ -46,6 +47,7 @@ class ToolContext:
     run_control: RunControlPort
     logger: ToolTelemetry
     artifact_store: ArtifactStorePort
+    output_store: OutputStorePort | None = None
     process_manager: ManagedProcessRegistryPort | None = None
     confirm_dangerous_shell: bool = True
     shell_timeout: int = 60

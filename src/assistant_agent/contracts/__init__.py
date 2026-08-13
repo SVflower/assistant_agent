@@ -118,6 +118,16 @@ from assistant_agent.contracts.interactions import (
     RecoveryRequest,
     ScopeInfo,
 )
+from assistant_agent.contracts.outputs import (
+    OUTPUT_CONTRACT_VERSION,
+    OutputArtifactV1,
+    OutputConflictError,
+    OutputInvalidError,
+    OutputLimitExceededError,
+    OutputNotFoundError,
+    OutputPayload,
+    OutputUnavailableError,
+)
 from assistant_agent.contracts.sessions import (
     SESSION_CONTRACT_VERSION,
     LastRunSummary,
@@ -128,7 +138,7 @@ from assistant_agent.contracts.sessions import (
     UpdateSessionMetadataRequest,
 )
 
-AGENT_SERVICE_CONTRACT_VERSION = 3
+AGENT_SERVICE_CONTRACT_VERSION = 4
 
 __all__ = [
     "ATTACHMENT_CONTRACT_VERSION",
@@ -187,6 +197,14 @@ __all__ = [
     "LastRunSummary",
     "MCPServerCapability",
     "MCPStatus",
+    "OUTPUT_CONTRACT_VERSION",
+    "OutputArtifactV1",
+    "OutputConflictError",
+    "OutputInvalidError",
+    "OutputLimitExceededError",
+    "OutputNotFoundError",
+    "OutputPayload",
+    "OutputUnavailableError",
     "PendingInteractionSnapshot",
     "PublicMessageSnapshot",
     "QuestionAnswer",

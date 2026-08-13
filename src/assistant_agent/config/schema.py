@@ -55,6 +55,38 @@ class AttachmentsConfig(BaseModel):
     unbound_ttl_seconds: int = Field(default=3600, ge=60, le=604800)
 
 
+class OutputConfig(BaseModel):
+    """用户交付文件的受管存储设置。"""
+
+    root: str = Field(default="outputs", min_length=1)
+    layout: Literal["flat", "date", "date_session"] = "date_session"
+    max_file_bytes: int = Field(default=10 << 20, ge=1024)
+    max_run_files: int = Field(default=20, ge=1, le=200)
+    max_run_bytes: int = Field(default=50 << 20, ge=1024)
+    max_session_files: int = Field(default=100, ge=1, le=2000)
+    max_session_bytes: int = Field(default=200 << 20, ge=1024)
+    allowed_media_types: frozenset[str] = Field(
+        default_factory=lambda: frozenset(
+            {"text/html", "text/markdown", "text/csv", "application/json", "text/plain"}
+        )
+    )
+    preview_media_types: frozenset[str] = Field(
+        default_factory=lambda: frozenset(
+            {"text/html", "text/markdown", "text/csv", "application/json", "text/plain"}
+        )
+    )
+
+    @model_validator(mode="after")
+    def _limits_are_ordered(self) -> OutputConfig:
+        if self.max_run_bytes < self.max_file_bytes:
+            raise ValueError("outputs.max_run_bytes 不能小于 max_file_bytes")
+        if self.max_session_bytes < self.max_run_bytes:
+            raise ValueError("outputs.max_session_bytes 不能小于 max_run_bytes")
+        if not self.preview_media_types <= self.allowed_media_types:
+            raise ValueError("outputs.preview_media_types 必须是 allowed_media_types 子集")
+        return self
+
+
 class CompactionConfig(BaseModel):
     """上下文摘要压缩（M8b）。默认关闭——关闭时上下文行为逐字节等于硬截断现状。"""
 
@@ -421,6 +453,7 @@ class AppConfig(BaseModel):
     skills: SkillsConfig = Field(default_factory=SkillsConfig)
     mcp: MCPConfig = Field(default_factory=MCPConfig)
     attachments: AttachmentsConfig = Field(default_factory=AttachmentsConfig)
+    outputs: OutputConfig = Field(default_factory=OutputConfig)
 
     @model_validator(mode="after")
     def _active_must_exist(self) -> AppConfig:

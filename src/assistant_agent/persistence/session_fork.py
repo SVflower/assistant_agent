@@ -10,6 +10,7 @@ from assistant_agent.application.models import (
     Session,
     automatic_session_title,
 )
+from assistant_agent.application.ports import OutputRepository
 from assistant_agent.contracts.charts import (
     ChartArtifactV2,
     PresentationArtifactRefV2,
@@ -17,6 +18,7 @@ from assistant_agent.contracts.charts import (
     parse_chart_artifact,
 )
 from assistant_agent.contracts.errors import UserMessageNotFoundError
+from assistant_agent.contracts.outputs import OutputArtifactV1
 from assistant_agent.contracts.sessions import PublicMessageSnapshot
 
 
@@ -33,6 +35,7 @@ def build_forked_session(
     committed_at: str,
     key_hash: str,
     request_hash: str,
+    output_store: OutputRepository | None = None,
 ) -> Session:
     boundary = next(
         (
@@ -47,11 +50,14 @@ def build_forked_session(
     copied = source.message_ledger[:boundary]
     id_map = {message.id: fork_message_id(target_session_id, message.id) for message in copied}
     source_artifacts = {item.artifact_id: item for item in source.presentations}
+    source_outputs = {item.output_id: item for item in source.outputs}
     cloned_artifacts: list[ChartArtifactV2] = []
+    cloned_outputs: list[OutputArtifactV1] = []
     ledger: list[PublicMessageSnapshot] = []
     for message in copied:
         new_id = id_map[message.id]
         refs: list[PresentationArtifactRefV2] = []
+        output_refs: list[OutputArtifactV1] = []
         for ref in message.artifacts:
             artifact = source_artifacts.get(ref.artifact_id)
             if artifact is None or artifact.content_hash != ref.content_hash:
@@ -64,6 +70,19 @@ def build_forked_session(
             )
             cloned_artifacts.append(cloned)
             refs.append(cloned.ref)
+        for ref in message.outputs:
+            output = source_outputs.get(ref.output_id)
+            if output is None or output.content_hash != ref.content_hash:
+                raise ValueError("源 Output 与 ledger 引用不一致")
+            if output_store is None:
+                raise ValueError("Output Store 未配置")
+            cloned = output_store.fork(
+                output,
+                target_session_id=target_session_id,
+                target_message_id=new_id,
+            )
+            cloned_outputs.append(cloned)
+            output_refs.append(cloned)
         reply_to = (
             id_map.get(message.reply_to_message_id)
             if message.reply_to_message_id is not None
@@ -77,6 +96,7 @@ def build_forked_session(
                 reply_to_message_id=reply_to,
                 content=message.content,
                 artifacts=tuple(refs),
+                outputs=tuple(output_refs),
             )
         )
     raw_messages = [
@@ -104,6 +124,7 @@ def build_forked_session(
         messages=raw_messages,
         compaction_checkpoint=None,
         presentations=cloned_artifacts,
+        outputs=cloned_outputs,
         assistant_messages=[],
         message_ledger=ledger,
         fork_origin={

@@ -30,16 +30,23 @@ class SlashCommandCompleter(Completer):
         if not text.startswith("/") or any(char.isspace() for char in document.text):
             return
         query = text.casefold()
-        for name, description in self._commands:
-            if name.casefold().startswith(query):
-                yield Completion(
-                    name,
-                    start_position=-len(text),
-                    display=name,
-                    display_meta=description,
-                    style="class:completion.command",
-                    selected_style="class:completion.command.selected",
-                )
+        matches: list[tuple[int, int, str, str]] = []
+        for index, (name, description) in enumerate(self._commands):
+            candidate = name.casefold()
+            if candidate == query:
+                continue
+            score = _command_match_score(query, candidate)
+            if score is not None:
+                matches.append((score, index, name, description))
+        for _score, _index, name, description in sorted(matches):
+            yield Completion(
+                name,
+                start_position=-len(text),
+                display=name,
+                display_meta=description,
+                style="class:completion.command",
+                selected_style="class:completion.command.selected",
+            )
 
 
 class ChatPrompt:
@@ -133,7 +140,6 @@ class ChatPrompt:
                 )
             if completion is not None:
                 event.current_buffer.apply_completion(completion)
-            event.app.exit(result=event.current_buffer.text)
 
         @bindings.add("down", filter=has_completions, eager=True)
         def next_completion(event: Any) -> None:
@@ -175,6 +181,21 @@ class ChatPrompt:
 
 def _rule() -> Window:
     return Window(height=1, char="─", style="class:rule")
+
+
+def _command_match_score(query: str, candidate: str) -> int | None:
+    """前缀优先，其次允许按顺序输入命令名中的部分字符。"""
+    if candidate.startswith(query):
+        return 0
+    position = 0
+    gap = 0
+    for char in query:
+        found = candidate.find(char, position)
+        if found < 0:
+            return None
+        gap += found - position
+        position = found + 1
+    return 1 + gap
 
 
 def _label(text: Any) -> Window:

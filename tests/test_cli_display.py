@@ -555,7 +555,7 @@ def test_chat_prompt_first_ctrl_c_clears_existing_input():
         assert ChatPrompt(input=pipe, output=output).read() == "hello"
 
 
-def test_slash_command_completer_matches_only_leading_command_prefix():
+def test_slash_command_completer_supports_prefix_and_fuzzy_subsequence():
     completer = SlashCommandCompleter(
         [("/clear", "新会话"), ("/context", "查看上下文"), ("/model", "切换模型")]
     )
@@ -568,12 +568,14 @@ def test_slash_command_completer_matches_only_leading_command_prefix():
         ("/clear", "新会话"),
         ("/context", "查看上下文"),
     ]
+    assert [item.text for item in complete("/mdl")] == ["/model"]
+    assert complete("/model") == []
     assert complete("") == []
     assert complete("hello /") == []
     assert complete("/clear now") == []
 
 
-def test_chat_prompt_shows_command_menu_and_enter_chooses_current_item():
+def test_chat_prompt_first_enter_fills_completion_and_second_enter_submits():
     stdout = StringIO()
     output = Vt100_Output(
         stdout,
@@ -584,6 +586,8 @@ def test_chat_prompt_shows_command_menu_and_enter_chooses_current_item():
 
         def type_command():
             pipe.send_text("/cl")
+            sleep(0.05)
+            pipe.send_text("\r")
             sleep(0.05)
             pipe.send_text("\r")
 
@@ -601,7 +605,7 @@ def test_chat_prompt_shows_command_menu_and_enter_chooses_current_item():
     assert "/clear" in rendered and "Clear current session" in rendered
 
 
-def test_chat_prompt_arrow_key_selects_another_command():
+def test_chat_prompt_arrow_key_selects_another_command_without_immediate_submit():
     stdout = StringIO()
     output = Vt100_Output(
         stdout,
@@ -616,6 +620,8 @@ def test_chat_prompt_arrow_key_selects_another_command():
             pipe.send_text("\x1b[B")
             sleep(0.02)
             pipe.send_text("\r")
+            sleep(0.05)
+            pipe.send_text("\r")
 
         sender = Thread(target=select_second_command)
         sender.start()
@@ -627,3 +633,37 @@ def test_chat_prompt_arrow_key_selects_another_command():
         sender.join()
 
     assert result == "/context"
+
+
+def test_chat_prompt_arrow_keys_work_after_fuzzy_filtering():
+    stdout = StringIO()
+    output = Vt100_Output(
+        stdout,
+        lambda: Size(rows=24, columns=100),
+        enable_cpr=False,
+    )
+    with create_pipe_input() as pipe:
+
+        def select_fuzzy_command():
+            pipe.send_text("/el")
+            sleep(0.05)
+            pipe.send_text("\x1b[B")
+            sleep(0.02)
+            pipe.send_text("\r")
+            sleep(0.05)
+            pipe.send_text("\r")
+
+        sender = Thread(target=select_fuzzy_command)
+        sender.start()
+        result = ChatPrompt(
+            [
+                ("/help", "Help"),
+                ("/model", "Model"),
+                ("/reload", "Reload"),
+            ],
+            input=pipe,
+            output=output,
+        ).read()
+        sender.join()
+
+    assert result == "/reload"

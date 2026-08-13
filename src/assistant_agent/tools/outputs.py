@@ -60,7 +60,7 @@ class CreateOutputTool(_OutputTool):
     name = "create_output"
     description = (
         "创建短小的受管文本文件。content 较长（尤其 HTML）时不要调用；"
-        "改用 begin_output、append_output、finalize_output。"
+        "改用 manage_output 的 begin、append、finalize 动作。"
     )
 
     def __init__(self, max_content_bytes: int = 8192) -> None:
@@ -166,7 +166,7 @@ class BeginOutputTool(_OutputTool):
             return ToolResult.error(str(exc), code=exc.code, executed=False)
         return ToolResult.ok(
             f"[output_draft_started] draft_id={draft_id}。"
-            f"请从 chunk_index=0 开始调用 append_output，"
+            f"请从 chunk_index=0 开始调用 manage_output(action=append)，"
             f"每块最多 {self.max_chunk_bytes} UTF-8 bytes。",
             code="output_draft_started",
             metadata={

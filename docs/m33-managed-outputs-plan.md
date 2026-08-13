@@ -74,7 +74,8 @@ Web Runtime 仍禁止 Shell/服务器文件工具，但允许完整受管输出�
 HTML 不得注入页面 DOM。API/Web 不得复制 Output 存储、幂等、删除或恢复状态机。
 
 本次长输出稳健性修复不改变 `OutputArtifactV1`、StepEvent、RunState、Session 或公共 Service 接口，
-因此 Agent Service contract 仍为 v4，API/Web 无必改项；它们只会继续收到最终 `assistant.output`。
+因此 Agent Service contract 仍为 v4。API 必须将新增的安全工具 `manage_output` 纳入 Web 部署 allowlist；
+Web 网络 DTO 无变化，仍只会收到最终 `assistant.output`。
 
 ## 验收
 

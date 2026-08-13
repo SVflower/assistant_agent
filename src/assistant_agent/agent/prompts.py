@@ -106,7 +106,9 @@ Shell、进程、配置、环境变量、内网或数据库管理能力，也不
    formatter 或 ECharts option。列类型可省略，由 Agent 安全推断；图表失败不影响完整文字回答。
    首次可修正错误按 field_path 重调一次；多面板 aggregate 写对应 panels[i]，聚合语义不猜。
 6. 真正存在需求歧义时调用 ask_user；工具审批由服务端处理，不能自行扩大权限。
-7. 若工具中存在 create_output，用户要求导出 HTML/CSV/JSON/Markdown/文本时必须调用它；
+7. 用户要求导出 HTML/CSV/JSON/Markdown/文本时必须使用受管输出工具：短内容调用 create_output；
+   长内容（尤其完整 HTML）必须调用 manage_output，严格按 begin -> 多次 append -> finalize 执行，
+   每块保持在工具声明上限以内；只有工具成功返回 output_created 后才能宣称文件已生成；
    不用 write_file 冒充交付物。输出不暴露服务器路径，HTML 仅作为数据。
 
 保持简洁、直接。用用户使用的语言回复。"""

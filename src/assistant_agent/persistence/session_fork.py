@@ -58,31 +58,31 @@ def build_forked_session(
         new_id = id_map[message.id]
         refs: list[PresentationArtifactRefV2] = []
         output_refs: list[OutputArtifactV1] = []
-        for ref in message.artifacts:
-            artifact = source_artifacts.get(ref.artifact_id)
-            if artifact is None or artifact.content_hash != ref.content_hash:
+        for artifact_ref in message.artifacts:
+            artifact = source_artifacts.get(artifact_ref.artifact_id)
+            if artifact is None or artifact.content_hash != artifact_ref.content_hash:
                 raise ValueError("源 Artifact 与 ledger 引用不一致")
-            cloned = _clone_chart_artifact(
+            cloned_chart = _clone_chart_artifact(
                 artifact,
                 target_session_id=target_session_id,
                 target_message_id=new_id,
                 committed_at=committed_at,
             )
-            cloned_artifacts.append(cloned)
-            refs.append(cloned.ref)
-        for ref in message.outputs:
-            output = source_outputs.get(ref.output_id)
-            if output is None or output.content_hash != ref.content_hash:
+            cloned_artifacts.append(cloned_chart)
+            refs.append(cloned_chart.ref)
+        for output_ref in message.outputs:
+            output = source_outputs.get(output_ref.output_id)
+            if output is None or output.content_hash != output_ref.content_hash:
                 raise ValueError("源 Output 与 ledger 引用不一致")
             if output_store is None:
                 raise ValueError("Output Store 未配置")
-            cloned = output_store.fork(
+            cloned_output = output_store.fork(
                 output,
                 target_session_id=target_session_id,
                 target_message_id=new_id,
             )
-            cloned_outputs.append(cloned)
-            output_refs.append(cloned)
+            cloned_outputs.append(cloned_output)
+            output_refs.append(cloned_output)
         reply_to = (
             id_map.get(message.reply_to_message_id)
             if message.reply_to_message_id is not None

@@ -159,6 +159,35 @@ class OutputStorePort(Protocol):
         title: str | None = None,
     ) -> OutputArtifactV1: ...
 
+    def begin_text_draft(
+        self,
+        *,
+        session_id: str,
+        run_id: str,
+        call_id: str,
+        filename: str,
+        media_type: str,
+        disposition: str = "download",
+        message_id: str | None = None,
+        title: str | None = None,
+    ) -> str: ...
+
+    def append_text_draft(
+        self,
+        *,
+        session_id: str,
+        run_id: str,
+        draft_id: str,
+        chunk_index: int,
+        content: str,
+    ) -> int: ...
+
+    def finalize_text_draft(
+        self, *, session_id: str, run_id: str, draft_id: str
+    ) -> OutputArtifactV1: ...
+
+    def discard_run_drafts(self, session_id: str, run_id: str) -> None: ...
+
     def list(self, session_id: str, *, run_id: str | None = None) -> list[OutputArtifactV1]: ...
     def get(self, session_id: str, output_id: str) -> OutputArtifactV1: ...
     def get_payload(self, session_id: str, output_id: str) -> OutputPayload: ...

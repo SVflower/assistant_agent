@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import builtins
 import hashlib
 import json
 import os
@@ -126,9 +127,157 @@ class OutputStore:
             raise
         return artifact
 
-    def list(self, session_id: str, *, run_id: str | None = None) -> list[OutputArtifactV1]:
+    def begin_text_draft(
+        self,
+        *,
+        session_id: str,
+        run_id: str,
+        call_id: str,
+        filename: str,
+        media_type: str,
+        disposition: str = "download",
+        message_id: str | None = None,
+        title: str | None = None,
+    ) -> str:
+        self._validate_identity(session_id, run_id, call_id)
+        clean_name = self._validate_filename(filename)
+        if media_type not in self.config.allowed_media_types:
+            raise OutputInvalidError("不支持的输出 media_type")
+        if disposition not in {"inline", "download"}:
+            raise OutputInvalidError("输出 disposition 无效")
+        draft_id = (
+            "draft_"
+            + hashlib.sha256(f"{session_id}\0{run_id}\0{call_id}".encode()).hexdigest()[:32]
+        )
+        directory = self._draft_directory(session_id, run_id, draft_id)
+        run_drafts = self.root / ".drafts" / session_id / run_id
+        draft_count = sum(1 for _ in run_drafts.glob("draft_*/draft.json"))
+        if not directory.exists() and draft_count >= self.config.max_run_files:
+            raise OutputLimitExceededError("Run 输出草稿数量已达上限")
+        metadata = {
+            "draft_id": draft_id,
+            "session_id": session_id,
+            "run_id": run_id,
+            "call_id": call_id,
+            "filename": clean_name,
+            "media_type": media_type,
+            "disposition": disposition,
+            "message_id": message_id,
+            "title": title,
+        }
+        payload = json.dumps(metadata, ensure_ascii=False, sort_keys=True).encode("utf-8")
+        metadata_path = directory / "draft.json"
+        if metadata_path.exists():
+            try:
+                if metadata_path.read_bytes() == payload:
+                    return draft_id
+            except OSError as exc:
+                raise OutputUnavailableError("输出草稿暂不可读") from exc
+            raise OutputConflictError("相同调用已创建不同输出草稿")
+        directory.mkdir(parents=True, exist_ok=True)
+        self._atomic_write(metadata_path, payload)
+        return draft_id
+
+    def append_text_draft(
+        self,
+        *,
+        session_id: str,
+        run_id: str,
+        draft_id: str,
+        chunk_index: int,
+        content: str,
+    ) -> int:
+        _metadata, directory = self._load_draft(session_id, run_id, draft_id)
+        if (directory / "finalized.json").exists():
+            raise OutputConflictError("输出草稿已经完成")
+        if chunk_index < 0 or chunk_index >= self.config.max_draft_chunks:
+            raise OutputLimitExceededError("输出草稿分块数量超过上限")
+        chunk = content.encode("utf-8")
+        if not chunk:
+            raise OutputInvalidError("输出草稿分块不能为空")
+        if len(chunk) > self.config.max_chunk_bytes:
+            raise OutputLimitExceededError(
+                f"单个输出分块超过 {self.config.max_chunk_bytes} UTF-8 bytes"
+            )
+        chunks = self._draft_chunks(directory)
+        expected = len(chunks)
+        path = directory / f"chunk-{chunk_index:04d}.txt"
+        if chunk_index < expected:
+            try:
+                if path.read_bytes() == chunk:
+                    return sum(item.stat().st_size for item in chunks)
+            except OSError as exc:
+                raise OutputUnavailableError("输出草稿分块暂不可读") from exc
+            raise OutputConflictError("相同分块序号已写入不同内容")
+        if chunk_index != expected:
+            raise OutputInvalidError(f"输出分块必须连续，下一块应为 {expected}")
+        current_size = sum(item.stat().st_size for item in chunks)
+        if current_size + len(chunk) > self.config.max_file_bytes:
+            raise OutputLimitExceededError("输出草稿超过单文件字节上限")
+        run_draft_root = self.root / ".drafts" / session_id / run_id
+        run_draft_bytes = sum(
+            path.stat().st_size for path in run_draft_root.glob("draft_*/chunk-*.txt")
+        )
+        if run_draft_bytes + len(chunk) > self.config.max_run_bytes:
+            raise OutputLimitExceededError("Run 输出草稿总字节已达上限")
+        session_draft_root = self.root / ".drafts" / session_id
+        session_draft_bytes = sum(
+            path.stat().st_size for path in session_draft_root.glob("**/chunk-*.txt")
+        )
+        if session_draft_bytes + len(chunk) > self.config.max_session_bytes:
+            raise OutputLimitExceededError("Session 输出草稿总字节已达上限")
+        self._atomic_write(path, chunk)
+        return current_size + len(chunk)
+
+    def finalize_text_draft(
+        self, *, session_id: str, run_id: str, draft_id: str
+    ) -> OutputArtifactV1:
+        metadata, directory = self._load_draft(session_id, run_id, draft_id)
+        finalized_path = directory / "finalized.json"
+        if finalized_path.exists():
+            try:
+                output_id = str(json.loads(finalized_path.read_text(encoding="utf-8"))["output_id"])
+            except (OSError, ValueError, KeyError, TypeError) as exc:
+                raise OutputUnavailableError("输出草稿完成标记损坏") from exc
+            return self.get(session_id, output_id)
+        chunks = self._draft_chunks(directory)
+        if not chunks:
+            raise OutputInvalidError("输出草稿没有内容")
+        try:
+            payload = b"".join(path.read_bytes() for path in chunks)
+            content = payload.decode("utf-8")
+        except UnicodeDecodeError as exc:
+            raise OutputInvalidError("输出草稿不是有效 UTF-8") from exc
+        except OSError as exc:
+            raise OutputUnavailableError("输出草稿暂不可读") from exc
+        artifact = self.publish_text(
+            session_id=session_id,
+            run_id=run_id,
+            call_id=str(metadata["call_id"]),
+            filename=str(metadata["filename"]),
+            media_type=str(metadata["media_type"]),
+            content=content,
+            disposition=str(metadata["disposition"]),
+            message_id=(str(metadata["message_id"]) if metadata.get("message_id") else None),
+            title=str(metadata["title"]) if metadata.get("title") is not None else None,
+        )
+        self._atomic_write(
+            finalized_path,
+            json.dumps({"output_id": artifact.output_id}, sort_keys=True).encode("utf-8"),
+        )
+        return artifact
+
+    def discard_run_drafts(self, session_id: str, run_id: str) -> None:
+        self._validate_identity(session_id, run_id)
+        directory = self.root / ".drafts" / session_id / run_id
+        if self._within_root(directory):
+            self._remove_tree(directory)
+
+    def list(
+        self, session_id: str, *, run_id: str | None = None
+    ) -> builtins.list[OutputArtifactV1]:
         self._validate_identity(session_id)
-        items: list[OutputArtifactV1] = []
+        items: builtins.list[OutputArtifactV1] = []
         if not self.root.exists():
             return items
         for metadata in self.root.glob(f"**/{session_id}/out_*.json"):
@@ -181,6 +330,9 @@ class OutputStore:
                     directory.rmdir()
                 except OSError:
                     pass
+        drafts = self.root / ".drafts" / session_id
+        if self._within_root(drafts):
+            self._remove_tree(drafts)
 
     def fork(
         self,
@@ -213,6 +365,59 @@ class OutputStore:
         if not self._within_root(resolved):
             raise OutputInvalidError("输出路径越界")
         return resolved
+
+    def _draft_directory(self, session_id: str, run_id: str, draft_id: str) -> Path:
+        self._validate_identity(session_id, run_id, draft_id)
+        path = (self.root / ".drafts" / session_id / run_id / draft_id).resolve()
+        if not self._within_root(path):
+            raise OutputInvalidError("输出草稿路径越界")
+        return path
+
+    def _load_draft(
+        self, session_id: str, run_id: str, draft_id: str
+    ) -> tuple[dict[str, object], Path]:
+        directory = self._draft_directory(session_id, run_id, draft_id)
+        try:
+            value = json.loads((directory / "draft.json").read_text(encoding="utf-8"))
+        except FileNotFoundError as exc:
+            raise OutputNotFoundError("输出草稿不存在") from exc
+        except (OSError, ValueError) as exc:
+            raise OutputUnavailableError("输出草稿元数据损坏") from exc
+        if not isinstance(value, dict) or any(
+            value.get(key) != expected
+            for key, expected in (
+                ("draft_id", draft_id),
+                ("session_id", session_id),
+                ("run_id", run_id),
+            )
+        ):
+            raise OutputUnavailableError("输出草稿归属无效")
+        return value, directory
+
+    @staticmethod
+    def _draft_chunks(directory: Path) -> builtins.list[Path]:
+        chunks = sorted(directory.glob("chunk-*.txt"))
+        expected = [directory / f"chunk-{index:04d}.txt" for index in range(len(chunks))]
+        if chunks != expected:
+            raise OutputUnavailableError("输出草稿分块序列损坏")
+        return chunks
+
+    @staticmethod
+    def _remove_tree(directory: Path) -> None:
+        if not directory.exists():
+            return
+        for path in sorted(directory.rglob("*"), reverse=True):
+            if path.is_file():
+                path.unlink(missing_ok=True)
+            else:
+                try:
+                    path.rmdir()
+                except OSError:
+                    pass
+        try:
+            directory.rmdir()
+        except OSError:
+            pass
 
     def _find(self, session_id: str, output_id: str) -> tuple[OutputArtifactV1, Path]:
         self._validate_identity(session_id, output_id)

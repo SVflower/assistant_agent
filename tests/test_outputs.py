@@ -19,7 +19,10 @@ from assistant_agent.contracts.sessions import PublicMessageSnapshot
 from assistant_agent.persistence.outputs import OutputStore
 from assistant_agent.persistence.run_store import RunStore
 from assistant_agent.persistence.store import SessionStore
-from assistant_agent.tools.outputs import CreateOutputTool
+from assistant_agent.tools.outputs import (
+    CreateOutputTool,
+    ManageOutputTool,
+)
 
 
 def _store(tmp_path: Path, **updates: object) -> OutputStore:
@@ -100,6 +103,148 @@ def test_create_output_tool_is_safe_idempotent(tmp_path: Path) -> None:
     assert result.code == "output_created"
     assert result.output_artifact is not None
     assert result.output_artifact.message_id is not None
+
+
+def test_chunked_output_round_trip_is_ordered_idempotent_and_atomic(tmp_path: Path) -> None:
+    store = _store(tmp_path, max_chunk_bytes=4096)
+    draft_id = store.begin_text_draft(
+        session_id="session-1",
+        run_id="run-1",
+        call_id="begin-1",
+        filename="admin.html",
+        media_type="text/html",
+        message_id="msg_" + "a" * 24,
+    )
+    assert store.list("session-1") == []
+    first = "<html>你好"
+    assert store.append_text_draft(
+        session_id="session-1",
+        run_id="run-1",
+        draft_id=draft_id,
+        chunk_index=0,
+        content=first,
+    ) == len(first.encode())
+    assert store.append_text_draft(
+        session_id="session-1",
+        run_id="run-1",
+        draft_id=draft_id,
+        chunk_index=0,
+        content=first,
+    ) == len(first.encode())
+    store.append_text_draft(
+        session_id="session-1",
+        run_id="run-1",
+        draft_id=draft_id,
+        chunk_index=1,
+        content="</html>",
+    )
+    artifact = store.finalize_text_draft(session_id="session-1", run_id="run-1", draft_id=draft_id)
+    assert (
+        store.finalize_text_draft(session_id="session-1", run_id="run-1", draft_id=draft_id)
+        == artifact
+    )
+    assert store.get_payload("session-1", artifact.output_id).content == "<html>你好</html>"
+
+
+def test_chunked_output_enforces_utf8_byte_limit_order_and_run_ownership(tmp_path: Path) -> None:
+    store = _store(tmp_path, max_chunk_bytes=1024)
+    draft_id = store.begin_text_draft(
+        session_id="session-1",
+        run_id="run-1",
+        call_id="begin-1",
+        filename="admin.html",
+        media_type="text/html",
+    )
+    with pytest.raises(OutputLimitExceededError):
+        store.append_text_draft(
+            session_id="session-1",
+            run_id="run-1",
+            draft_id=draft_id,
+            chunk_index=0,
+            content="汉" * 342,
+        )
+    with pytest.raises(OutputInvalidError):
+        store.append_text_draft(
+            session_id="session-1",
+            run_id="run-1",
+            draft_id=draft_id,
+            chunk_index=1,
+            content="later",
+        )
+    with pytest.raises(OutputNotFoundError):
+        store.append_text_draft(
+            session_id="session-1",
+            run_id="run-2",
+            draft_id=draft_id,
+            chunk_index=0,
+            content="wrong run",
+        )
+
+
+def test_chunked_output_tools_publish_only_on_finalize(tmp_path: Path) -> None:
+    ctx = _Context(_store(tmp_path))
+    tool = ManageOutputTool()
+    started = tool.run(
+        {"action": "begin", "filename": "admin.html", "media_type": "text/html"},
+        ctx,  # type: ignore[arg-type]
+    )
+    draft_id = str(started.metadata["draft_id"])
+    ctx.current_call_id = "append-1"
+    appended = tool.run(
+        {
+            "action": "append",
+            "draft_id": draft_id,
+            "chunk_index": 0,
+            "content": "<h1>ok</h1>",
+        },
+        ctx,  # type: ignore[arg-type]
+    )
+    assert appended.code == "output_chunk_appended"
+    assert ctx.output_store.list("session-1") == []
+    ctx.current_call_id = "finalize-1"
+    finalized = tool.run(
+        {"action": "finalize", "draft_id": draft_id},
+        ctx,  # type: ignore[arg-type]
+    )
+    assert finalized.code == "output_created"
+    assert finalized.output_artifact is not None
+
+
+def test_discard_run_drafts_is_isolated(tmp_path: Path) -> None:
+    store = _store(tmp_path)
+    first = store.begin_text_draft(
+        session_id="session-1",
+        run_id="run-1",
+        call_id="begin-1",
+        filename="one.txt",
+        media_type="text/plain",
+    )
+    second = store.begin_text_draft(
+        session_id="session-1",
+        run_id="run-2",
+        call_id="begin-2",
+        filename="two.txt",
+        media_type="text/plain",
+    )
+    store.discard_run_drafts("session-1", "run-1")
+    with pytest.raises(OutputNotFoundError):
+        store.append_text_draft(
+            session_id="session-1",
+            run_id="run-1",
+            draft_id=first,
+            chunk_index=0,
+            content="gone",
+        )
+    assert (
+        store.append_text_draft(
+            session_id="session-1",
+            run_id="run-2",
+            draft_id=second,
+            chunk_index=0,
+            content="kept",
+        )
+        == 4
+    )
 
 
 def test_session_fork_deep_copies_output_payload_and_identity(tmp_path: Path) -> None:

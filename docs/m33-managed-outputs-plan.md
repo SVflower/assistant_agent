@@ -46,10 +46,18 @@ HTML 仅作为数据保存，CLI 不执行，未来 Web 只能在严格 sandbox 
 
 ## 工具、恢复与展示
 
-`create_output(filename, media_type, content, title?, disposition?)` 是 `safe_idempotent` 工具，CLI/Web
-都注册。它只能写 OutputStore，不能指定路径。工具成功后 `ToolResult.output_artifact` 与
+`create_output(filename, media_type, content, title?, disposition?)` 仅用于不超过配置分块上限的短文本。
+长 HTML/Markdown/CSV/JSON/文本使用 `manage_output` 的 `begin -> append -> finalize` 动作；默认每块最多
+8192 UTF-8 bytes，按连续 `chunk_index` 幂等追加，块数、单文件、Run 与 Session 总字节均有硬限。
+这组工具是 `safe_idempotent`，CLI/Web 都注册，只能写 OutputStore，不能指定路径。成功后
+`ToolResult.output_artifact` 与
 `StepEvent.output` 发布小型引用；内容不进入事件。RunState v9 持久 ToolResult 输出引用与 Run 输出列表，
 恢复时按 `output_id` 去重。
+
+草稿按 Session/Run/draft 隔离，metadata、每块及 finalize 完成标记均原子写入。暂停或进程中断保留草稿，
+恢复可继续且 finalize 重放返回同一 Artifact；completed/failed/cancelled 终态和 Session 删除负责清理未完成
+草稿。相同工具参数解析/Schema 错误连续两次后由 Registry 执行层熔断：`create_output` 引导改用分段协议，
+分段工具族熔断后要求降级为简短文字，不能依靠模型自觉停止。
 
 CLI `/outputs` 列当前 Session 文件名、大小与本机路径；首版不提供单文件删除，避免历史消息引用
 失效，Session 删除负责级联清理。API 使用
@@ -62,10 +70,14 @@ Output contract=1、Event contract=1。建议网络端新增 Session Output 列�
 WebSocket 只转发 `StepEvent.output` 引用，内容通过 REST 读取。HTTP 下载设置 Content-Type、
 Content-Disposition、Content-Length、ETag 和 `X-Content-Type-Options: nosniff`。跨 Session访问统一 404。
 
-Web Runtime 仍禁止 Shell/服务器文件工具，但允许 `create_output`；这不会赋予模型任意路径写权限。
+Web Runtime 仍禁止 Shell/服务器文件工具，但允许完整受管输出工具族；这不会赋予模型任意路径写权限。
 HTML 不得注入页面 DOM。API/Web 不得复制 Output 存储、幂等、删除或恢复状态机。
+
+本次长输出稳健性修复不改变 `OutputArtifactV1`、StepEvent、RunState、Session 或公共 Service 接口，
+因此 Agent Service contract 仍为 v4，API/Web 无必改项；它们只会继续收到最终 `assistant.output`。
 
 ## 验收
 
 契约严格性、原子写与 hash、路径逃逸、MIME/容量上限、幂等冲突、Run v9 checkpoint、Session v5
-同步、失败保留、删除级联、fork 深复制、Web allowlist、CLI 列表均有定向测试；Ruff 与 mypy 通过。
+同步、失败保留、草稿分块/恢复/清理、参数熔断、删除级联、fork 深复制、Web allowlist、CLI 列表均有
+定向测试；Ruff 与 mypy 通过。未修改 `agent/loop.py`。

@@ -89,6 +89,8 @@ class ToolContext:
     result_count_matching: Callable[[str, str, Callable[[dict[str, Any]], bool]], int] = (
         lambda _tool, _marker, _matches: 0
     )
+    argument_failure_counts: dict[str, int] = field(default_factory=dict)
+    blocked_argument_tools: set[str] = field(default_factory=set)
     # 当前工具执行内确认回调的累计等待时间。
     _approval_wait_ms: int = 0
 
@@ -134,12 +136,27 @@ class ToolContext:
         self.result_count_matching = result_count_matching or (
             lambda tool, marker, _matches: self.result_count(tool, marker)
         )
+        self.argument_failure_counts.clear()
+        self.blocked_argument_tools.clear()
 
     def clear_run(self) -> None:
         self.current_run_id = ""
         self.current_session_id = None
         self.result_count = lambda _tool, _marker: 0
         self.result_count_matching = lambda _tool, _marker, _matches: 0
+        self.argument_failure_counts.clear()
+        self.blocked_argument_tools.clear()
+
+    def record_argument_failure(self, tool_name: str, *, limit: int = 2) -> int:
+        count = self.argument_failure_counts.get(tool_name, 0) + 1
+        self.argument_failure_counts[tool_name] = count
+        if count >= limit:
+            self.blocked_argument_tools.add(tool_name)
+        return count
+
+    def clear_argument_failures(self, tool_name: str) -> None:
+        if tool_name not in self.blocked_argument_tools:
+            self.argument_failure_counts.pop(tool_name, None)
 
     def request_question(self, question: str, options: list[str]) -> str:
         if self.interaction is None:

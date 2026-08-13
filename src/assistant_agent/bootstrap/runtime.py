@@ -75,7 +75,10 @@ from assistant_agent.providers.ports import ModelProviderPort
 from assistant_agent.tools.charts import PresentChartTool
 from assistant_agent.tools.context import ToolContext
 from assistant_agent.tools.extensions import ConfigureMCPServerTool, ManageSkillTool
-from assistant_agent.tools.outputs import CreateOutputTool
+from assistant_agent.tools.outputs import (
+    CreateOutputTool,
+    ManageOutputTool,
+)
 from assistant_agent.tools.processes import ManageProcessTool
 from assistant_agent.tools.registry import ToolRegistry, build_default_registry
 from assistant_agent.tools.runtime_inspection import InspectRuntimeTool
@@ -147,8 +150,15 @@ def _configure_output_tool(
 ) -> list[RuntimeNotice]:
     if policy.profile not in {"cli", "web"}:
         return []
-    available = _register_policy_tool(policy, config, registry, system_prompt, CreateOutputTool())
-    if available or not policy.allows_tool("create_output"):
+    tools = (
+        CreateOutputTool(config.outputs.max_chunk_bytes),
+        ManageOutputTool(config.outputs.max_chunk_bytes, config.outputs.max_draft_chunks),
+    )
+    selected: list[Tool] = [tool for tool in tools if policy.allows_tool(tool.name)]
+    available = bool(selected) and register_extension_tools(
+        config, registry, system_prompt, selected
+    )
+    if available or not any(policy.allows_tool(tool.name) for tool in tools):
         return []
     return [
         RuntimeNotice(

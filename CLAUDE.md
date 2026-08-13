@@ -159,7 +159,8 @@ python -m assistant_agent
   RunState v8、Service contract v3；Provider 调用边界临时物化、能力显式 fail-closed、Session 级联/fork
   深复制与附件预算校验。Event v1 保持不变，Loop 仅接收类型化用户输入。
 - M33 Agent 侧已完成：Managed Output v1、受限 `create_output`、原子 OutputStore、RunState v9、
-  Session/contract v5、Service contract v4；CLI/Web 共用受管交付文件，Event v1 保持不变。
+  Session/contract v5、Service contract v4；CLI/Web 共用受管交付文件；长文本采用有界分段草稿，
+  参数错误连续失败由 Registry 熔断；Event v1 保持不变。
 - 859 个测试通过（10 个平台能力测试跳过），覆盖率 84%，ruff/mypy、12/12 import-linter、
   scripted 23/23、recovery 4/4 全绿；19,753 行/138 文件生产 Python + 1,411 行 eval 基础设施；
   剩余 7 项技术债（4 中/3 低，无高优先级）。

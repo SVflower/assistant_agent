@@ -30,6 +30,12 @@ from assistant_agent.tools.tool import Tool
 from assistant_agent.tools.validation import build_validator, validate_arguments
 
 _TRUNCATION_SUFFIX = "\n…（输出已截断，可缩小范围重试）"
+_OUTPUT_DRAFT_TOOLS = frozenset({"manage_output"})
+_MANAGED_OUTPUT_TOOLS = _OUTPUT_DRAFT_TOOLS | {"create_output"}
+
+
+def _argument_failure_key(name: str) -> str:
+    return "managed_output_draft" if name in _OUTPUT_DRAFT_TOOLS else name
 
 
 def _truncate_output(output: str, limit: int) -> str:
@@ -265,12 +271,49 @@ class ToolRegistry:
             )
             limited, _, _ = _limit_result_output(result, ctx)
             return _notify_completed(lifecycle, call_id, limited, [], "requires_decision")
+        failure_key = _argument_failure_key(name)
+        if failure_key in ctx.blocked_argument_tools:
+            fallback = (
+                "请改用 manage_output 的 begin/append/finalize 动作。"
+                if name == "create_output"
+                else "请停止生成该文件，改为简短文字说明失败原因。"
+            )
+            result = ToolResult.error(
+                f"[tool_arguments_exhausted] {name} 连续参数错误，"
+                f"当前 Run 已熔断该工具。{fallback}",
+                code="tool_arguments_exhausted",
+                retryable=False,
+                executed=False,
+            )
+            limited = _finish_preflight_error(name, args, result, ctx, call_id)
+            return _notify_completed(lifecycle, call_id, limited, [], "requires_decision")
         validation_error = validate_arguments(self._validators[name], args)
         if validation_error is not None:
             message, metadata = validation_error
-            result = tool.argument_validation_error(message, metadata, ctx)
+            should_circuit = name in _MANAGED_OUTPUT_TOOLS or args.get("_parse_error") is True
+            failures = ctx.record_argument_failure(failure_key) if should_circuit else 0
+            if should_circuit:
+                metadata = {**metadata, "failure_count": failures, "failure_limit": 2}
+            if should_circuit and failures >= 2:
+                fallback = (
+                    "请改用 manage_output 的 begin/append/finalize 动作。"
+                    if name == "create_output"
+                    else "请停止重试该工具并给出简短文字结果。"
+                )
+                result = ToolResult.error(
+                    f"[tool_arguments_exhausted] 连续参数校验失败，已熔断 {name}。{fallback}",
+                    code="tool_arguments_exhausted",
+                    retryable=False,
+                    metadata=metadata,
+                    executed=False,
+                )
+            else:
+                result = tool.argument_validation_error(
+                    f"[tool_arguments_invalid] {message}", metadata, ctx
+                )
             limited = _finish_preflight_error(name, args, result, ctx, call_id)
             return _notify_completed(lifecycle, call_id, limited, [], "requires_decision")
+        ctx.clear_argument_failures(failure_key)
         ctx.reset_approval_wait()
         start = time.perf_counter()
         try:

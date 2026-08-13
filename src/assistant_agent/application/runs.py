@@ -1210,6 +1210,7 @@ class SessionRuntime:
         messages = {
             "session_sync_deferred": "Run 终态已保存，会话同步将在后续重试。",
             "run_prune_deferred": "Run 终态已保存，历史清理将在后续重试。",
+            "output_draft_cleanup_deferred": "未完成输出草稿将在后续清理。",
         }
         return StepEvent(kind="notice", text=messages[code], result_code=code)
 
@@ -1223,6 +1224,13 @@ class SessionRuntime:
             status = "paused"
         if status in {"completed", "failed", "cancelled"}:
             notices: list[str] = []
+            if coordinator.state.session_id is not None:
+                try:
+                    self.runtime.output_store.discard_run_drafts(
+                        coordinator.state.session_id, coordinator.run_id
+                    )
+                except Exception:  # noqa: BLE001
+                    notices.append("output_draft_cleanup_deferred")
             try:
                 synced = sync_terminal_session(
                     coordinator, self.runtime.session_store, self.session

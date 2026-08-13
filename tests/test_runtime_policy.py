@@ -168,6 +168,7 @@ def test_web_profile_only_exposes_server_safe_tools_and_search_needs_no_approval
         names = set(runtime.capabilities.tools)
         assert "web_search" in names
         assert "present_chart" in names
+        assert {"create_output", "manage_output"} <= names
         assert runtime.capabilities.chart_spec_versions == (2,)
         assert "present_chart" in {item["function"]["name"] for item in runtime.loop.tool_schemas}
         assert (

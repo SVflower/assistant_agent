@@ -9,6 +9,7 @@ from assistant_agent.contracts.capabilities import MCPServerCapability
 from assistant_agent.execution.process import _decode
 from assistant_agent.tools.file_edit import EditFileTool, MultiEditTool, WriteFileTool
 from assistant_agent.tools.file_read import ListDirTool, ReadFileTool
+from assistant_agent.tools.outputs import CreateOutputTool
 from assistant_agent.tools.registry import ToolRegistry, build_default_registry
 from assistant_agent.tools.runtime_inspection import InspectRuntimeTool
 from assistant_agent.tools.shell import ShellTool, is_dangerous
@@ -475,3 +476,24 @@ def test_registry_catches_tool_exception():
     result = registry.execute("read_file", {"path": 123}, _ctx())
     assert isinstance(result, ToolResult)
     assert result.is_error
+
+
+def test_registry_circuit_breaks_repeated_argument_errors_per_tool():
+    registry = ToolRegistry()
+    registry.register(CreateOutputTool())
+    ctx = _ctx()
+    first = registry.execute(
+        "create_output", {"filename": "x.html", "media_type": "text/html"}, ctx
+    )
+    second = registry.execute(
+        "create_output", {"filename": "x.html", "media_type": "text/html"}, ctx
+    )
+    third = registry.execute(
+        "create_output",
+        {"filename": "x.html", "media_type": "text/html", "content": "ok"},
+        ctx,
+    )
+    assert first.code == "invalid_arguments" and first.retryable is True
+    assert second.code == "tool_arguments_exhausted" and second.retryable is False
+    assert third.code == "tool_arguments_exhausted" and third.executed is False
+    assert "manage_output" in third.output

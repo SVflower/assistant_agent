@@ -14,7 +14,9 @@
 
 ## M33 Managed Output
 
-`create_output` 生成受管 UTF-8 HTML/CSV/JSON/Markdown/文本交付物。成功的 `tool_result` 通过
+短文本由 `create_output` 生成；长文本由 Agent 内部 `manage_output` 的 begin/append/finalize 动作分段
+生成。默认分块上限为 8192 UTF-8 bytes，并受配置的块数、文件、Run 与 Session 总量限制。
+草稿仅属于 Agent 内部存储，不进入公共 DTO 或网络事件。成功的 `tool_result` 通过
 `StepEvent.output: OutputArtifactV1 | None` 发布小型引用，Event contract 保持 v1；内容不进入事件。
 Output ref 包含 opaque `output_id`、Session/Run/message/call 归属、filename/title、MIME、大小、SHA-256、
 时间、disposition 和 preview_supported，绝不包含服务器路径。
@@ -23,6 +25,10 @@ Output ref 包含 opaque `output_id`、Session/Run/message/call 归属、filenam
 同名 Session-scoped 接口。API 不扫描 `outputs/`、不读取 sidecar、不复制幂等或删除状态机。Session
 删除级联 Output；fork 深复制边界前关联文件；Run 失败不删除已发布文件。HTML 仅作为数据，Web 预览
 必须严格 sandbox。稳定错误类型为 OutputInvalid/LimitExceeded/NotFound/Conflict/Unavailable。
+
+分段草稿按 Session/Run 隔离；暂停可恢复，终态与 Session 删除清理。相同参数解析/Schema 错误连续两次
+由 Agent Registry 熔断，调用方不得复制该状态机。本修复没有改变公共服务契约：service v4、Session v5、
+RunState v9、Output v1、Event v1 均保持不变，API/Web 仍只消费最终 Output Artifact。
 > Session v5、ChartSpec/ChartArtifact V2、Attachment/Content v1 与 Output v1；不再读取或迁移旧版本。调用方
 > 升级前必须清理旧测试状态，并删除所有 V1 图表与旧迁移分支。
 

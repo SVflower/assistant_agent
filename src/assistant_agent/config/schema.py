@@ -65,6 +65,8 @@ class OutputConfig(BaseModel):
     max_run_bytes: int = Field(default=50 << 20, ge=1024)
     max_session_files: int = Field(default=100, ge=1, le=2000)
     max_session_bytes: int = Field(default=200 << 20, ge=1024)
+    max_chunk_bytes: int = Field(default=8192, ge=1024, le=65536)
+    max_draft_chunks: int = Field(default=256, ge=1, le=4096)
     allowed_media_types: frozenset[str] = Field(
         default_factory=lambda: frozenset(
             {"text/html", "text/markdown", "text/csv", "application/json", "text/plain"}

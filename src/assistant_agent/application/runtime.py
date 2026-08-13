@@ -61,6 +61,7 @@ class AgentRuntime:
     visible_skills: Sequence[SkillMetaPort] = ()
     notices: list[RuntimeNotice] = field(default_factory=list)
     skill_manager: Any = None
+    skills_config_store: Any = None
     mcp_service: Any = None
     web: Closable | None = None
     mcp: MCPRuntimePort | None = None

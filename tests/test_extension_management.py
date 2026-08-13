@@ -9,7 +9,7 @@ import pytest
 from assistant_agent.config.loader import load_config
 from assistant_agent.config.paths import state_paths
 from assistant_agent.config.schema import MCPServerConfig
-from assistant_agent.config.writer import ConfigWriteError, MCPConfigStore
+from assistant_agent.config.writer import ConfigWriteError, MCPConfigStore, SkillsConfigStore
 from assistant_agent.integrations.mcp.configure import MCPConfigureError, MCPProbeResult, MCPService
 from assistant_agent.integrations.skills.manager import SkillInstallError, SkillManager
 from assistant_agent.integrations.skills.store import SkillStore
@@ -74,6 +74,67 @@ def test_skill_project_scope_and_same_name_fallback(tmp_path, monkeypatch):
     assert SkillStore.discover(roots).get_body("sample").strip() == "项目版本"
     manager.uninstall("sample", "project")
     assert SkillStore.discover(roots).get_body("sample").strip() == "用户版本"
+
+
+def test_project_skill_validation_rejects_missing_invalid_mismatch_and_escape(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setenv("ASSISTANT_AGENT_HOME", str(tmp_path / "home"))
+    workspace = tmp_path / "workspace"
+    manager = SkillManager(workspace)
+
+    with pytest.raises(SkillInstallError, match="不存在或 SKILL.md 无效"):
+        manager.project_skill("missing")
+
+    invalid = workspace / ".agents" / "skills" / "invalid"
+    invalid.mkdir(parents=True)
+    (invalid / "SKILL.md").write_text("not frontmatter", encoding="utf-8")
+    with pytest.raises(SkillInstallError, match="不存在或 SKILL.md 无效"):
+        manager.project_skill("invalid")
+
+    mismatch = workspace / ".agents" / "skills" / "folder-name"
+    mismatch.mkdir(parents=True)
+    (mismatch / "SKILL.md").write_text(
+        "---\nname: declared-name\ndescription: mismatch\n---\nbody\n", encoding="utf-8"
+    )
+    with pytest.raises(SkillInstallError, match="必须一致"):
+        manager.project_skill("folder-name")
+
+    with pytest.raises(SkillInstallError, match="路径逃逸"):
+        manager.project_skill("../outside")
+
+
+def test_skills_config_store_is_sorted_idempotent_and_preserves_comments(tmp_path):
+    config_path = _project_config(tmp_path)
+    store = SkillsConfigStore(config_path)
+
+    assert store.set_trusted("zeta", True) is True
+    assert store.set_trusted("alpha", True) is True
+    assert store.set_trusted("zeta", True) is False
+    assert store.trusted() == ("alpha", "zeta")
+    assert "# keep this project comment" in config_path.read_text(encoding="utf-8")
+    assert load_config(config_path).skills.trusted_project_skills == ["alpha", "zeta"]
+
+    assert store.set_trusted("zeta", False) is True
+    assert store.set_trusted("zeta", False) is False
+    assert store.trusted() == ("alpha",)
+
+
+def test_skills_config_store_write_failure_keeps_file_and_loaded_config(tmp_path, monkeypatch):
+    config_path = _project_config(tmp_path)
+    original = config_path.read_bytes()
+    loaded = load_config(config_path)
+    store = SkillsConfigStore(config_path)
+
+    def fail_write(*_args, **_kwargs):
+        raise OSError("disk unavailable")
+
+    monkeypatch.setattr("assistant_agent.config.writer._atomic_yaml_dump", fail_write)
+    with pytest.raises(OSError, match="disk unavailable"):
+        store.set_trusted("demo", True)
+
+    assert config_path.read_bytes() == original
+    assert loaded.skills.trusted_project_skills == []
 
 
 def test_skill_discovery_reports_invalid_and_shadowed_entries(tmp_path):

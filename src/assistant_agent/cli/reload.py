@@ -88,6 +88,7 @@ def _bind_context(ctx: ChatContext, generation: int, binding: _ContextBinding) -
     ctx.mcp_servers = binding.mcp_servers
     ctx.mcp_runtime = runtime.mcp
     ctx.skill_manager = runtime.skill_manager
+    ctx.skills_config_store = runtime.skills_config_store
     ctx.mcp_service = runtime.mcp_service
     ctx.tool_context = runtime.tool_context
     ctx.runtime_generation = generation

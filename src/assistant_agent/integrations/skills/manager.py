@@ -81,6 +81,19 @@ class SkillManager:
             raise
         return SkillInstallResult(meta.name, scope, target, True)
 
+    def project_skill(self, name: str) -> Path:
+        """验证项目 Skill 的目录归属、元数据合法性和请求名称一致性。"""
+        root = self.root("project").resolve()
+        target = (root / name).resolve()
+        if target.parent != root:
+            raise SkillInstallError("Skill 信任路径逃逸")
+        meta = _parse_skill_file(target / "SKILL.md", source="project")
+        if meta is None:
+            raise SkillInstallError(f"项目 Skill 不存在或 SKILL.md 无效：{name}")
+        if meta.name != name or target.name != name:
+            raise SkillInstallError("Skill 目录名、请求名称与 SKILL.md name 必须一致")
+        return target
+
     def uninstall(self, name: str, scope: SkillScope = "user") -> bool:
         root = self.root(scope).resolve()
         target = (root / name).resolve()

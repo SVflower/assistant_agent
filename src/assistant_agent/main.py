@@ -162,6 +162,7 @@ def chat(
             mcp_servers=mcp_servers,
             mcp_runtime=rt.mcp,
             skill_manager=rt.skill_manager,
+            skills_config_store=rt.skills_config_store,
             mcp_service=rt.mcp_service,
             tool_context=rt.tool_context,
         )

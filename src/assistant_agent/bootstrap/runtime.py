@@ -33,6 +33,7 @@ from assistant_agent.bootstrap.tools import (
 from assistant_agent.config.loader import ConfigError, load_config
 from assistant_agent.config.paths import resolve_log_dir, resolve_run_dir, state_paths
 from assistant_agent.config.schema import AppConfig, ProviderConfig
+from assistant_agent.config.writer import SkillsConfigStore
 from assistant_agent.contracts.capabilities import (
     MCPServerCapability,
     RuntimeCapabilities,
@@ -339,6 +340,7 @@ def create_runtime(
         with _startup_stage(startup_observer, "starting_web", "正在准备网络工具"):
             web = start_web(config.web, registry, control, allowed_tools=policy.allowed_tools)
         skill_manager = SkillManager(root)
+        skills_config_store = SkillsConfigStore(config_file)
         mcp_service = MCPService(config_file, logger, workspace_root=root)
         inspection_tool = InspectRuntimeTool(
             sandbox=config.sandbox.mode,
@@ -561,6 +563,7 @@ def create_runtime(
             visible_skills=visible_skills,
             notices=notices,
             skill_manager=skill_manager,
+            skills_config_store=skills_config_store,
             mcp_service=mcp_service,
             web=web,
             mcp=mcp,

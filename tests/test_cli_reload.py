@@ -59,6 +59,7 @@ class _Runtime:
         self.visible_skills = [SimpleNamespace(name=skill, source="project", description=skill)]
         self.mcp = _MCP(mcp_name, mcp_tool)
         self.skill_manager = SimpleNamespace(name=f"skills-{skill}")
+        self.skills_config_store = SimpleNamespace(name=f"skills-config-{skill}")
         self.mcp_service = SimpleNamespace(name=f"mcp-service-{skill}")
         self.tool_context = SimpleNamespace(name=f"tools-{skill}")
         self.interaction = _Interaction(pending)
@@ -238,3 +239,70 @@ def test_user_skill_install_is_visible_in_next_cli_runtime_generation(tmp_path, 
             second.close("test")
     finally:
         first.close("test")
+
+
+def test_project_skill_trust_and_untrust_control_next_cli_runtime_generation(tmp_path, monkeypatch):
+    home = tmp_path / "home"
+    monkeypatch.setenv("ASSISTANT_AGENT_HOME", str(home))
+    config = tmp_path / "config.yaml"
+    config.write_text(
+        "active: p\nproviders:\n  p:\n    model: openai/fake\n"
+        "agent:\n  max_context_tokens: 65536\n",
+        encoding="utf-8",
+    )
+    project_skill = tmp_path / ".agents" / "skills" / "demo"
+    project_skill.mkdir(parents=True)
+    (project_skill / "SKILL.md").write_text(
+        "---\nname: demo\ndescription: trusted project skill\n---\nbody\n", encoding="utf-8"
+    )
+    ctx = _ctx(tmp_path / "cli-context")
+    first = create_runtime(
+        config_path=config,
+        workspace_root=tmp_path,
+        interactive=True,
+        runtime_policy=RuntimePolicy.cli(),
+    )
+    holder = CLIRuntimeHolder(first, _SessionRuntime(first, ctx.session))  # type: ignore[arg-type]
+    monkeypatch.setattr(
+        "assistant_agent.cli.reload.SessionRuntime",
+        lambda runtime, session: _SessionRuntime(runtime, session),
+    )
+    try:
+        assert not first.capabilities.skills
+        assert "trusted project skill" not in first.loop.system_prompt
+        assert first.skills_config_store.set_trusted("demo", True) is True
+
+        loaded = holder.reload(
+            "skills",
+            ctx,
+            lambda control: create_runtime(
+                config_path=config,
+                workspace_root=tmp_path,
+                interactive=True,
+                runtime_policy=RuntimePolicy.cli(),
+                run_control=control,
+            ),
+        )
+        second = holder.runtime
+        assert "added=['demo']" in loaded
+        assert [item.name for item in second.capabilities.skills] == ["demo"]
+        assert "trusted project skill" in second.loop.system_prompt
+        assert "load_skill" in {item["function"]["name"] for item in second.loop.tool_schemas}
+        assert second.skills_config_store.set_trusted("demo", False) is True
+
+        unloaded = holder.reload(
+            "skills",
+            ctx,
+            lambda control: create_runtime(
+                config_path=config,
+                workspace_root=tmp_path,
+                interactive=True,
+                runtime_policy=RuntimePolicy.cli(),
+                run_control=control,
+            ),
+        )
+        assert "removed=['demo']" in unloaded
+        assert not holder.runtime.capabilities.skills
+        assert "trusted project skill" not in holder.runtime.loop.system_prompt
+    finally:
+        holder.runtime.close("test")

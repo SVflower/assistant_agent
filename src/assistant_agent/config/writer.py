@@ -20,6 +20,53 @@ class ConfigWriteError(RuntimeError):
     pass
 
 
+class SkillsConfigStore:
+    """原子维护 project config 中显式信任的项目 Skill 名单。"""
+
+    def __init__(self, project_config: Path) -> None:
+        self.project_config = project_config.resolve()
+        self._yaml = YAML()
+        self._yaml.preserve_quotes = True
+        self._yaml.indent(mapping=2, sequence=4, offset=2)
+
+    def trusted(self) -> tuple[str, ...]:
+        document = self._read_document()
+        skills = document.get("skills", {})
+        names = skills.get("trusted_project_skills", []) if isinstance(skills, dict) else []
+        return tuple(sorted({str(item) for item in names})) if isinstance(names, list) else ()
+
+    def set_trusted(self, name: str, trusted: bool) -> bool:
+        document = self._read_document()
+        skills = document.setdefault("skills", {})
+        if not isinstance(skills, dict):
+            raise ConfigWriteError("project config 的 skills 必须是映射")
+        current_names = skills.get("trusted_project_skills", [])
+        current = (
+            {str(item) for item in current_names} if isinstance(current_names, list) else set()
+        )
+        updated = current | {name} if trusted else current - {name}
+        if updated == current:
+            return False
+        skills["trusted_project_skills"] = sorted(updated)
+        try:
+            AppConfig.model_validate(document)
+        except ValidationError as exc:
+            raise ConfigWriteError(f"候选配置校验失败：{exc}") from exc
+        _atomic_yaml_dump(self._yaml, self.project_config, document)
+        return True
+
+    def _read_document(self) -> Any:
+        if not self.project_config.is_file():
+            raise ConfigWriteError(f"project config 不存在：{self.project_config}")
+        try:
+            data = self._yaml.load(self.project_config.read_text(encoding="utf-8"))
+        except Exception as exc:
+            raise ConfigWriteError(f"无法读取配置 {self.project_config}：{exc}") from exc
+        if not isinstance(data, dict):
+            raise ConfigWriteError(f"配置根节点必须是映射：{self.project_config}")
+        return data
+
+
 class MCPConfigStore:
     """user/project 两个 scope 的 MCP server 定义存取。"""
 
@@ -121,15 +168,19 @@ class MCPConfigStore:
             raise ConfigWriteError(f"候选配置校验失败：{exc}") from exc
 
     def _atomic_dump(self, path: Path, document: Any) -> None:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        fd, temp_name = tempfile.mkstemp(prefix=f".{path.name}-", suffix=".tmp", dir=path.parent)
-        temp = Path(temp_name)
-        try:
-            with os.fdopen(fd, "w", encoding="utf-8", newline="") as handle:
-                self._yaml.dump(document, handle)
-                handle.flush()
-                os.fsync(handle.fileno())
-            os.replace(temp, path)
-        except Exception:
-            temp.unlink(missing_ok=True)
-            raise
+        _atomic_yaml_dump(self._yaml, path, document)
+
+
+def _atomic_yaml_dump(yaml: YAML, path: Path, document: Any) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, temp_name = tempfile.mkstemp(prefix=f".{path.name}-", suffix=".tmp", dir=path.parent)
+    temp = Path(temp_name)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="") as handle:
+            yaml.dump(document, handle)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temp, path)
+    except Exception:
+        temp.unlink(missing_ok=True)
+        raise

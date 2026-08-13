@@ -16,6 +16,7 @@ from assistant_agent.application.models import Session
 from assistant_agent.application.ports import MCPRuntimePort, SessionRepository
 from assistant_agent.cli.extensions import cmd_mcp, cmd_skills
 from assistant_agent.config.schema import AppConfig
+from assistant_agent.config.writer import SkillsConfigStore
 from assistant_agent.integrations.mcp import MCPService
 from assistant_agent.integrations.skills import SkillManager
 from assistant_agent.observability import NullLogger
@@ -46,6 +47,7 @@ class ChatContext:
     mcp_servers: list[tuple[str, list[str]]] = field(default_factory=list)
     mcp_runtime: MCPRuntimePort | None = None
     skill_manager: SkillManager | None = None
+    skills_config_store: SkillsConfigStore | None = None
     mcp_service: MCPService | None = None
     tool_context: ToolContext | None = None
     runtime_generation: int = 1

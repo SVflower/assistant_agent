@@ -8,7 +8,7 @@ from typing import Protocol, cast
 
 from assistant_agent.application.ports import MCPRuntimePort
 from assistant_agent.config.schema import MCPServerConfig
-from assistant_agent.config.writer import ConfigScope, ConfigWriteError
+from assistant_agent.config.writer import ConfigScope, ConfigWriteError, SkillsConfigStore
 from assistant_agent.integrations.mcp import MCPConfigureError, MCPService
 from assistant_agent.integrations.skills import SkillInstallError, SkillManager
 from assistant_agent.integrations.skills.manager import SkillScope
@@ -23,6 +23,7 @@ class ExtensionCommandContext(Protocol):
     mcp_servers: list[tuple[str, list[str]]]
     mcp_runtime: MCPRuntimePort | None
     skill_manager: SkillManager | None
+    skills_config_store: SkillsConfigStore | None
     mcp_service: MCPService | None
     runtime_generation: int
 
@@ -44,28 +45,66 @@ def cmd_skills(args: str, ctx: ExtensionCommandContext) -> None:
         lines = ["Skill 目录诊断：", *(f"  {root}" for root in roots)]
         if legacy.exists():
             lines.append(f"  发现旧只读目录：{legacy}（建议迁移，不会自动删除）")
+        trusted_names = set(ctx.skills_config_store.trusted()) if ctx.skills_config_store else set()
+        project_names, invalid = _project_skill_diagnostics(manager)
+        untrusted = sorted(project_names - trusted_names)
+        if untrusted:
+            lines.append("  未加载原因：以下 project Skill 尚未显式信任：")
+            lines.extend(f"    {name}（执行 /skills trust {name} project）" for name in untrusted)
+        else:
+            lines.append("  没有未信任的 project Skill。")
+        if invalid:
+            lines.append("  无效的 project Skill：")
+            lines.extend(f"    {name}（{reason}）" for name, reason in invalid)
         ctx.console.command_info("\n".join(lines))
         return
-    if action not in {"install", "remove"} or len(tokens) < 2:
+    if action not in {"install", "remove", "trust", "untrust"} or len(tokens) < 2:
         ctx.console.error(
-            "用法：/skills list|doctor|install <目录> [user|project]|remove <名> [scope]"
+            "用法：/skills list|doctor|install <目录> [user|project]|remove <名> [scope]|"
+            "trust|untrust <名> [project]"
         )
         return
     options = tokens[2:]
-    scope_value = next((item for item in options if item in {"user", "project"}), "user")
+    default_scope = "project" if action in {"trust", "untrust"} else "user"
+    scope_value = next((item for item in options if item in {"user", "project"}), default_scope)
     scope = _scope(scope_value, ctx)
     if scope is None:
         return
     try:
+        if action in {"trust", "untrust"}:
+            if scope != "project":
+                raise SkillInstallError("Skill trust/untrust 仅支持 project scope")
+            config_store = ctx.skills_config_store
+            if config_store is None:
+                raise ConfigWriteError("当前 Runtime 未启用 project Skill 信任配置")
+            name = tokens[1]
+            manager.project_skill(name)
+            changed = config_store.set_trusted(name, action == "trust")
+            state = "true" if action == "trust" else "false"
+            verb = "已更新" if changed else "无需变更"
+            ctx.console.command_info(
+                f"{verb} Skill {name}（scope=project，trusted={state}）。\n"
+                "执行 /reload skills 更新当前 CLI Runtime。"
+            )
+            return
         if action == "install":
             result = manager.install(Path(tokens[1]), scope)
             verb = "已安装" if result.changed else "已是相同版本"
             loaded = any(name == result.name for name, _description in ctx.skills)
-            ctx.console.command_info(
+            lines = [
                 f"{verb} Skill {result.name}\n"
                 f"  scope={scope}\n  path={result.path}\n  loaded={str(loaded).lower()}\n"
-                "使用 /reload skills 立即载入当前 CLI Runtime。"
+            ]
+            is_trusted = (
+                scope == "user"
+                or ctx.skills_config_store is not None
+                and result.name in ctx.skills_config_store.trusted()
             )
+            lines.append(f"  trusted={str(is_trusted).lower()}")
+            if scope == "project" and not is_trusted:
+                lines.append(f"下一步：/skills trust {result.name} project")
+            lines.append("然后执行 /reload skills 更新当前 CLI Runtime。")
+            ctx.console.command_info("\n".join(lines))
             return
         if not _confirmed(ctx, f"确认卸载受管 Skill {tokens[1]}（{scope}）？"):
             ctx.console.command_info("已取消。")
@@ -76,7 +115,7 @@ def cmd_skills(args: str, ctx: ExtensionCommandContext) -> None:
             f"已卸载 Skill {tokens[1]}（scope={scope}，loaded={str(loaded).lower()}）。\n"
             "使用 /reload skills 从当前 CLI Runtime 移除。"
         )
-    except (SkillInstallError, OSError) as exc:
+    except (ConfigWriteError, SkillInstallError, OSError) as exc:
         ctx.console.error(str(exc))
 
 
@@ -92,6 +131,7 @@ def _list_skills(ctx: ExtensionCommandContext) -> None:
             for skill_file in skill_files:
                 installed.setdefault(skill_file.parent.name, []).append(scope)
     loaded = {name: description for name, description in ctx.skills}
+    trusted_project = set(ctx.skills_config_store.trusted()) if ctx.skills_config_store else set()
     if not installed and not loaded:
         ctx.console.command_info(
             "未发现技能。项目 Skill 放到 ./.agents/skills/<名>/；个人 Skill 放到 "
@@ -101,10 +141,33 @@ def _list_skills(ctx: ExtensionCommandContext) -> None:
     lines = [f"Skills · Runtime generation {ctx.runtime_generation}："]
     for name in sorted(set(installed) | set(loaded)):
         scopes = ",".join(installed.get(name, [])) or "configured"
-        state = "loaded" if name in loaded else "installed/not-loaded"
+        trusted = "project" not in installed.get(name, []) or name in trusted_project
+        state = "loaded" if name in loaded else "not-loaded"
         description = loaded.get(name, "")
-        lines.append(f"  {name:<16} {state} · scope={scopes} {description}".rstrip())
+        lines.append(
+            f"  {name:<16} {state} · scope={scopes} · trusted={str(trusted).lower()} "
+            f"{description}".rstrip()
+        )
     ctx.console.command_info("\n".join(lines))
+
+
+def _project_skill_diagnostics(manager: SkillManager) -> tuple[set[str], list[tuple[str, str]]]:
+    root = manager.root("project")
+    try:
+        names = (
+            sorted(path.parent.name for path in root.glob("*/SKILL.md")) if root.is_dir() else []
+        )
+    except OSError:
+        return set(), []
+    valid: set[str] = set()
+    invalid: list[tuple[str, str]] = []
+    for name in names:
+        try:
+            manager.project_skill(name)
+            valid.add(name)
+        except SkillInstallError as exc:
+            invalid.append((name, str(exc)))
+    return valid, invalid
 
 
 def cmd_mcp(args: str, ctx: ExtensionCommandContext) -> None:

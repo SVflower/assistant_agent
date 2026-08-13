@@ -5,6 +5,7 @@ from __future__ import annotations
 from assistant_agent.agent.loop import AgentLoop
 from assistant_agent.cli.commands import ChatContext, build_default_slash_registry
 from assistant_agent.config.schema import AppConfig
+from assistant_agent.config.writer import SkillsConfigStore
 from assistant_agent.integrations.mcp.configure import MCPProbeResult, MCPService
 from assistant_agent.integrations.skills import SkillManager
 from assistant_agent.persistence.store import SessionStore
@@ -252,6 +253,80 @@ def test_skills_install_and_remove_commands(tmp_path, monkeypatch):
     reg.dispatch("/skills remove demo user", ctx)
     assert "已卸载 Skill demo" in ctx.console.text()
     assert not (tmp_path / "home" / "skills" / "demo").exists()
+
+
+def test_project_skill_trust_commands_default_to_project_and_are_idempotent(tmp_path, monkeypatch):
+    monkeypatch.setenv("ASSISTANT_AGENT_HOME", str(tmp_path / "home"))
+    workspace = tmp_path / "workspace"
+    config_path = workspace / "config.yaml"
+    workspace.mkdir()
+    config_path.write_text(
+        "active: p\nproviders:\n  p:\n    model: openai/test\n", encoding="utf-8"
+    )
+    source = tmp_path / "source"
+    source.mkdir()
+    (source / "SKILL.md").write_text(
+        "---\nname: demo\ndescription: demo skill\n---\nbody\n", encoding="utf-8"
+    )
+    ctx = _ctx(tmp_path)
+    ctx.skill_manager = SkillManager(workspace)
+    ctx.skills_config_store = SkillsConfigStore(config_path)
+    registry = build_default_slash_registry()
+
+    registry.dispatch(f'/skills install "{source}" project', ctx)
+    assert "/skills trust demo project" in ctx.console.text()
+    assert "trusted=false" in ctx.console.text()
+
+    registry.dispatch("/skills trust demo", ctx)
+    registry.dispatch("/skills trust demo project", ctx)
+    assert ctx.skills_config_store.trusted() == ("demo",)
+    assert "scope=project，trusted=true" in ctx.console.text()
+    assert "无需变更 Skill demo" in ctx.console.text()
+    assert "/reload skills" in ctx.console.text()
+
+    registry.dispatch("/skills list", ctx)
+    assert "not-loaded · scope=project · trusted=true" in ctx.console.text()
+
+    registry.dispatch("/skills untrust demo", ctx)
+    registry.dispatch("/skills untrust demo project", ctx)
+    assert ctx.skills_config_store.trusted() == ()
+    assert "无需变更 Skill demo" in ctx.console.text()
+
+
+def test_project_skill_trust_rejects_user_missing_and_invalid_and_doctor_explains(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setenv("ASSISTANT_AGENT_HOME", str(tmp_path / "home"))
+    workspace = tmp_path / "workspace"
+    config_path = workspace / "config.yaml"
+    invalid = workspace / ".agents" / "skills" / "invalid"
+    invalid.mkdir(parents=True)
+    config_path.write_text(
+        "active: p\nproviders:\n  p:\n    model: openai/test\n", encoding="utf-8"
+    )
+    (invalid / "SKILL.md").write_text("invalid", encoding="utf-8")
+    ctx = _ctx(tmp_path)
+    ctx.skill_manager = SkillManager(workspace)
+    ctx.skills_config_store = SkillsConfigStore(config_path)
+    registry = build_default_slash_registry()
+
+    registry.dispatch("/skills trust demo user", ctx)
+    registry.dispatch("/skills trust missing", ctx)
+    registry.dispatch("/skills trust invalid", ctx)
+    assert "仅支持 project scope" in ctx.console.text()
+    assert "项目 Skill 不存在或 SKILL.md 无效：missing" in ctx.console.text()
+    assert "项目 Skill 不存在或 SKILL.md 无效：invalid" in ctx.console.text()
+
+    valid = workspace / ".agents" / "skills" / "demo"
+    valid.mkdir()
+    (valid / "SKILL.md").write_text(
+        "---\nname: demo\ndescription: demo\n---\nbody\n", encoding="utf-8"
+    )
+    registry.dispatch("/skills doctor", ctx)
+    assert "以下 project Skill 尚未显式信任" in ctx.console.text()
+    assert "/skills trust demo project" in ctx.console.text()
+    assert "无效的 project Skill" in ctx.console.text()
+    assert "invalid（项目 Skill 不存在或 SKILL.md 无效：invalid）" in ctx.console.text()
 
 
 def test_mcp_playwright_add_test_remove_commands(tmp_path, monkeypatch):

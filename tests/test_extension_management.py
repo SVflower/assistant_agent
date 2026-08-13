@@ -70,7 +70,7 @@ def test_skill_project_scope_and_same_name_fallback(tmp_path, monkeypatch):
     manager.install(user_source, "user")
     manager.install(project_source, "project")
 
-    roots = [workspace / ".agents" / "skills", tmp_path / "home" / "skills"]
+    roots = [workspace / "skills", tmp_path / "home" / "skills"]
     assert SkillStore.discover(roots).get_body("sample").strip() == "项目版本"
     manager.uninstall("sample", "project")
     assert SkillStore.discover(roots).get_body("sample").strip() == "用户版本"
@@ -86,13 +86,13 @@ def test_project_skill_validation_rejects_missing_invalid_mismatch_and_escape(
     with pytest.raises(SkillInstallError, match="不存在或 SKILL.md 无效"):
         manager.project_skill("missing")
 
-    invalid = workspace / ".agents" / "skills" / "invalid"
+    invalid = workspace / "skills" / "invalid"
     invalid.mkdir(parents=True)
     (invalid / "SKILL.md").write_text("not frontmatter", encoding="utf-8")
     with pytest.raises(SkillInstallError, match="不存在或 SKILL.md 无效"):
         manager.project_skill("invalid")
 
-    mismatch = workspace / ".agents" / "skills" / "folder-name"
+    mismatch = workspace / "skills" / "folder-name"
     mismatch.mkdir(parents=True)
     (mismatch / "SKILL.md").write_text(
         "---\nname: declared-name\ndescription: mismatch\n---\nbody\n", encoding="utf-8"
@@ -177,13 +177,39 @@ def test_skill_rejects_unmanaged_conflict_and_symlink(tmp_path, monkeypatch):
         manager.install(source)
 
 
-def test_manage_skill_tool_reports_reload(tmp_path, monkeypatch):
+def test_manage_skill_tool_reports_next_turn_activation(tmp_path, monkeypatch):
     monkeypatch.setenv("ASSISTANT_AGENT_HOME", str(tmp_path / "home"))
     tool = ManageSkillTool(SkillManager(tmp_path / "workspace"))
     result = tool.run({"action": "install", "source": str(_skill(tmp_path))}, ToolContextFixture())
     assert not result.is_error
-    assert "loaded=false" in result.output
-    assert result.metadata["reload_command"] == "/reload skills"
+    assert "下一轮对话自动加载" in result.output
+    assert result.metadata["effective"] == "next_turn"
+    assert result.metadata["trusted"] is True
+
+
+def test_manage_skill_tool_project_install_records_trust_and_uninstall_clears_it(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setenv("ASSISTANT_AGENT_HOME", str(tmp_path / "home"))
+    config = _project_config(tmp_path)
+    store = SkillsConfigStore(config)
+    tool = ManageSkillTool(SkillManager(tmp_path), store)
+
+    installed = tool.run(
+        {"action": "install", "source": str(_skill(tmp_path)), "scope": "project"},
+        ToolContextFixture(),
+    )
+    assert not installed.is_error
+    assert store.trusted() == ("sample",)
+    assert (tmp_path / "skills" / "sample" / "SKILL.md").is_file()
+
+    removed = tool.run(
+        {"action": "uninstall", "name": "sample", "scope": "project"},
+        ToolContextFixture(),
+    )
+    assert not removed.is_error
+    assert store.trusted() == ()
+    assert not (tmp_path / "skills" / "sample").exists()
 
 
 def test_mcp_config_store_preserves_comments_and_merges_scopes(tmp_path, monkeypatch):

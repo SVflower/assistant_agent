@@ -383,7 +383,10 @@ def create_runtime(
         notices.extend(_managed_process_notices(policy, managed_process_available))
         extension_tools: list[Tool] = [
             tool
-            for tool in (ManageSkillTool(skill_manager), ConfigureMCPServerTool(mcp_service))
+            for tool in (
+                ManageSkillTool(skill_manager, skills_config_store),
+                ConfigureMCPServerTool(mcp_service),
+            )
             if policy.allows_tool(tool.name)
         ]
         extension_management = policy.allow_extension_management and bool(extension_tools)

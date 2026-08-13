@@ -8,7 +8,7 @@ from typing import Any, cast
 from pydantic import ValidationError
 
 from assistant_agent.config.schema import MCPServerConfig
-from assistant_agent.config.writer import ConfigScope, ConfigWriteError
+from assistant_agent.config.writer import ConfigScope, ConfigWriteError, SkillsConfigStore
 from assistant_agent.integrations.mcp.configure import MCPConfigureError, MCPService
 from assistant_agent.integrations.skills.manager import SkillInstallError, SkillManager, SkillScope
 from assistant_agent.tools.context import ToolContext
@@ -23,11 +23,14 @@ class ManageSkillTool(Tool):
     description = (
         "安装或卸载 Agent Skill。install 的 source 必须是本地 Skill 目录；"
         "默认安装到用户级专用目录，"
-        "project scope 安装到 .agents/skills。安装后手动刷新生效。"
+        "project scope 安装到 workspace/skills。安装成功后在下一轮对话自动生效。"
     )
 
-    def __init__(self, manager: SkillManager) -> None:
+    def __init__(
+        self, manager: SkillManager, config_store: SkillsConfigStore | None = None
+    ) -> None:
         self._manager = manager
+        self._config_store = config_store
 
     @property
     def parameters(self) -> dict[str, Any]:
@@ -52,17 +55,32 @@ class ManageSkillTool(Tool):
                     return ToolResult.error(
                         "install 缺少 source", code="invalid_arguments", executed=False
                     )
+                if scope == "project" and self._config_store is None:
+                    return ToolResult.error(
+                        "当前 Runtime 未启用 project Skill 信任配置",
+                        code="skill_install_error",
+                        executed=False,
+                    )
                 result = self._manager.install(Path(str(source)), scope)
+                try:
+                    if scope == "project":
+                        assert self._config_store is not None
+                        self._config_store.set_trusted(result.name, True)
+                except Exception:
+                    if result.changed:
+                        self._manager.uninstall(result.name, scope)
+                    raise
                 verb = "已安装" if result.changed else "已存在"
                 return ToolResult.ok(
                     f"{verb} Skill {result.name}（{scope}）：{result.path}\n"
-                    "loaded=false；请执行 /reload skills。",
+                    "trusted=true；将在下一轮对话自动加载。",
                     metadata={
                         "name": result.name,
                         "scope": scope,
                         "changed": result.changed,
                         "loaded": False,
-                        "reload_command": "/reload skills",
+                        "trusted": True,
+                        "effective": "next_turn",
                     },
                 )
             name = args.get("name")
@@ -71,16 +89,18 @@ class ManageSkillTool(Tool):
                     "uninstall 缺少 name", code="invalid_arguments", executed=False
                 )
             self._manager.uninstall(str(name), scope)
+            if scope == "project" and self._config_store is not None:
+                self._config_store.set_trusted(str(name), False)
             return ToolResult.ok(
-                f"已卸载 Skill {name}（{scope}）。请执行 /reload skills。",
+                f"已卸载 Skill {name}（{scope}）。将在下一轮对话自动移除。",
                 metadata={
                     "name": name,
                     "scope": scope,
                     "changed": True,
-                    "reload_command": "/reload skills",
+                    "effective": "next_turn",
                 },
             )
-        except SkillInstallError as exc:
+        except (ConfigWriteError, SkillInstallError, OSError) as exc:
             return ToolResult.error(str(exc), code="skill_install_error")
 
     def permission_requests(

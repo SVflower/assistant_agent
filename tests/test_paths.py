@@ -50,7 +50,7 @@ def test_install_roots_are_separate_from_runtime_state(tmp_path, monkeypatch):
     workspace.mkdir()
     assert user_skills_dir() == assistant_home() / "skills"
     assert managed_mcp_dir() == assistant_home() / "mcp" / "servers"
-    assert project_skills_dir(workspace) == workspace / ".agents" / "skills"
+    assert project_skills_dir(workspace) == workspace / "skills"
     assert user_skills_dir() not in state_paths(workspace).workspace.parents
 
 
@@ -81,12 +81,15 @@ def test_skill_discovery_prefers_project_then_user_then_legacy(tmp_path, monkeyp
     home = tmp_path / "home"
     monkeypatch.setenv("ASSISTANT_AGENT_HOME", str(home))
     monkeypatch.chdir(tmp_path)
-    project = tmp_path / ".agents" / "skills"
+    project = tmp_path / "skills"
+    old_agents = tmp_path / ".agents" / "skills"
     legacy = tmp_path / ".assistant_agent" / "skills"
     _write_skill(project, "dup", "project")
+    _write_skill(old_agents, "old-agents", "old agents")
     _write_skill(user_skills_dir(), "dup", "user")
     _write_skill(legacy, "old", "legacy")
     metas = {meta.name: meta for meta in discover_skills(SkillsConfig(), tmp_path).list()}
     assert metas["dup"].source == "project"
+    assert metas["old-agents"].source == "legacy"
     assert metas["old"].source == "legacy"
     assert not metas["old"].trusted

@@ -68,7 +68,12 @@ def managed_mcp_dir() -> Path:
 
 
 def project_skills_dir(workspace_root: Path | None = None) -> Path:
-    return (workspace_root or Path.cwd()).resolve() / ".agents" / "skills"
+    return (workspace_root or Path.cwd()).resolve() / "skills"
+
+
+def legacy_project_skills_dirs(workspace_root: Path | None = None) -> tuple[Path, ...]:
+    root = (workspace_root or Path.cwd()).resolve()
+    return (root / ".agents" / "skills", root / ".assistant_agent" / "skills")
 
 
 def resolve_run_dir(configured: str, workspace_root: Path | None = None) -> Path:

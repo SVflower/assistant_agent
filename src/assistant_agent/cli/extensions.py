@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Protocol, cast
 
 from assistant_agent.application.ports import MCPRuntimePort
+from assistant_agent.config.paths import legacy_project_skills_dirs
 from assistant_agent.config.schema import MCPServerConfig
 from assistant_agent.config.writer import ConfigScope, ConfigWriteError, SkillsConfigStore
 from assistant_agent.integrations.mcp import MCPConfigureError, MCPService
@@ -41,10 +42,10 @@ def cmd_skills(args: str, ctx: ExtensionCommandContext) -> None:
         return
     if action == "doctor":
         roots = [manager.root("project"), manager.root("user")]
-        legacy = Path.cwd() / ".assistant_agent" / "skills"
         lines = ["Skill 目录诊断：", *(f"  {root}" for root in roots)]
-        if legacy.exists():
-            lines.append(f"  发现旧只读目录：{legacy}（建议迁移，不会自动删除）")
+        for legacy in legacy_project_skills_dirs(manager.workspace_root):
+            if legacy.exists():
+                lines.append(f"  发现旧只读目录：{legacy}（建议迁移，不会自动删除）")
         trusted_names = set(ctx.skills_config_store.trusted()) if ctx.skills_config_store else set()
         project_names, invalid = _project_skill_diagnostics(manager)
         untrusted = sorted(project_names - trusted_names)
@@ -88,22 +89,29 @@ def cmd_skills(args: str, ctx: ExtensionCommandContext) -> None:
             )
             return
         if action == "install":
+            if not _confirmed(
+                ctx,
+                f"确认检查并安装 Skill {tokens[1]}（{scope}）？\n"
+                "Skill 可包含指令、脚本和模板；安装表示信任该来源。",
+            ):
+                ctx.console.command_info("已取消。")
+                return
+            if scope == "project" and ctx.skills_config_store is None:
+                raise ConfigWriteError("当前 Runtime 未启用 project Skill 信任配置")
             result = manager.install(Path(tokens[1]), scope)
+            try:
+                if scope == "project":
+                    assert ctx.skills_config_store is not None
+                    ctx.skills_config_store.set_trusted(result.name, True)
+            except Exception:
+                if result.changed:
+                    manager.uninstall(result.name, scope)
+                raise
             verb = "已安装" if result.changed else "已是相同版本"
-            loaded = any(name == result.name for name, _description in ctx.skills)
             lines = [
-                f"{verb} Skill {result.name}\n"
-                f"  scope={scope}\n  path={result.path}\n  loaded={str(loaded).lower()}\n"
+                f"{verb} Skill {result.name}\n  scope={scope}\n  path={result.path}\n  trusted=true"
             ]
-            is_trusted = (
-                scope == "user"
-                or ctx.skills_config_store is not None
-                and result.name in ctx.skills_config_store.trusted()
-            )
-            lines.append(f"  trusted={str(is_trusted).lower()}")
-            if scope == "project" and not is_trusted:
-                lines.append(f"下一步：/skills trust {result.name} project")
-            lines.append("然后执行 /reload skills 更新当前 CLI Runtime。")
+            lines.append(_refresh_extensions(ctx, "skills"))
             ctx.console.command_info("\n".join(lines))
             return
         if not _confirmed(ctx, f"确认卸载受管 Skill {tokens[1]}（{scope}）？"):
@@ -111,9 +119,11 @@ def cmd_skills(args: str, ctx: ExtensionCommandContext) -> None:
             return
         loaded = any(name == tokens[1] for name, _description in ctx.skills)
         manager.uninstall(tokens[1], scope)
+        if scope == "project" and ctx.skills_config_store is not None:
+            ctx.skills_config_store.set_trusted(tokens[1], False)
         ctx.console.command_info(
             f"已卸载 Skill {tokens[1]}（scope={scope}，loaded={str(loaded).lower()}）。\n"
-            "使用 /reload skills 从当前 CLI Runtime 移除。"
+            + _refresh_extensions(ctx, "skills")
         )
     except (ConfigWriteError, SkillInstallError, OSError) as exc:
         ctx.console.error(str(exc))
@@ -134,7 +144,7 @@ def _list_skills(ctx: ExtensionCommandContext) -> None:
     trusted_project = set(ctx.skills_config_store.trusted()) if ctx.skills_config_store else set()
     if not installed and not loaded:
         ctx.console.command_info(
-            "未发现技能。项目 Skill 放到 ./.agents/skills/<名>/；个人 Skill 放到 "
+            "未发现技能。项目 Skill 放到 ./skills/<名>/；个人 Skill 放到 "
             "~/.assistant_agent/skills/<名>/。"
         )
         return
@@ -349,3 +359,13 @@ def _scope(value: str, ctx: ExtensionCommandContext) -> ConfigScope | None:
 
 def _confirmed(ctx: ExtensionCommandContext, message: str) -> bool:
     return ctx.console.confirm(message) in {"allow", "always"}
+
+
+def _refresh_extensions(ctx: ExtensionCommandContext, target: str) -> str:
+    reload_runtime = getattr(ctx, "reload_runtime", None)
+    if reload_runtime is None:
+        return "已写入磁盘；将在下次 Runtime 启动时生效。"
+    try:
+        return reload_runtime(target)
+    except Exception as exc:  # noqa: BLE001 - 安装结果保留，旧 Runtime 仍可用
+        return f"自动刷新失败，当前 Runtime 保持可用：{exc}"

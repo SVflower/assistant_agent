@@ -265,7 +265,7 @@ def build_default_slash_registry() -> SlashRegistry:
     reg.register(SlashCommand("sessions", "列出历史会话", _cmd_sessions))
     reg.register(SlashCommand("clear", "开新会话（清空上下文）", _cmd_clear))
     reg.register(SlashCommand("context", "查看会话状态与用量", _cmd_context))
-    reg.register(SlashCommand("skills", "管理 Skill（list/install/remove/doctor）", cmd_skills))
+    reg.register(SlashCommand("skills", "管理 Skill（安装后自动刷新）", cmd_skills))
     reg.register(SlashCommand("mcp", "管理 MCP server（list/add/test/remove 等）", cmd_mcp))
     reg.register(SlashCommand("reload", "刷新 Skill/MCP Runtime（skills|mcp|all）", _cmd_reload))
     reg.register(SlashCommand("display", "查看或切换展示模式", _cmd_display))

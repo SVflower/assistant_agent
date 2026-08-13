@@ -129,11 +129,11 @@ sandbox:
 
 ## 技能（Skills）
 
-把某类任务的做法手册写成 `SKILL.md`，放到 `./.agents/skills/<名>/`
+把某类任务的做法手册写成 `SKILL.md`，放到 `./skills/<名>/`
 （项目级）或 `~/.assistant_agent/skills/<名>/`（个人级），Agent 会自动发现。旧的
-`./.assistant_agent/skills/` 仅做最低优先级只读兼容，不会自动移动或删除。
-个人 Skill 默认受信；项目/自定义 Skill 会在元数据进入模型上下文前聚合确认，也可通过
-`skills.trusted_project_skills` 按名称显式信任。渐进披露：启动只注入已授权技能的
+`./.agents/skills/` 和 `./.assistant_agent/skills/` 仅做低优先级只读兼容，不会自动移动或删除。
+个人 Skill 默认受信；通过 `/skills install ... project` 安装的项目 Skill 会在安装确认时记录信任，
+手工复制的项目/自定义 Skill 仍需显式信任。Skill 目录变化会在下一轮对话前自动刷新；渐进披露只注入已授权技能的
 name/description（省 token），模型判断相关时才
 `load_skill` 加载正文照做；正文可指向脚本/参考文件，用现有工具读或跑。
 对话中使用 `/skills list|install|remove|doctor` 管理；安装默认进入 user scope，项目安装需显式

@@ -184,6 +184,26 @@ def chat(
             except typer.Exit as exc:
                 raise RuntimeError("候选 Runtime 初始化失败，当前 generation 保持可用。") from exc
 
+        def refresh_changed_skills() -> None:
+            try:
+                message = holder.reload_if_skills_changed(
+                    ctx,
+                    lambda control: build_runtime(
+                        config,
+                        console,
+                        interactive=True,
+                        run_control=control,
+                        provider=holder.runtime.config.active,
+                        max_iterations=max_iterations,
+                        show_banner=False,
+                    ),
+                )
+            except (RuntimeError, typer.Exit) as exc:
+                console.error(f"Skill 自动刷新失败，继续使用当前 Runtime：{exc}")
+                return
+            if message is not None:
+                console.command_info(message)
+
         ctx.reload_runtime = reload_runtime
         registry = build_default_slash_registry()
         console.set_slash_commands(registry.descriptions())
@@ -195,6 +215,7 @@ def chat(
                 break
             if not task:
                 continue
+            refresh_changed_skills()
             if task.lower() in ("exit", "quit"):
                 break
             if task.startswith("/"):

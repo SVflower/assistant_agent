@@ -201,6 +201,33 @@ def test_repeated_reload_is_idempotent_but_advances_generation(tmp_path, monkeyp
     assert first.closed == second.closed == 1 and third.closed == 0
 
 
+def test_skill_directory_change_triggers_reload_on_next_input_boundary(tmp_path, monkeypatch):
+    ctx = _ctx(tmp_path)
+    manager = SkillManager(tmp_path)
+    first = _Runtime(tmp_path, skill="old", mcp_name="mcp", mcp_tool="mcp__read")
+    first.skill_manager = manager
+    holder = CLIRuntimeHolder(first, _SessionRuntime(first, ctx.session))  # type: ignore[arg-type]
+    second = _Runtime(tmp_path, skill="new", mcp_name="mcp", mcp_tool="mcp__read")
+    second.skill_manager = manager
+    monkeypatch.setattr(
+        "assistant_agent.cli.reload.SessionRuntime",
+        lambda runtime, session: _SessionRuntime(runtime, session),
+    )
+
+    assert holder.reload_if_skills_changed(ctx, lambda _control: second) is None
+    skill = tmp_path / "skills" / "demo"
+    skill.mkdir(parents=True)
+    (skill / "SKILL.md").write_text(
+        "---\nname: demo\ndescription: demo\n---\nbody\n", encoding="utf-8"
+    )
+
+    message = holder.reload_if_skills_changed(ctx, lambda _control: second)
+
+    assert message is not None
+    assert holder.runtime is second
+    assert holder.generation == 2
+
+
 def test_user_skill_install_is_visible_in_next_cli_runtime_generation(tmp_path, monkeypatch):
     home = tmp_path / "home"
     monkeypatch.setenv("ASSISTANT_AGENT_HOME", str(home))
@@ -250,7 +277,7 @@ def test_project_skill_trust_and_untrust_control_next_cli_runtime_generation(tmp
         "agent:\n  max_context_tokens: 65536\n",
         encoding="utf-8",
     )
-    project_skill = tmp_path / ".agents" / "skills" / "demo"
+    project_skill = tmp_path / "skills" / "demo"
     project_skill.mkdir(parents=True)
     (project_skill / "SKILL.md").write_text(
         "---\nname: demo\ndescription: trusted project skill\n---\nbody\n", encoding="utf-8"

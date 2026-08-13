@@ -4,10 +4,12 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Literal
 
 from assistant_agent.application.runtime import AgentRuntime
 from assistant_agent.cli.commands import ChatContext
+from assistant_agent.config.paths import legacy_project_skills_dirs
 from assistant_agent.contracts.capabilities import RuntimeCapabilities
 from assistant_agent.execution import RunControl
 from assistant_agent.service import SessionRuntime
@@ -20,6 +22,20 @@ class CLIRuntimeHolder:
     runtime: AgentRuntime
     session_runtime: SessionRuntime
     generation: int = 1
+    skill_snapshot: tuple[tuple[str, int, int], ...] = ()
+
+    def __post_init__(self) -> None:
+        self.skill_snapshot = _skill_snapshot(self.runtime.skill_manager)
+
+    def reload_if_skills_changed(
+        self,
+        ctx: ChatContext,
+        factory: Callable[[RunControl], AgentRuntime],
+    ) -> str | None:
+        current = _skill_snapshot(self.runtime.skill_manager)
+        if current == self.skill_snapshot:
+            return None
+        return self.reload("skills", ctx, factory)
 
     def reload(
         self,
@@ -52,6 +68,7 @@ class CLIRuntimeHolder:
         self.runtime = candidate
         self.session_runtime = candidate_session_runtime
         self.generation += 1
+        self.skill_snapshot = _skill_snapshot(candidate.skill_manager)
         _bind_context(ctx, self.generation, binding)
         old_session_runtime.close()
         return _reload_summary(
@@ -136,6 +153,31 @@ def _delta(old: Mapping[str, object], new: Mapping[str, object]) -> str:
     removed = sorted(old.keys() - new.keys())
     updated = sorted(name for name in old.keys() & new.keys() if old[name] != new[name])
     return f"added={added or '-'} · removed={removed or '-'} · updated={updated or '-'}"
+
+
+def _skill_snapshot(manager: object | None) -> tuple[tuple[str, int, int], ...]:
+    root_method = getattr(manager, "root", None)
+    if not callable(root_method):
+        return ()
+    roots = [root_method("project"), root_method("user")]
+    workspace_root = getattr(manager, "workspace_root", None)
+    if workspace_root is not None:
+        roots.extend(legacy_project_skills_dirs(workspace_root))
+    entries: list[tuple[str, int, int]] = []
+    for root in roots:
+        try:
+            files = root.rglob("*") if root.is_dir() else ()
+            for index, path in enumerate(files):
+                if index >= 2000:
+                    entries.append((f"{Path(root).resolve()}::<truncated>", 0, index))
+                    break
+                if not path.is_file():
+                    continue
+                stat = Path(path).stat()
+                entries.append((str(Path(path).resolve()), stat.st_mtime_ns, stat.st_size))
+        except OSError:
+            continue
+    return tuple(sorted(entries))
 
 
 __all__ = ["CLIRuntimeHolder", "ReloadTarget"]

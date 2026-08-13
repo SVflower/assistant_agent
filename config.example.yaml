@@ -172,7 +172,7 @@ skills:
   # 是否发现并注入技能（SKILL.md 指示书）。渐进披露：启动只注入 name/description，
   # 模型按需 load_skill 加载正文。
   enabled: true
-  # 技能目录；留空用默认：./.agents/skills 与 ~/.assistant_agent/skills
+  # 技能目录；留空用默认：./skills 与 ~/.assistant_agent/skills
   dirs: []
   # 项目/自定义 Skill 默认不进入模型上下文；可按 name 显式信任。
   # 个人目录 ~/.assistant_agent/skills 默认受信。

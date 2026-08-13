@@ -303,7 +303,7 @@ class SkillsConfig(BaseModel):
     enabled: bool = Field(default=True, description="是否发现并注入技能")
     dirs: list[str] = Field(
         default_factory=list,
-        description="技能目录；留空用默认（项目 .agents/skills + 用户安装目录）",
+        description="技能目录；留空用默认（项目 skills/ + 用户安装目录）",
     )
     trusted_project_skills: list[str] = Field(
         default_factory=list,

@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import signal
 from collections.abc import Iterator
-from contextlib import contextmanager
 from pathlib import Path
 
 import typer
@@ -17,6 +16,7 @@ import typer
 from assistant_agent.cli.commands import ChatContext, build_default_slash_registry
 from assistant_agent.cli.init import run_init
 from assistant_agent.cli.recovery import resume_command, runs_command, sessions_command
+from assistant_agent.cli.reload import CLIRuntimeHolder
 from assistant_agent.cli.setup import build_runtime
 from assistant_agent.config.loader import ConfigError, load_config
 from assistant_agent.contracts.events import StepEvent
@@ -34,31 +34,22 @@ app = typer.Typer(
 _run_control = RunControl()
 
 
-@contextmanager
-def _interruptible() -> Iterator[None]:
-    """任务执行期间把 Ctrl+C(SIGINT) 转成"置中断标志"而非抛异常。
-
-    退出时恢复默认处理器——这样在输入提示符处按 Ctrl+C 仍是正常的退出行为。
-    signal.signal 只能在主线程调用（CLI 主流程满足）。
-    """
-    _run_control.reset()
+def _run_streamed(
+    console: Console, events: Iterator[StepEvent], run_control: RunControl | None = None
+) -> None:
+    """在可中断上下文中渲染一次任务的流式事件。"""
+    control = run_control or _run_control
+    control.reset()
     previous = signal.getsignal(signal.SIGINT)
     try:
-        signal.signal(signal.SIGINT, lambda *_: _run_control.request_interrupt())
+        signal.signal(signal.SIGINT, lambda *_: control.request_interrupt())
     except ValueError:
-        # 非主线程（如测试）无法设信号；此时不启用中断，直接放行。
-        yield
+        console.render_stream(events)
         return
     try:
-        yield
+        console.render_stream(events)
     finally:
         signal.signal(signal.SIGINT, previous)
-
-
-def _run_streamed(console: Console, events: Iterator[StepEvent]) -> None:
-    """在可中断上下文中渲染一次任务的流式事件。"""
-    with _interruptible():
-        console.render_stream(events)
 
 
 @app.command()
@@ -157,6 +148,7 @@ def chat(
             raise typer.Exit(code=1)
         rt.logger.bind_session(session.id)
         session_runtime = SessionRuntime(rt, session)
+        holder = CLIRuntimeHolder(rt, session_runtime)
 
         mcp_servers = rt.mcp.server_summary() if rt.mcp else []
         ctx = ChatContext(
@@ -173,6 +165,25 @@ def chat(
             mcp_service=rt.mcp_service,
             tool_context=rt.tool_context,
         )
+
+        def reload_runtime(target: str) -> str:
+            def factory(control: RunControl):
+                return build_runtime(
+                    config,
+                    console,
+                    interactive=True,
+                    run_control=control,
+                    provider=holder.runtime.config.active,
+                    max_iterations=max_iterations,
+                    show_banner=False,
+                )
+
+            try:
+                return holder.reload(target, ctx, factory)  # type: ignore[arg-type]
+            except typer.Exit as exc:
+                raise RuntimeError("候选 Runtime 初始化失败，当前 generation 保持可用。") from exc
+
+        ctx.reload_runtime = reload_runtime
         registry = build_default_slash_registry()
         console.set_slash_commands(registry.descriptions())
 
@@ -186,17 +197,19 @@ def chat(
             if task.lower() in ("exit", "quit"):
                 break
             if task.startswith("/"):
+                previous_session_id = ctx.session.id
                 registry.dispatch(task, ctx)
                 if ctx.should_exit:
                     break
-                session_runtime = SessionRuntime(rt, ctx.session)
+                if ctx.session.id != previous_session_id:
+                    holder.session_runtime = SessionRuntime(holder.runtime, ctx.session)
                 continue
             try:
-                execution = session_runtime.start_run(task)
+                execution = holder.session_runtime.start_run(task)
                 console.show_run_id(execution.run_id)
-                _run_streamed(console, execution.events)
-                state = rt.run_store.load(execution.run_id).document
-                ctx.session = session_runtime.session
+                _run_streamed(console, execution.events, holder.runtime.run_control)  # type: ignore[arg-type]
+                state = holder.runtime.run_store.load(execution.run_id).document
+                ctx.session = holder.session_runtime.session
                 if state["status"] != "completed" and console.display_mode != "verbose":
                     console.show_run_id(execution.run_id, force=True)
                 if state["status"] == "paused":
@@ -208,6 +221,8 @@ def chat(
                 console.error(f"（自动保存失败，已跳过：{exc}）")
                 console.error("为避免 Session/Run 分叉，已停止当前 chat；请按 Run ID 恢复。")
                 break
+        if holder.runtime is not rt:
+            holder.runtime.close("cli_chat_exit")
     # 单一出口打印一次；ctx.session 会随 /clear 更新，显示实际结束的会话。
     console.info(f"\n已结束会话 {ctx.session.id}。")
     console.info("恢复此会话：")

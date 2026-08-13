@@ -48,6 +48,8 @@ class ChatContext:
     skill_manager: SkillManager | None = None
     mcp_service: MCPService | None = None
     tool_context: ToolContext | None = None
+    runtime_generation: int = 1
+    reload_runtime: Callable[[str], str] | None = None
     should_exit: bool = False
 
 
@@ -236,6 +238,23 @@ def _cmd_exit(args: str, ctx: ChatContext) -> None:
     ctx.should_exit = True
 
 
+def _cmd_reload(args: str, ctx: ChatContext) -> None:
+    """在 CLI 输入边界重建完整 Runtime，不原位修改正在使用的 Registry。"""
+    target = args.strip().lower() or "all"
+    if target not in {"skills", "mcp", "all"}:
+        ctx.console.error("用法：/reload <skills|mcp|all>")
+        return
+    if ctx.reload_runtime is None:
+        ctx.console.error("当前入口不支持动态 Runtime 刷新。")
+        return
+    try:
+        message = ctx.reload_runtime(target)
+    except Exception as exc:  # noqa: BLE001 - 候选失败必须保留旧 Runtime
+        ctx.console.error(str(exc))
+        return
+    ctx.console.command_info(message)
+
+
 def build_default_slash_registry() -> SlashRegistry:
     """构建内置 slash 命令表。/help 由 dispatch 内建处理。"""
     reg = SlashRegistry()
@@ -246,6 +265,7 @@ def build_default_slash_registry() -> SlashRegistry:
     reg.register(SlashCommand("context", "查看会话状态与用量", _cmd_context))
     reg.register(SlashCommand("skills", "管理 Skill（list/install/remove/doctor）", cmd_skills))
     reg.register(SlashCommand("mcp", "管理 MCP server（list/add/test/remove 等）", cmd_mcp))
+    reg.register(SlashCommand("reload", "刷新 Skill/MCP Runtime（skills|mcp|all）", _cmd_reload))
     reg.register(SlashCommand("display", "查看或切换展示模式", _cmd_display))
     reg.register(SlashCommand("permissions", "查看或切换当前 Runtime 权限模式", _cmd_permissions))
     reg.register(SlashCommand("exit", "退出（也可输入 exit/quit）", _cmd_exit))

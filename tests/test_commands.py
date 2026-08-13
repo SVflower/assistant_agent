@@ -245,6 +245,10 @@ def test_skills_install_and_remove_commands(tmp_path, monkeypatch):
 
     reg.dispatch(f'/skills install "{source}" user', ctx)
     assert "已安装 Skill demo" in ctx.console.text()
+    assert "scope=user" in ctx.console.text()
+    assert "loaded=false" in ctx.console.text()
+    assert "/reload skills" in ctx.console.text()
+    assert "Claude Code" not in ctx.console.text()
     reg.dispatch("/skills remove demo user", ctx)
     assert "已卸载 Skill demo" in ctx.console.text()
     assert not (tmp_path / "home" / "skills" / "demo").exists()
@@ -267,6 +271,8 @@ def test_mcp_playwright_add_test_remove_commands(tmp_path, monkeypatch):
 
     reg.dispatch("/mcp add playwright user", ctx)
     assert "已验证并添加 playwright" in ctx.console.text()
+    assert "connected=false" in ctx.console.text()
+    assert "/reload mcp" in ctx.console.text()
     reg.dispatch("/mcp test playwright user", ctx)
     assert "验证通过" in ctx.console.text()
     artifact = tmp_path / "home" / "workspaces" / "placeholder" / "artifacts" / "mcp" / "playwright"
@@ -278,6 +284,35 @@ def test_mcp_playwright_add_test_remove_commands(tmp_path, monkeypatch):
     reg.dispatch("/mcp remove playwright user --purge-artifacts", ctx)
     assert "历史 artifact 保留" in ctx.console.text()
     assert "已清理历史 artifact" in ctx.console.text()
+
+
+def test_reload_command_is_cli_only_and_validates_target(tmp_path):
+    ctx = _ctx(tmp_path)
+    registry = build_default_slash_registry()
+
+    registry.dispatch("/reload all", ctx)
+    assert "当前入口不支持动态 Runtime 刷新" in ctx.console.text()
+    ctx.console.out.clear()
+    ctx.reload_runtime = lambda target: f"reloaded:{target}"
+    registry.dispatch("/reload skills", ctx)
+    registry.dispatch("/reload invalid", ctx)
+
+    assert "reloaded:skills" in ctx.console.text()
+    assert "用法：/reload <skills|mcp|all>" in ctx.console.text()
+
+
+def test_skill_and_mcp_lists_show_runtime_generation(tmp_path):
+    ctx = _ctx(tmp_path)
+    ctx.runtime_generation = 7
+    ctx.skills = [("demo", "[project] demo")]
+    ctx.mcp_servers = [("web", ["search"])]
+    registry = build_default_slash_registry()
+
+    registry.dispatch("/skills list", ctx)
+    registry.dispatch("/mcp list", ctx)
+
+    assert "Skills · Runtime generation 7" in ctx.console.text()
+    assert "MCP · Runtime generation 7" in ctx.console.text()
 
 
 def test_model_switch_by_name(tmp_path):

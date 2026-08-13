@@ -76,6 +76,26 @@ def test_skill_project_scope_and_same_name_fallback(tmp_path, monkeypatch):
     assert SkillStore.discover(roots).get_body("sample").strip() == "用户版本"
 
 
+def test_skill_discovery_reports_invalid_and_shadowed_entries(tmp_path):
+    project = tmp_path / "project"
+    personal = tmp_path / "personal"
+    for root in (project, personal):
+        (root / "demo").mkdir(parents=True)
+        (root / "demo" / "SKILL.md").write_text(
+            "---\nname: demo\ndescription: valid\n---\nbody\n", encoding="utf-8"
+        )
+    (project / "invalid").mkdir()
+    invalid = project / "invalid" / "SKILL.md"
+    invalid.write_text("missing frontmatter", encoding="utf-8")
+
+    store = SkillStore.discover([project, personal], sources=["project", "personal"])
+
+    meta = store.get_meta("demo")
+    assert meta is not None and meta.source == "project"
+    assert store.report.conflicts == ("demo",)
+    assert store.report.invalid == (str(invalid),)
+
+
 def test_skill_rejects_unmanaged_conflict_and_symlink(tmp_path, monkeypatch):
     monkeypatch.setenv("ASSISTANT_AGENT_HOME", str(tmp_path / "home"))
     manager = SkillManager(tmp_path / "workspace")
@@ -96,12 +116,13 @@ def test_skill_rejects_unmanaged_conflict_and_symlink(tmp_path, monkeypatch):
         manager.install(source)
 
 
-def test_manage_skill_tool_reports_restart(tmp_path, monkeypatch):
+def test_manage_skill_tool_reports_reload(tmp_path, monkeypatch):
     monkeypatch.setenv("ASSISTANT_AGENT_HOME", str(tmp_path / "home"))
     tool = ManageSkillTool(SkillManager(tmp_path / "workspace"))
     result = tool.run({"action": "install", "source": str(_skill(tmp_path))}, ToolContextFixture())
     assert not result.is_error
-    assert "下次启动生效" in result.output
+    assert "loaded=false" in result.output
+    assert result.metadata["reload_command"] == "/reload skills"
 
 
 def test_mcp_config_store_preserves_comments_and_merges_scopes(tmp_path, monkeypatch):
@@ -237,7 +258,8 @@ def test_configure_mcp_tool_add_and_remove(tmp_path, monkeypatch):
         ToolContextFixture(),
     )
     removed = tool.run({"action": "remove", "name": "demo"}, ToolContextFixture())
-    assert not added.is_error and "下次启动生效" in added.output
+    assert not added.is_error and "connected=false" in added.output
+    assert added.metadata["reload_command"] == "/reload mcp"
     assert not removed.is_error and service.store.get("demo", "user") is None
 
 

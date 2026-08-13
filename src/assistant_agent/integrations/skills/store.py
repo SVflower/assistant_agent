@@ -29,6 +29,12 @@ class SkillMeta:
     trusted: bool = False
 
 
+@dataclass(frozen=True)
+class SkillDiscoveryReport:
+    invalid: tuple[str, ...] = ()
+    conflicts: tuple[str, ...] = ()
+
+
 def _split_frontmatter(text: str) -> tuple[dict[str, object], str]:
     """拆出 frontmatter dict 与正文。无合法 frontmatter 时返回 ({}, 全文)。"""
     if not text.startswith("---"):
@@ -60,8 +66,11 @@ class SkillStore:
     （main 传入时把项目级放在个人级之前，实现"项目覆盖个人"）。
     """
 
-    def __init__(self, metas: dict[str, SkillMeta]) -> None:
+    def __init__(
+        self, metas: dict[str, SkillMeta], report: SkillDiscoveryReport | None = None
+    ) -> None:
         self._metas = metas
+        self.report = report or SkillDiscoveryReport()
 
     @classmethod
     def discover(
@@ -80,6 +89,8 @@ class SkillStore:
         if sources is not None and len(sources) != len(dirs):
             raise ValueError("sources 与 dirs 数量必须一致")
         trusted_names = trusted_names or set()
+        invalid: list[str] = []
+        conflicts: list[str] = []
         for index, base in enumerate(dirs):
             if not base.is_dir():
                 continue
@@ -91,11 +102,18 @@ class SkillStore:
                     trusted=source == "personal",
                 )
                 if meta is None:
+                    invalid.append(str(skill_md))
                     continue
                 if meta.name in trusted_names:
                     meta = replace(meta, trusted=True)
-                metas.setdefault(meta.name, meta)
-        return cls(metas)
+                if meta.name in metas:
+                    conflicts.append(meta.name)
+                    continue
+                metas[meta.name] = meta
+        return cls(
+            metas,
+            SkillDiscoveryReport(tuple(sorted(invalid)), tuple(sorted(set(conflicts)))),
+        )
 
     def list(self) -> list[SkillMeta]:
         """按名排序返回所有技能元数据。"""

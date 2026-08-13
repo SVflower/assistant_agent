@@ -11,12 +11,18 @@
 from __future__ import annotations
 
 from assistant_agent.integrations.skills.manager import SkillInstallError, SkillManager
-from assistant_agent.integrations.skills.store import SkillMeta, SkillSource, SkillStore
+from assistant_agent.integrations.skills.store import (
+    SkillDiscoveryReport,
+    SkillMeta,
+    SkillSource,
+    SkillStore,
+)
 from assistant_agent.integrations.skills.tool import LoadSkillTool
 
 __all__ = [
     "LoadSkillTool",
     "SkillInstallError",
+    "SkillDiscoveryReport",
     "SkillManager",
     "SkillMeta",
     "SkillSource",

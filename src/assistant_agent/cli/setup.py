@@ -19,7 +19,16 @@ Runtime = AgentRuntime
 
 def _available_mcp_server_count(runtime: AgentRuntime) -> int:
     """统计当前 Runtime 实际向模型暴露工具的 MCP Server。"""
-    return sum(bool(server.tool_names) for server in runtime.capabilities.mcp_servers)
+    capabilities = (
+        runtime.capabilities_snapshot()
+        if hasattr(runtime, "capabilities_snapshot")
+        else runtime.capabilities
+    )
+    return (
+        sum(bool(server.tool_names) for server in capabilities.mcp_servers)
+        if capabilities is not None
+        else 0
+    )
 
 
 def _show_notice(console: Console, notice: RuntimeNotice) -> None:
@@ -53,6 +62,7 @@ def build_runtime(
     run_control: RunControl | None = None,
     provider: str | None = None,
     max_iterations: int | None = None,
+    show_banner: bool = True,
 ) -> AgentRuntime:
     resolved = Path(config_path).expanduser().resolve() if config_path else find_config_file()
     if resolved is None:
@@ -81,13 +91,14 @@ def build_runtime(
     console.set_context_limit(runtime.config.agent.max_context_tokens)
     backend = runtime.workspace.backend if runtime.workspace is not None else "host"
     mcp_server_count = _available_mcp_server_count(runtime)
-    console.banner(
-        runtime.config.active,
-        runtime.config.active_provider.model,
-        runtime.config.permissions.mode,
-        backend,
-        mcp_server_count=mcp_server_count,
-    )
+    if show_banner:
+        console.banner(
+            runtime.config.active,
+            runtime.config.active_provider.model,
+            runtime.config.permissions.mode,
+            backend,
+            mcp_server_count=mcp_server_count,
+        )
     for notice in runtime.notices:
         _show_notice(console, notice)
     return runtime

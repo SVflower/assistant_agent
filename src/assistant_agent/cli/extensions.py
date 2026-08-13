@@ -11,6 +11,7 @@ from assistant_agent.config.schema import MCPServerConfig
 from assistant_agent.config.writer import ConfigScope, ConfigWriteError
 from assistant_agent.integrations.mcp import MCPConfigureError, MCPService
 from assistant_agent.integrations.skills import SkillInstallError, SkillManager
+from assistant_agent.integrations.skills.manager import SkillScope
 from assistant_agent.ui.console import Console
 
 _PLAYWRIGHT_MCP_VERSION = "0.0.78"
@@ -23,6 +24,7 @@ class ExtensionCommandContext(Protocol):
     mcp_runtime: MCPRuntimePort | None
     skill_manager: SkillManager | None
     mcp_service: MCPService | None
+    runtime_generation: int
 
 
 def cmd_skills(args: str, ctx: ExtensionCommandContext) -> None:
@@ -58,28 +60,50 @@ def cmd_skills(args: str, ctx: ExtensionCommandContext) -> None:
         if action == "install":
             result = manager.install(Path(tokens[1]), scope)
             verb = "已安装" if result.changed else "已是相同版本"
+            loaded = any(name == result.name for name, _description in ctx.skills)
             ctx.console.command_info(
-                f"{verb} Skill {result.name}（{scope}）：{result.path}\n下次启动生效。"
+                f"{verb} Skill {result.name}\n"
+                f"  scope={scope}\n  path={result.path}\n  loaded={str(loaded).lower()}\n"
+                "使用 /reload skills 立即载入当前 CLI Runtime。"
             )
             return
         if not _confirmed(ctx, f"确认卸载受管 Skill {tokens[1]}（{scope}）？"):
             ctx.console.command_info("已取消。")
             return
+        loaded = any(name == tokens[1] for name, _description in ctx.skills)
         manager.uninstall(tokens[1], scope)
-        ctx.console.command_info(f"已卸载 Skill {tokens[1]}（{scope}）。下次启动生效。")
+        ctx.console.command_info(
+            f"已卸载 Skill {tokens[1]}（scope={scope}，loaded={str(loaded).lower()}）。\n"
+            "使用 /reload skills 从当前 CLI Runtime 移除。"
+        )
     except (SkillInstallError, OSError) as exc:
         ctx.console.error(str(exc))
 
 
 def _list_skills(ctx: ExtensionCommandContext) -> None:
-    if not ctx.skills:
+    installed: dict[str, list[str]] = {}
+    if ctx.skill_manager is not None:
+        for scope in ("project", "user"):
+            root = ctx.skill_manager.root(cast(SkillScope, scope))
+            try:
+                skill_files = sorted(root.glob("*/SKILL.md")) if root.is_dir() else []
+            except OSError:
+                skill_files = []
+            for skill_file in skill_files:
+                installed.setdefault(skill_file.parent.name, []).append(scope)
+    loaded = {name: description for name, description in ctx.skills}
+    if not installed and not loaded:
         ctx.console.command_info(
             "未发现技能。项目 Skill 放到 ./.agents/skills/<名>/；个人 Skill 放到 "
             "~/.assistant_agent/skills/<名>/。"
         )
         return
-    lines = ["已发现技能（模型会按需 load_skill 加载）："]
-    lines += [f"  {name:<16} {description}" for name, description in ctx.skills]
+    lines = [f"Skills · Runtime generation {ctx.runtime_generation}："]
+    for name in sorted(set(installed) | set(loaded)):
+        scopes = ",".join(installed.get(name, [])) or "configured"
+        state = "loaded" if name in loaded else "installed/not-loaded"
+        description = loaded.get(name, "")
+        lines.append(f"  {name:<16} {state} · scope={scopes} {description}".rstrip())
     ctx.console.command_info("\n".join(lines))
 
 
@@ -112,15 +136,17 @@ def cmd_mcp(args: str, ctx: ExtensionCommandContext) -> None:
     if scope is None:
         return
     name = tokens[1]
-    if not _confirmed(ctx, f"确认{action} MCP server {name}（{scope}）？下次启动生效。"):
+    if not _confirmed(ctx, f"确认{action} MCP server {name}（{scope}）？"):
         ctx.console.command_info("已取消。")
         return
     try:
+        runtime_status = _runtime_mcp_status(ctx, name)
         if action == "remove":
             if not service.remove(name, scope):
                 raise MCPConfigureError(f"{scope} scope 中不存在 MCP server：{name}")
             ctx.console.command_info(
-                f"已移除 MCP server {name}（{scope}）。历史 artifact 保留；下次启动生效。"
+                f"已移除 MCP server {name}（scope={scope}，connected={runtime_status}）。"
+                "历史 artifact 保留；使用 /reload mcp 从当前 Runtime 移除。"
             )
             if "--purge-artifacts" in options:
                 if _confirmed(ctx, f"再次确认永久清理 {name} 的当前工作区历史 artifact？"):
@@ -131,10 +157,16 @@ def cmd_mcp(args: str, ctx: ExtensionCommandContext) -> None:
                     ctx.console.command_info("已保留历史 artifact。")
         elif action in {"enable", "disable"}:
             service.set_enabled(name, action == "enable", scope)
-            ctx.console.command_info(f"已{action} MCP server {name}。下次启动生效。")
+            ctx.console.command_info(
+                f"已{action} MCP server {name}（scope={scope}）。"
+                "使用 /reload mcp 刷新当前 CLI Runtime。"
+            )
         else:
             service.set_trusted(name, action == "trust", scope)
-            ctx.console.command_info(f"已{action} MCP server {name}。下次启动生效。")
+            ctx.console.command_info(
+                f"已{action} MCP server {name}（scope={scope}）。"
+                "使用 /reload mcp 刷新当前 CLI Runtime。"
+            )
     except (MCPConfigureError, ConfigWriteError, OSError) as exc:
         ctx.console.error(str(exc))
 
@@ -151,7 +183,7 @@ def _list_mcp(ctx: ExtensionCommandContext) -> None:
             "未接入 MCP server。可用 /mcp add playwright 安装 Playwright MCP。"
         )
         return
-    lines: list[str] = []
+    lines: list[str] = [f"MCP · Runtime generation {ctx.runtime_generation}："]
     total_tools = 0
     names = sorted(set(configured) | set(running) | set(statuses))
     for name in names:
@@ -166,8 +198,18 @@ def _list_mcp(ctx: ExtensionCommandContext) -> None:
         trust = " · trusted" if trusted else ""
         detail = f"：{', '.join(tools)}" if tools else ""
         lines.append(f"  {name}（{len(tools)} 个工具） · {source} · {state}{trust}{detail}")
-    lines.insert(0, f"MCP server：{len(names)} 个；暴露工具：{total_tools} 个")
+    lines.insert(1, f"MCP server：{len(names)} 个；暴露工具：{total_tools} 个")
     ctx.console.command_info("\n".join(lines))
+
+
+def _runtime_mcp_status(ctx: ExtensionCommandContext, name: str) -> str:
+    runtime = getattr(ctx, "mcp_runtime", None)
+    if runtime is None:
+        return "false"
+    status = next(
+        (item.status for item in runtime.server_capabilities() if item.name == name), None
+    )
+    return "true" if status == "connected" else "false"
 
 
 def _mcp_add(tokens: list[str], ctx: ExtensionCommandContext, service: MCPService) -> None:
@@ -204,7 +246,9 @@ def _mcp_add(tokens: list[str], ctx: ExtensionCommandContext, service: MCPServic
     try:
         result = service.add(name, server, scope)
         ctx.console.command_info(
-            f"已验证并添加 {name}（{scope}），发现 {len(result.tools)} 个工具。下次启动生效。"
+            f"已验证并添加 {name}\n  scope={scope}\n  config={service.store.path(scope)}\n"
+            f"  discovered_tools={len(result.tools)}\n  connected=false\n"
+            "使用 /reload mcp 立即连接并刷新当前 CLI Runtime。"
         )
     except (MCPConfigureError, ConfigWriteError, OSError) as exc:
         ctx.console.error(str(exc))

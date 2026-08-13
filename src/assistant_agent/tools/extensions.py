@@ -23,7 +23,7 @@ class ManageSkillTool(Tool):
     description = (
         "安装或卸载 Agent Skill。install 的 source 必须是本地 Skill 目录；"
         "默认安装到用户级专用目录，"
-        "project scope 安装到 .agents/skills。安装后下次启动生效。"
+        "project scope 安装到 .agents/skills。安装后手动刷新生效。"
     )
 
     def __init__(self, manager: SkillManager) -> None:
@@ -55,8 +55,15 @@ class ManageSkillTool(Tool):
                 result = self._manager.install(Path(str(source)), scope)
                 verb = "已安装" if result.changed else "已存在"
                 return ToolResult.ok(
-                    f"{verb} Skill {result.name}（{scope}）：{result.path}\n下次启动生效。",
-                    metadata={"name": result.name, "scope": scope, "changed": result.changed},
+                    f"{verb} Skill {result.name}（{scope}）：{result.path}\n"
+                    "loaded=false；请执行 /reload skills。",
+                    metadata={
+                        "name": result.name,
+                        "scope": scope,
+                        "changed": result.changed,
+                        "loaded": False,
+                        "reload_command": "/reload skills",
+                    },
                 )
             name = args.get("name")
             if not name:
@@ -65,8 +72,13 @@ class ManageSkillTool(Tool):
                 )
             self._manager.uninstall(str(name), scope)
             return ToolResult.ok(
-                f"已卸载 Skill {name}（{scope}）。下次启动生效。",
-                metadata={"name": name, "scope": scope, "changed": True},
+                f"已卸载 Skill {name}（{scope}）。请执行 /reload skills。",
+                metadata={
+                    "name": name,
+                    "scope": scope,
+                    "changed": True,
+                    "reload_command": "/reload skills",
+                },
             )
         except SkillInstallError as exc:
             return ToolResult.error(str(exc), code="skill_install_error")
@@ -98,7 +110,7 @@ class ConfigureMCPServerTool(Tool):
     name = "configure_mcp_server"
     description = (
         "列出、测试、添加、启停、信任或移除 MCP server 配置。"
-        "用户询问当前有哪些 MCP 时使用 list；配置变更下次启动生效；"
+        "用户询问当前有哪些 MCP 时使用 list；配置变更手动刷新生效；"
         "env/headers 的敏感值必须写成 ${ENV_VAR}，不要传明文密钥。"
     )
 
@@ -189,8 +201,14 @@ class ConfigureMCPServerTool(Tool):
                 verb = "已验证并写入" if action == "add" else "验证通过"
                 return ToolResult.ok(
                     f"{verb} MCP server {name}（发现 {len(result.tools)} 个工具）。"
-                    + ("下次启动生效。" if action == "add" else ""),
-                    metadata={"server": name, "scope": scope, "tools": list(result.tools)},
+                    + ("connected=false；请执行 /reload mcp。" if action == "add" else ""),
+                    metadata={
+                        "server": name,
+                        "scope": scope,
+                        "tools": list(result.tools),
+                        "connected": False if action == "add" else None,
+                        "reload_command": "/reload mcp" if action == "add" else None,
+                    },
                 )
             if action == "remove":
                 if not self._service.remove(name, scope):
@@ -200,8 +218,13 @@ class ConfigureMCPServerTool(Tool):
             else:
                 self._service.set_trusted(name, action == "trust", scope)
             return ToolResult.ok(
-                f"MCP server {name} 已{_ACTION_LABEL[action]}（{scope}）。下次启动生效。",
-                metadata={"server": name, "scope": scope, "action": action},
+                f"MCP server {name} 已{_ACTION_LABEL[action]}（{scope}）。请执行 /reload mcp。",
+                metadata={
+                    "server": name,
+                    "scope": scope,
+                    "action": action,
+                    "reload_command": "/reload mcp",
+                },
             )
         except (MCPConfigureError, ConfigWriteError, ValidationError, OSError) as exc:
             return ToolResult.error(str(exc), code="mcp_configure_error")

@@ -149,7 +149,8 @@ def test_atomic_save_failure_preserves_old_file(tmp_path, monkeypatch):
             ],
         )
 
-    assert store.load(session.id).messages[0]["content"] == "old"
+    saved = store.load(session.id).messages[0]["content"]
+    assert saved["parts"][0] == {"type": "text", "text": "old"}
     assert not list((tmp_path / "sessions").glob("*.tmp"))
 
 

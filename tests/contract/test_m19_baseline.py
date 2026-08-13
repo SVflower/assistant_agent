@@ -18,11 +18,24 @@ from assistant_agent.service import __all__ as service_exports
 def test_service_public_exports_baseline():
     assert set(service_exports) == {
         "AGENT_SERVICE_CONTRACT_VERSION",
+        "ATTACHMENT_CONTRACT_VERSION",
+        "CONTENT_PARTS_VERSION",
+        "OUTPUT_CONTRACT_VERSION",
         "AgentRuntime",
         "AgentService",
         "AgentServiceError",
         "ArtifactNotFoundError",
         "ArtifactUnavailableError",
+        "AttachmentContextTooLargeError",
+        "AttachmentInvalidError",
+        "AttachmentNotFoundError",
+        "AttachmentPartV1",
+        "AttachmentPayloadV1",
+        "AttachmentRefV1",
+        "AttachmentSummaryV1",
+        "AttachmentTooLargeError",
+        "AttachmentUnavailableError",
+        "AttachmentUploadV1",
         "AssistantMessageSnapshot",
         "ChartArtifactV2",
         "ChartSpecV2",
@@ -48,6 +61,14 @@ def test_service_public_exports_baseline():
         "RuntimePolicy",
         "RuntimeCapabilities",
         "MCPServerCapability",
+        "MessageContentV1",
+        "OutputArtifactV1",
+        "OutputConflictError",
+        "OutputInvalidError",
+        "OutputLimitExceededError",
+        "OutputNotFoundError",
+        "OutputPayload",
+        "OutputUnavailableError",
         "PendingInteractionSnapshot",
         "SkillCapability",
         "RuntimeNotice",
@@ -83,6 +104,9 @@ def test_service_public_exports_baseline():
         "UserMessageNotFoundError",
         "UpdateSessionMetadataRequest",
         "TabularDatasetV1",
+        "TextPartV1",
+        "UnsupportedInputModalityError",
+        "UserMessageInputV1",
     }
     assert [field.name for field in fields(RunExecution)] == ["run_id", "events", "warning"]
     execution = RunExecution("run-contract", iter(()))
@@ -109,6 +133,7 @@ def test_step_event_v1_field_baseline_and_sensitive_reasoning():
         "phase",
         "budget",
         "chart",
+        "output",
     ]
     event = StepEvent(kind="reasoning", text="private")
     assert event.contract_version == 1
@@ -232,6 +257,7 @@ def test_run_state_v8_field_baseline():
         "repeat_count",
         "tool_calls",
         "presentations",
+        "outputs",
         "permission_grants",
         "terminal_text",
         "failure",
@@ -263,4 +289,4 @@ def test_run_state_v8_field_baseline():
         created_at="2026-07-19T00:00:00",
         updated_at="2026-07-19T00:00:00",
     )
-    assert state.schema_version == 8
+    assert state.schema_version == 9

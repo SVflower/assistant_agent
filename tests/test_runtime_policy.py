@@ -96,7 +96,9 @@ def test_disallowed_mcp_transport_is_visible_but_not_started(tmp_path: Path) -> 
         config_path=config,
         workspace_root=tmp_path,
         interactive=False,
-        runtime_policy=RuntimePolicy(allowed_mcp_transports=frozenset()),
+        runtime_policy=RuntimePolicy(
+            allowed_mcp_transports=frozenset(), allow_personal_skills=False
+        ),
     )
     try:
         assert runtime.capabilities is not None

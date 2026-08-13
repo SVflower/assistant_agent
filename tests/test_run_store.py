@@ -13,7 +13,7 @@ from assistant_agent.persistence.run_store import RunStore
 
 def _document(run_id: str, *, updated: str = "1", status: str = "running") -> dict:
     return {
-        "schema_version": 8,
+        "schema_version": 9,
         "run_id": run_id,
         "task": f"task {run_id}",
         "status": status,

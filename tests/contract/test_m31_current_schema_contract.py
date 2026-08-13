@@ -34,8 +34,9 @@ def _chart_draft() -> dict:
 
 
 def test_breaking_service_contract_version_and_public_exports():
-    assert contracts.AGENT_SERVICE_CONTRACT_VERSION == 3
-    assert service.AGENT_SERVICE_CONTRACT_VERSION == 3
+    assert contracts.AGENT_SERVICE_CONTRACT_VERSION == 4
+    assert service.AGENT_SERVICE_CONTRACT_VERSION == 4
+    assert contracts.OUTPUT_CONTRACT_VERSION == 1
     assert not hasattr(contracts, "ChartSpecV1")
     assert not hasattr(service, "ChartArtifact")
     assert service.UnsupportedRunStateSchemaError.code == "unsupported_run_state_schema"
@@ -48,7 +49,7 @@ def test_run_store_rejects_v1_through_v6_without_writing(tmp_path):
     for version in range(1, 8):
         with pytest.raises(UnsupportedRunStateSchemaError) as caught:
             store.save("run-old", {"schema_version": version, "run_id": "run-old"})
-        assert caught.value.expected_version == 8
+        assert caught.value.expected_version == 9
         assert caught.value.actual_version == version
     assert not (tmp_path / "runs" / "run-old.json").exists()
 
@@ -62,8 +63,8 @@ def test_coordinator_load_rejects_incompatible_checkpoint_without_fallback(tmp_p
         RunCoordinator.load(store, "run-old")
 
 
-@pytest.mark.parametrize("version", [None, 0, 1, 2, 3, 5])
-def test_session_store_rejects_non_v4_without_rewriting(tmp_path, version):
+@pytest.mark.parametrize("version", [None, 0, 1, 2, 3, 4])
+def test_session_store_rejects_non_v5_without_rewriting(tmp_path, version):
     store = SessionStore(tmp_path / "sessions")
     path = store._path("old")
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -71,7 +72,7 @@ def test_session_store_rejects_non_v4_without_rewriting(tmp_path, version):
     original = path.read_bytes()
     with pytest.raises(UnsupportedSessionSchemaError) as caught:
         store.load("old")
-    assert caught.value.expected_version == 4
+    assert caught.value.expected_version == 5
     assert caught.value.actual_version == version
     assert path.read_bytes() == original
 

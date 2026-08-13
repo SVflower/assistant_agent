@@ -423,55 +423,57 @@ class SessionStore:
                     target_id = new_session_id()
                     if not self._path(target_id).exists():
                         break
-                target = build_forked_session(
-                    source,
-                    before_user_message_id=before_user_message_id,
-                    target_session_id=target_id,
-                    committed_at=committed_at,
-                    key_hash=key_hash,
-                    request_hash=request_hash,
-                    output_store=self._outputs,
-                )
-                refs = tuple(
-                    ref
-                    for message in target.message_ledger
-                    if message.role == "user"
-                    for ref in cast(MessageContentV1, message.content).attachment_refs()
-                )
-                if refs:
-                    if self._attachments is None:
-                        raise SessionMigrationRequiredError("Attachment Store 未配置")
-                    mapping = self._attachments.fork(source.id, target_id, refs)
-                    target.message_ledger = [
-                        message.model_copy(
-                            update={"content": remap_content_attachments(message.content, mapping)}
-                        )
+                try:
+                    target = build_forked_session(
+                        source,
+                        before_user_message_id=before_user_message_id,
+                        target_session_id=target_id,
+                        committed_at=committed_at,
+                        key_hash=key_hash,
+                        request_hash=request_hash,
+                        output_store=self._outputs,
+                    )
+                    refs = tuple(
+                        ref
+                        for message in target.message_ledger
                         if message.role == "user"
-                        else message
-                        for message in target.message_ledger
-                    ]
-                    target.messages = [
-                        {
-                            "role": message.role,
-                            "content": (
-                                cast(MessageContentV1, message.content).model_dump(mode="json")
-                                if message.role == "user"
-                                else message.content
-                            ),
-                        }
-                        for message in target.message_ledger
-                    ]
-                with self._lifecycle.lock(target_id):
-                    with self._document_lock(target_id):
-                        try:
+                        for ref in cast(MessageContentV1, message.content).attachment_refs()
+                    )
+                    if refs:
+                        if self._attachments is None:
+                            raise SessionMigrationRequiredError("Attachment Store 未配置")
+                        mapping = self._attachments.fork(source.id, target_id, refs)
+                        target.message_ledger = [
+                            message.model_copy(
+                                update={
+                                    "content": remap_content_attachments(message.content, mapping)
+                                }
+                            )
+                            if message.role == "user"
+                            else message
+                            for message in target.message_ledger
+                        ]
+                        target.messages = [
+                            {
+                                "role": message.role,
+                                "content": (
+                                    cast(MessageContentV1, message.content).model_dump(mode="json")
+                                    if message.role == "user"
+                                    else message.content
+                                ),
+                            }
+                            for message in target.message_ledger
+                        ]
+                    with self._lifecycle.lock(target_id):
+                        with self._document_lock(target_id):
                             self._atomic_write_locked(target)
-                        except BaseException:
-                            self._path(target_id).unlink(missing_ok=True)
-                            if self._attachments is not None:
-                                self._attachments.delete_session(target_id)
-                            if self._outputs is not None:
-                                self._outputs.delete_session(target_id)
-                            raise
+                except BaseException:
+                    self._path(target_id).unlink(missing_ok=True)
+                    if self._attachments is not None:
+                        self._attachments.delete_session(target_id)
+                    if self._outputs is not None:
+                        self._outputs.delete_session(target_id)
+                    raise
                 return target, True
 
     def _find_fork_locked(self, source_session_id: str, key_hash: str) -> Session | None:

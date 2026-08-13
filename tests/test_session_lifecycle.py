@@ -106,7 +106,7 @@ print(total)
 
 def _run_document(run_id: str, session_id: str) -> dict:
     return {
-        "schema_version": 8,
+        "schema_version": 9,
         "run_id": run_id,
         "session_id": session_id,
         "task": "race",
@@ -169,7 +169,7 @@ deadline = time.monotonic() + 10
 while not start.exists() and time.monotonic() < deadline:
     time.sleep(0.01)
 document = {
-        'schema_version': 8, 'run_id': 'run-race', 'session_id': session_id, 'task': 'race',
+        'schema_version': 9, 'run_id': 'run-race', 'session_id': session_id, 'task': 'race',
     'status': 'running', 'phase': 'model_pending',
     'updated_at': '2026-01-01T00:00:00Z',
 }
@@ -561,6 +561,9 @@ from assistant_agent.contracts.errors import SessionNotFoundError
 from assistant_agent.persistence.execution_lease import FileSessionExecutionLeaseManager
 from assistant_agent.persistence.run_store import RunStore
 from assistant_agent.persistence.store import SessionStore
+from assistant_agent.persistence.attachments import AttachmentStore
+from assistant_agent.persistence.outputs import OutputStore
+from assistant_agent.config.schema import AttachmentsConfig, OutputConfig
 mode, session_dir, run_dir, lifecycle, start, session_id = sys.argv[1:7]
 session_dir, run_dir, lifecycle, start = map(Path, (session_dir, run_dir, lifecycle, start))
 deadline = time.monotonic() + 30
@@ -576,12 +579,16 @@ if mode == 'save':
         except FileNotFoundError:
             break
 elif mode == 'direct':
+    attachment_store = AttachmentStore(lifecycle.parent / 'attachments', AttachmentsConfig())
+    output_store = OutputStore(lifecycle.parent, OutputConfig())
     service = AgentService(
         runtime_factory=lambda *_args: None,
         session_store=sessions,
         run_store=runs,
         session_leases=FileSessionExecutionLeaseManager(lifecycle.parent / 'leases'),
         max_completed_runs=10,
+        attachment_store=attachment_store,
+        output_store=output_store,
     )
     for _ in range(60):
         try:

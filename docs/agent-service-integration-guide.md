@@ -5,7 +5,8 @@
 >
 > 本文是公共服务契约的长期唯一正式入口；里程碑归档和阶段性交接不能替代本文。
 > 当前公共事件契约：`EVENT_CONTRACT_VERSION == 1`；Session 服务契约：
-> `SESSION_CONTRACT_VERSION == 4`；当前 Run checkpoint：schema v8；当前 Session 文档：schema v4。
+> `SESSION_CONTRACT_VERSION == 5`；当前 Run checkpoint：schema v9；当前 Session 文档：schema v5；
+> 当前 Output contract：v1。
 > 最近同步：M33 Managed Outputs（2026-08-13）。
 >
 > **破坏性契约版本：`AGENT_SERVICE_CONTRACT_VERSION = 4`。** Agent 只读取和写入 RunState v9、
@@ -22,7 +23,7 @@ Output ref 包含 opaque `output_id`、Session/Run/message/call 归属、filenam
 同名 Session-scoped 接口。API 不扫描 `outputs/`、不读取 sidecar、不复制幂等或删除状态机。Session
 删除级联 Output；fork 深复制边界前关联文件；Run 失败不删除已发布文件。HTML 仅作为数据，Web 预览
 必须严格 sandbox。稳定错误类型为 OutputInvalid/LimitExceeded/NotFound/Conflict/Unavailable。
-> Session v4、ChartSpec/ChartArtifact V2 与 Attachment/Content v1；不再读取或迁移旧版本。调用方
+> Session v5、ChartSpec/ChartArtifact V2、Attachment/Content v1 与 Output v1；不再读取或迁移旧版本。调用方
 > 升级前必须清理旧测试状态，并删除所有 V1 图表与旧迁移分支。
 
 ## M32 Attachment 输入
@@ -1017,8 +1018,8 @@ artifact URL 必须返回统一 404，跨 Session 查询也返回同一 404，�
 - 只把 V2 白名单字段映射为 renderer 配置，禁止透传 option/formatter/HTML/URL/JS/style；
 - 直接使用 Agent 产生的 histogram/boxplot/percent derived dataset，不在 API/Web 重算；
 - 未知或损坏 V2 只降级当前图表，不丢失文字消息，不改变 final/run_terminal；
-- M31/M32 之后，上述历史兼容范围不再适用于当前运行时；当前只接受 Chart V2、Session v4 和 Run
-  checkpoint v8，API 不复制迁移状态机，旧状态按 M32 交接清理。
+- M31-M33 之后，上述历史兼容范围不再适用于当前运行时；当前只接受 Chart V2、Session v5、Run
+  checkpoint v9 和 Output v1，API 不复制迁移状态机，旧状态在部署前清理。
 
 M30 保持 Event v1、Session contract v3、RunState v7 和 ChartSpecV2 字段不变，仅收紧 Agent 新建
 Heatmap 的模型输入边界：生成的 X/Y 轴均为 `category`，空 rows、全 null value、null/空白分类坐标
@@ -1038,16 +1039,16 @@ correction_remaining: 0 | 1
 额度从既有 checkpoint 消息账本重建，不增加 checkpoint 字段。`artifact_rejected` 仍只表示图表局部
 失败，不能改变文字回答、`final` 或唯一 `run_terminal`。
 
-### 12.1 M31/M32 current-only 覆盖规则
+### 12.1 M31-M33 current-only 覆盖规则
 
 M31 的 hard cut 覆盖本节此前的兼容读取说明：
 
-- 公共根导出 `AGENT_SERVICE_CONTRACT_VERSION = 3`；API 启动时必须校验。
+- 公共根导出 `AGENT_SERVICE_CONTRACT_VERSION = 4`；API 启动时必须校验。
 - `ChartSpecV1`、`ChartArtifact`、`PresentationArtifactRef`、`AnyChartArtifact` 和
   `AnyPresentationArtifactRef` 已删除，不再提供 re-export。
 - `StepEvent.chart`、Run/Session presentations、公开 message refs 均只接受 V2。
-- RunStore 的写入、双槽读取和 Coordinator 恢复只接受 checkpoint v8；v1-v7 不回退、不迁移。
-- SessionStore 的读取、catalog、summary、fork 和写入只接受 Session v4；v0-v3 不回写、不迁移。
+- RunStore 的写入、双槽读取和 Coordinator 恢复只接受 checkpoint v9；v1-v8 不回退、不迁移。
+- SessionStore 的读取、catalog、summary、fork 和写入只接受 Session v5；v0-v4 不回写、不迁移。
 - UserMessageInput/MessageContent/AttachmentRef 当前只接受 Content/Attachment v1；checkpoint/session 只保存
   ref，不保存附件正文、base64、path 或 EXIF。
 - schema 不匹配分别抛出 `unsupported_run_state_schema`、`unsupported_session_schema`、
@@ -1077,7 +1078,8 @@ M31 的 hard cut 覆盖本节此前的兼容读取说明：
 ## 14. 接入验收清单
 
 1. 只导入 `assistant_agent.service`、`assistant_agent.contracts` 和必要的 `assistant_agent.interaction` 实现；
-2. 启动时验证 `AGENT_SERVICE_CONTRACT_VERSION == 3` 与 `EVENT_CONTRACT_VERSION == 1`；
+2. 启动时验证 `AGENT_SERVICE_CONTRACT_VERSION == 4`、`SESSION_CONTRACT_VERSION == 5`、
+   `OUTPUT_CONTRACT_VERSION == 1` 与 `EVENT_CONTRACT_VERSION == 1`；
 3. config/workspace 路径由服务端固定；
 4. Iterator 在有界工作线程中逐事件消费；
 5. reasoning 和原始工具参数不进入网络 DTO；
@@ -1101,7 +1103,7 @@ M31 的 hard cut 覆盖本节此前的兼容读取说明：
 22. 图表刷新/历史恢复、跨 Session 404、删除级联、503 损坏态和断线重放均通过；
 23. `artifact_rejected` 不改变 final/run_terminal，低上下文或 recovery 关闭导致工具缺失时 API 仍 ready；
 24. Web 只把 ChartSpecV2 白名单映射为固定 ECharts option，V1/未知 schema 不迁移、不猜测；
-25. API 固定 `SESSION_CONTRACT_VERSION == 4`，保真映射 message ID/time/reply/artifacts/content parts；
+25. API 固定 `SESSION_CONTRACT_VERSION == 5`，保真映射 message ID/time/reply/artifacts/outputs/content parts；
 26. fork 首次/重放按 `fork_created` 映射 201/200，同 key 异参、跨 Session 边界和迁移失败均按稳定 code；
 27. edit/regenerate 先 fork、再显式创建普通 Run，第二步失败不得再次隐式 fork；
 21. opaque process ID 不作为 OS PID 展示、不跨 Runtime 持久化，Runtime 淘汰/关闭后不自动恢复；

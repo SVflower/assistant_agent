@@ -109,8 +109,8 @@ def _source_with_three_turns(store: SessionStore):
 
 
 def test_public_contract_exports_schema_v3_without_event_upgrade():
-    assert contracts.SESSION_CONTRACT_VERSION == 4
-    assert service_contract.SESSION_CONTRACT_VERSION == 4
+    assert contracts.SESSION_CONTRACT_VERSION == 5
+    assert service_contract.SESSION_CONTRACT_VERSION == 5
     assert EVENT_CONTRACT_VERSION == 1
     assert contracts.PublicMessageSnapshot is service_contract.PublicMessageSnapshot
     assert contracts.SessionSnapshot is service_contract.SessionSnapshot

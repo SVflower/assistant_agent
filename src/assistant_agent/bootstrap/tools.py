@@ -52,12 +52,12 @@ def discover_skills(
     else:
         dirs = [project_skills_dir(workspace_root)]
         sources = ["project"]
-        for legacy_dir in legacy_project_skills_dirs(workspace_root):
-            dirs.append(legacy_dir)
-            sources.append("legacy")
         if allow_personal:
             dirs.append(user_skills_dir())
             sources.append("personal")
+        for legacy_dir in legacy_project_skills_dirs(workspace_root):
+            dirs.append(legacy_dir)
+            sources.append("legacy")
     return SkillStore.discover(
         dirs,
         sources=sources,

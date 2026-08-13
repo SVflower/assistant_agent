@@ -86,10 +86,14 @@ def test_skill_discovery_prefers_project_then_user_then_legacy(tmp_path, monkeyp
     legacy = tmp_path / ".assistant_agent" / "skills"
     _write_skill(project, "dup", "project")
     _write_skill(old_agents, "old-agents", "old agents")
+    _write_skill(old_agents, "personal-wins", "legacy shadow")
     _write_skill(user_skills_dir(), "dup", "user")
+    _write_skill(user_skills_dir(), "personal-wins", "personal")
     _write_skill(legacy, "old", "legacy")
     metas = {meta.name: meta for meta in discover_skills(SkillsConfig(), tmp_path).list()}
     assert metas["dup"].source == "project"
+    assert metas["personal-wins"].source == "personal"
+    assert metas["personal-wins"].trusted
     assert metas["old-agents"].source == "legacy"
     assert metas["old"].source == "legacy"
     assert not metas["old"].trusted

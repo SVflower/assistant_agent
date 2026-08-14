@@ -186,13 +186,31 @@ def test_native_artifact_writer_captures_stream_without_assistant_delta(tmp_path
         assert artifact is not None
         assert artifact.call_id == "create-html-1"
         assert not any(event.kind == "content_delta" and "<html>" in event.text for event in events)
+        client = _NativeOutputClient.instances[-1]
+        assert client.calls == 2
+        assert len(client.tools) == 2
+        assert client.tools[1] == []
+        final = next(event for event in events if event.kind == "final")
+        assert final.text == "已生成文件：admin.html"
         assert events[-1].terminal_status == "completed"
-        assert _NativeOutputClient.instances[-1].tools[1] == []
+        kinds = [event.kind for event in events]
+        assert kinds.index("tool_result") < kinds.index("final") < kinds.index("run_terminal")
+        assert kinds.count("run_terminal") == 1
         payload = session_runtime.get_output_payload(artifact.output_id)
         assert payload.content == "<html><body>后台</body></html>"
         snapshot = session_runtime.run_snapshot(execution.run_id)
         assert snapshot.outputs == (artifact,)
-        assert session_runtime.snapshot().outputs == (artifact,)
+        assert snapshot.final_candidate == "已生成文件：admin.html"
+        assert "<!DOCTYPE" not in (snapshot.final_candidate or "")
+        session = session_runtime.snapshot()
+        assert session.outputs == (artifact,)
+        assistant_messages = [
+            message for message in session.messages if message.role == "assistant"
+        ]
+        assert assistant_messages[-1].content == "已生成文件：admin.html"
+        assert all("<!DOCTYPE" not in str(message.content) for message in session.messages)
+        saved = session_runtime.runtime.session_store.load(session_runtime.session.id)
+        assert all("<!DOCTYPE" not in str(message.content) for message in saved.message_ledger)
     finally:
         session_runtime.close()
 

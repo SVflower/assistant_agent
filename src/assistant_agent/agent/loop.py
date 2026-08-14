@@ -371,7 +371,14 @@ class AgentLoop:
                     )
                     return
                 yield event
-                continue
+                artifact = event.output
+                if artifact is None:
+                    raise RuntimeError("输出捕获完成事件缺少 Output Artifact")
+                final = f"已生成文件：{artifact.filename}"
+                self._conversation.add_assistant(final)
+                self._terminal(coordinator, True, final)
+                yield StepEvent(kind="final", text=final)
+                return
 
             if not tool_calls:
                 final = content or "（模型未返回内容）"

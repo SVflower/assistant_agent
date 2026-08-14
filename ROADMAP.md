@@ -12,8 +12,8 @@
 
 **M32 当前状态**：Agent 侧已完成通用 Attachment/Content v1。当前公共契约为 service v3、Session v4、
 RunState v8、Event v1；API/Web 按 `docs/archive/phase23/m32-agent-api-handoff.md` 接入。M32 按需定向集
-**M33 当前状态**：Agent 侧已完成 Managed Output v1。当前公共契约为 service v4、Session v5、
-RunState v9、Output v1、Event v1；受管文本交付物默认写入 workspace 的日期/Session 分片目录，
+**M33 当前状态**：Agent 侧已完成 Native ArtifactWriter。当前公共契约为 service v5、Session v5、
+RunState v10、Output v1、Event v1；模型只声明输出元数据，Runtime 原生捕获正文并写入日期/Session 分片目录，
 API/Web 按 `docs/m33-managed-outputs-plan.md` 与正式 service guide 接入。
 109 项通过（附件/上下文/配置/服务/Session/Run/恢复/契约），未运行全量 pytest/coverage。
 

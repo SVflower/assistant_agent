@@ -5,17 +5,18 @@
 >
 > 本文是公共服务契约的长期唯一正式入口；里程碑归档和阶段性交接不能替代本文。
 > 当前公共事件契约：`EVENT_CONTRACT_VERSION == 1`；Session 服务契约：
-> `SESSION_CONTRACT_VERSION == 5`；当前 Run checkpoint：schema v9；当前 Session 文档：schema v5；
+> `SESSION_CONTRACT_VERSION == 5`；当前 Run checkpoint：schema v10；当前 Session 文档：schema v5；
 > 当前 Output contract：v1。
-> 最近同步：M33 Managed Outputs（2026-08-13）。
+> 最近同步：M33 Native ArtifactWriter（2026-08-14）。
 >
-> **破坏性契约版本：`AGENT_SERVICE_CONTRACT_VERSION = 4`。** Agent 只读取和写入 RunState v9、
+> **破坏性契约版本：`AGENT_SERVICE_CONTRACT_VERSION = 5`。** Agent 只读取和写入 RunState v10、
 > Session v5、Chart V2、Attachment/Content v1 和 Output v1；旧状态不迁移。
 
 ## M33 Managed Output
 
-短文本由 `create_output` 生成；长文本由 Agent 内部 `manage_output` 的 begin/append/finalize 动作分段
-生成。默认分块上限为 8192 UTF-8 bytes，并受配置的块数、文件、Run 与 Session 总量限制。
+模型可见的 `create_output` 只接受 filename/media_type/title/disposition，不接受 content。工具登记意图后，
+Runtime 在下一模型轮禁用全部工具，把普通文本流写入私有草稿并自动分块、校验和 finalize；模型、API、Web
+均不知道 draft_id/chunk_index/finalize。默认分块上限为 8192 UTF-8 bytes，并受既有总量限制。
 草稿仅属于 Agent 内部存储，不进入公共 DTO 或网络事件。成功的 `tool_result` 通过
 `StepEvent.output: OutputArtifactV1 | None` 发布小型引用，Event contract 保持 v1；内容不进入事件。
 Output ref 包含 opaque `output_id`、Session/Run/message/call 归属、filename/title、MIME、大小、SHA-256、
@@ -26,9 +27,9 @@ Output ref 包含 opaque `output_id`、Session/Run/message/call 归属、filenam
 删除级联 Output；fork 深复制边界前关联文件；Run 失败不删除已发布文件。HTML 仅作为数据，Web 预览
 必须严格 sandbox。稳定错误类型为 OutputInvalid/LimitExceeded/NotFound/Conflict/Unavailable。
 
-分段草稿按 Session/Run 隔离；暂停可恢复，终态与 Session 删除清理。相同参数解析/Schema 错误连续两次
-由 Agent Registry 熔断，调用方不得复制该状态机。本修复没有改变公共服务契约：service v4、Session v5、
-RunState v9、Output v1、Event v1 均保持不变，API/Web 仍只消费最终 Output Artifact。
+捕获正文不发布 `content_delta`。暂停/崩溃恢复时丢弃半文件并从头捕获；取消或失败不发布 artifact。
+成功仍以原 `create_output` call_id 的 `tool_result` 发布唯一 OutputArtifactV1。API 不管理草稿。
+当前契约为 service v5、Session v5、RunState v10、Output v1、Event v1。
 > Session v5、ChartSpec/ChartArtifact V2、Attachment/Content v1 与 Output v1；不再读取或迁移旧版本。调用方
 > 升级前必须清理旧测试状态，并删除所有 V1 图表与旧迁移分支。
 
@@ -1049,7 +1050,7 @@ correction_remaining: 0 | 1
 
 M31 的 hard cut 覆盖本节此前的兼容读取说明：
 
-- 公共根导出 `AGENT_SERVICE_CONTRACT_VERSION = 4`；API 启动时必须校验。
+- 公共根导出 `AGENT_SERVICE_CONTRACT_VERSION = 5`；API 启动时必须校验。
 - `ChartSpecV1`、`ChartArtifact`、`PresentationArtifactRef`、`AnyChartArtifact` 和
   `AnyPresentationArtifactRef` 已删除，不再提供 re-export。
 - `StepEvent.chart`、Run/Session presentations、公开 message refs 均只接受 V2。
@@ -1084,7 +1085,7 @@ M31 的 hard cut 覆盖本节此前的兼容读取说明：
 ## 14. 接入验收清单
 
 1. 只导入 `assistant_agent.service`、`assistant_agent.contracts` 和必要的 `assistant_agent.interaction` 实现；
-2. 启动时验证 `AGENT_SERVICE_CONTRACT_VERSION == 4`、`SESSION_CONTRACT_VERSION == 5`、
+2. 启动时验证 `AGENT_SERVICE_CONTRACT_VERSION == 5`、`SESSION_CONTRACT_VERSION == 5`、
    `OUTPUT_CONTRACT_VERSION == 1` 与 `EVENT_CONTRACT_VERSION == 1`；
 3. config/workspace 路径由服务端固定；
 4. Iterator 在有界工作线程中逐事件消费；

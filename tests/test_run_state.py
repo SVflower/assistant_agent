@@ -144,7 +144,7 @@ def test_canonical_hash_ignores_mapping_order():
 
 def test_checkpoint_only_accepts_current_schema():
     state = _state(status="cancelled", phase="terminal")
-    assert state.schema_version == 9
+    assert state.schema_version == 10
     assert parse_run_state(state.model_dump(mode="python")) == state
     for version in (1, 6, 7, None):
         incompatible = state.model_dump(mode="python")
@@ -152,5 +152,5 @@ def test_checkpoint_only_accepts_current_schema():
         with pytest.raises(Exception) as caught:
             parse_run_state(incompatible)
         assert caught.value.code == "unsupported_run_state_schema"
-        assert caught.value.expected_version == 9
+        assert caught.value.expected_version == 10
         assert caught.value.actual_version == version

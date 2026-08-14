@@ -32,11 +32,11 @@ def _artifact() -> OutputArtifactV1:
 
 
 def test_m33_versions_and_public_exports_are_current() -> None:
-    assert contracts.AGENT_SERVICE_CONTRACT_VERSION == 4
-    assert service.AGENT_SERVICE_CONTRACT_VERSION == 4
+    assert contracts.AGENT_SERVICE_CONTRACT_VERSION == 5
+    assert service.AGENT_SERVICE_CONTRACT_VERSION == 5
     assert contracts.SESSION_CONTRACT_VERSION == 5
     assert SESSION_SCHEMA_VERSION == 5
-    assert RunState.model_fields["schema_version"].default == 9
+    assert RunState.model_fields["schema_version"].default == 10
     assert contracts.OUTPUT_CONTRACT_VERSION == 1
     assert service.OutputArtifactV1 is contracts.OutputArtifactV1
 

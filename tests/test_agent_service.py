@@ -19,7 +19,7 @@ from assistant_agent.interaction import (
 )
 from assistant_agent.persistence.run_store import RunStore
 from assistant_agent.persistence.store import SessionStore
-from assistant_agent.providers.ports import StreamEvent, ToolCall
+from assistant_agent.providers.ports import ProviderFailure, StreamEvent, ToolCall
 from assistant_agent.service import (
     AgentService,
     ArtifactNotFoundError,
@@ -54,6 +54,66 @@ class _RetryBaselineClient:
             raise RuntimeError("provider failed")
         text = "seed-answer" if len(self.messages) == 1 else "retry-answer"
         yield StreamEvent(kind="content", text=text)
+
+
+class _NativeOutputClient:
+    instances: list[_NativeOutputClient] = []
+
+    def __init__(self, _provider) -> None:
+        self.calls = 0
+        self.tools: list[list[dict]] = []
+        self.__class__.instances.append(self)
+
+    def complete_stream(self, messages, tools=None) -> Iterator[StreamEvent]:
+        self.tools.append(list(tools or []))
+        self.calls += 1
+        if self.calls == 1:
+            yield StreamEvent(
+                kind="tool_calls",
+                tool_calls=[
+                    ToolCall(
+                        id="create-html-1",
+                        name="create_output",
+                        arguments={
+                            "filename": "admin.html",
+                            "media_type": "text/html",
+                            "title": "Admin",
+                        },
+                    )
+                ],
+            )
+        elif self.calls == 2:
+            yield StreamEvent(kind="content", text="<html><body>")
+            yield StreamEvent(kind="content", text="后台</body></html>")
+        else:
+            yield StreamEvent(kind="content", text="后台页面文件已生成。")
+
+
+class _OutputThenProviderFailureClient(_NativeOutputClient):
+    def complete_stream(self, messages, tools=None) -> Iterator[StreamEvent]:
+        self.tools.append(list(tools or []))
+        self.calls += 1
+        if self.calls == 1:
+            yield StreamEvent(
+                kind="tool_calls",
+                tool_calls=[
+                    ToolCall(
+                        id="create-failed-1",
+                        name="create_output",
+                        arguments={"filename": "partial.html", "media_type": "text/html"},
+                    )
+                ],
+            )
+            return
+        yield StreamEvent(kind="content", text="<html>partial")
+        yield StreamEvent(
+            kind="error",
+            failure=ProviderFailure(
+                code="provider_unavailable",
+                safe_message="模型服务暂不可用。",
+                retryable=True,
+            ),
+        )
 
 
 def _config(tmp_path, monkeypatch):
@@ -98,6 +158,65 @@ def test_public_facade_runs_and_syncs_terminal_session(tmp_path, monkeypatch):
         assert snapshot.final_candidate == "done"
         assert snapshot.execution_status == "inactive"
         assert snapshot.budget.iterations_limit > 0
+    finally:
+        session_runtime.close()
+
+
+def test_native_artifact_writer_captures_stream_without_assistant_delta(tmp_path, monkeypatch):
+    config_path = _config(tmp_path, monkeypatch)
+    config_path.write_text(
+        "active: fake\nproviders:\n  fake:\n    model: openai/fake\n"
+        "agent:\n  max_context_tokens: 32000\n  reserved_output_tokens: 4096\n",
+        encoding="utf-8",
+    )
+    _NativeOutputClient.instances.clear()
+    monkeypatch.setattr(runtime_module, "LLMClient", _NativeOutputClient)
+    service = AgentService(config_path=config_path, workspace_root=tmp_path)
+    session_runtime = service.create_session(interaction=SafeDefaultInteractionPort())
+    try:
+        execution = session_runtime.start_run("创建后台页面")
+        events = list(execution.events)
+        created = [event for event in events if event.output is not None]
+        assert len(created) == 1
+        assert created[0].kind == "tool_result"
+        assert created[0].tool_name == "create_output"
+        assert created[0].call_id == "create-html-1"
+        assert created[0].result_code == "output_created"
+        artifact = created[0].output
+        assert artifact is not None
+        assert artifact.call_id == "create-html-1"
+        assert not any(event.kind == "content_delta" and "<html>" in event.text for event in events)
+        assert events[-1].terminal_status == "completed"
+        assert _NativeOutputClient.instances[-1].tools[1] == []
+        payload = session_runtime.get_output_payload(artifact.output_id)
+        assert payload.content == "<html><body>后台</body></html>"
+        snapshot = session_runtime.run_snapshot(execution.run_id)
+        assert snapshot.outputs == (artifact,)
+        assert session_runtime.snapshot().outputs == (artifact,)
+    finally:
+        session_runtime.close()
+
+
+def test_native_artifact_writer_provider_failure_publishes_no_partial_file(tmp_path, monkeypatch):
+    config_path = _config(tmp_path, monkeypatch)
+    config_path.write_text(
+        "active: fake\nproviders:\n  fake:\n    model: openai/fake\n"
+        "agent:\n  max_context_tokens: 32000\n  reserved_output_tokens: 4096\n",
+        encoding="utf-8",
+    )
+    _OutputThenProviderFailureClient.instances.clear()
+    monkeypatch.setattr(runtime_module, "LLMClient", _OutputThenProviderFailureClient)
+    service = AgentService(config_path=config_path, workspace_root=tmp_path)
+    session_runtime = service.create_session(interaction=SafeDefaultInteractionPort())
+    try:
+        execution = session_runtime.start_run("创建会失败的页面")
+        events = list(execution.events)
+        assert events[-1].terminal_status == "failed"
+        assert not any(event.output is not None for event in events)
+        assert session_runtime.run_snapshot(execution.run_id).outputs == ()
+        assert session_runtime.runtime.output_store.list(session_runtime.session.id) == []
+        draft_root = session_runtime.runtime.output_store.root / ".drafts"
+        assert not list(draft_root.glob("**/chunk-*.txt"))
     finally:
         session_runtime.close()
 

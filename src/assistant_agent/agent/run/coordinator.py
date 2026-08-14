@@ -29,6 +29,7 @@ from assistant_agent.agent.run.ports import (
 from assistant_agent.agent.run.recovery import DefinitionStateMixin
 from assistant_agent.agent.run.state import (
     ContinuationBudgetState,
+    PendingOutputCaptureState,
     PermissionGrantState,
     RunState,
     ToolBudgetState,
@@ -44,6 +45,7 @@ from assistant_agent.contracts.charts import (
     MAX_RUN_ARTIFACTS,
 )
 from assistant_agent.contracts.failures import RunFailure
+from assistant_agent.contracts.outputs import OutputArtifactV1
 from assistant_agent.providers.ports import ToolCall
 from assistant_agent.tools.context import ToolContext
 from assistant_agent.tools.lifecycle import ReplayPolicy
@@ -238,7 +240,9 @@ class RunCoordinator(ContinuationStateMixin, DefinitionStateMixin):
     def before_model(self, **runtime: Any) -> None:
         self.sync_runtime(**runtime)
         self.state.status = "running"
-        self.state.phase = "model_pending"
+        self.state.phase = (
+            "artifact_capture" if self.state.pending_output_capture is not None else "model_pending"
+        )
         self.state.tool_calls = []
         self._capture_bound_context()
         self.checkpoint()
@@ -335,6 +339,25 @@ class RunCoordinator(ContinuationStateMixin, DefinitionStateMixin):
             self._record_presentation(result)
         if result.output_artifact is not None:
             self._record_output(result)
+        if result.output_capture is not None:
+            intent = result.output_capture
+            if (
+                self.state.pending_output_capture is not None
+                or intent.session_id != self.state.session_id
+                or intent.run_id != self.run_id
+                or intent.call_id != call_id
+            ):
+                self._reject_output(result, "输出捕获意图无效。", "output_invalid")
+            else:
+                self.state.pending_output_capture = PendingOutputCaptureState(
+                    draft_id=intent.draft_id,
+                    call_id=intent.call_id,
+                    filename=intent.filename,
+                    media_type=intent.media_type,
+                    disposition=intent.disposition,
+                    title=intent.title,
+                    max_chunk_bytes=intent.max_chunk_bytes,
+                )
         if result.executed and replay_policy == "requires_decision":
             self.state.retry_safety = "unsafe"
         call.status = (
@@ -404,6 +427,7 @@ class RunCoordinator(ContinuationStateMixin, DefinitionStateMixin):
         result.retryable = False
         result.executed = False
         result.output_artifact = None
+        result.output_capture = None
 
     @staticmethod
     def _reject_chart(result: ToolResult, message: str) -> None:
@@ -421,6 +445,23 @@ class RunCoordinator(ContinuationStateMixin, DefinitionStateMixin):
             raise ValueError("工具批次尚未全部结束")
         self.state.messages = messages
         self.state.tool_calls = []
+        self.state.phase = (
+            "artifact_capture" if self.state.pending_output_capture is not None else "model_pending"
+        )
+        self.checkpoint()
+
+    def output_capture_completed(
+        self, artifact: OutputArtifactV1, *, messages: list[dict[str, Any]]
+    ) -> None:
+        pending = self.state.pending_output_capture
+        if pending is None or artifact.call_id != pending.call_id:
+            raise ValueError("输出捕获完成事实与 pending intent 不匹配")
+        result = ToolResult.ok("输出文件已创建。", code="output_created", output_artifact=artifact)
+        self._record_output(result)
+        if result.output_artifact is None:
+            raise ValueError("输出捕获完成事实未通过归属校验")
+        self.state.messages = messages
+        self.state.pending_output_capture = None
         self.state.phase = "model_pending"
         self.checkpoint()
 
@@ -434,6 +475,7 @@ class RunCoordinator(ContinuationStateMixin, DefinitionStateMixin):
         failure: RunFailure | None = None,
     ) -> None:
         self.state.messages = messages
+        self.state.pending_output_capture = None
         self.state.compaction_checkpoint = compaction_checkpoint
         self.state.tool_calls = []
         self.state.status = "completed" if success else "failed"
@@ -484,6 +526,7 @@ class RunCoordinator(ContinuationStateMixin, DefinitionStateMixin):
     ) -> None:
         """把强制取消保存为不可恢复 terminal Run。"""
         self.state.messages = messages
+        self.state.pending_output_capture = None
         self.state.compaction_checkpoint = compaction_checkpoint
         self.state.tool_calls = []
         self.state.status = "cancelled"
@@ -500,7 +543,8 @@ class RunCoordinator(ContinuationStateMixin, DefinitionStateMixin):
         text: str,
         *,
         messages: list[dict[str, Any]] | None = None,
-        phase: Literal["model_pending", "tools_pending", "tool_uncertain"] | None = None,
+        phase: Literal["model_pending", "artifact_capture", "tools_pending", "tool_uncertain"]
+        | None = None,
     ) -> None:
         if messages is not None:
             self.state.messages = messages

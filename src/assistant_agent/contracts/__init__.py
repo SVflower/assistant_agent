@@ -138,7 +138,7 @@ from assistant_agent.contracts.sessions import (
     UpdateSessionMetadataRequest,
 )
 
-AGENT_SERVICE_CONTRACT_VERSION = 4
+AGENT_SERVICE_CONTRACT_VERSION = 5
 
 __all__ = [
     "ATTACHMENT_CONTRACT_VERSION",

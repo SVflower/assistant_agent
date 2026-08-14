@@ -6,6 +6,7 @@ import json
 from collections.abc import Callable, Iterator
 from typing import Any
 
+from assistant_agent.agent.artifact_capture import ArtifactCaptureWriter
 from assistant_agent.agent.context.compaction import Compactor
 from assistant_agent.agent.context.conversation import Conversation, estimate_tools_tokens
 from assistant_agent.agent.context.window import ContextWindowError
@@ -20,7 +21,7 @@ from assistant_agent.agent.run.coordinator import RecoveryChoice, RunCoordinator
 from assistant_agent.agent.run.failures import budget_failure
 from assistant_agent.agent.run.ports import ControlState, RunControlPort
 from assistant_agent.agent.run.resume import resume_loop, sync_loop_state
-from assistant_agent.agent.run.state import ToolCallState
+from assistant_agent.agent.run.state import PendingOutputCaptureState, ToolCallState
 from assistant_agent.agent.tool_batch import LoopCursor, execute_tool_batch
 from assistant_agent.agent.turn import stream_model_turn
 from assistant_agent.config.schema import AppConfig
@@ -30,6 +31,7 @@ from assistant_agent.contracts.failures import (
     BudgetResource,
     RunFailure,
 )
+from assistant_agent.contracts.outputs import OutputError, OutputInvalidError
 from assistant_agent.providers.ports import ModelProviderPort
 from assistant_agent.tools.context import ToolContext
 from assistant_agent.tools.models import ToolBudget
@@ -210,7 +212,9 @@ class AgentLoop:
         """从 RunState 游标继续；不重新追加原始 task。"""
         yield from resume_loop(self, coordinator, recovery_check)
 
-    def _drive(self, cursor: LoopCursor, coordinator: RunCoordinator | None) -> Iterator[StepEvent]:
+    def _drive(  # noqa: C901 - 单一循环保持模型/工具/捕获终态顺序可审计
+        self, cursor: LoopCursor, coordinator: RunCoordinator | None
+    ) -> Iterator[StepEvent]:
         budget = self._tool_ctx.budget
         if budget is None:
             raise RuntimeError("AgentLoop 缺少任务级 ToolBudget")
@@ -280,23 +284,50 @@ class AgentLoop:
                     budget=budget,
                 )
 
+            pending_output = (
+                coordinator.state.pending_output_capture if coordinator is not None else None
+            )
+            capture_writer: ArtifactCaptureWriter | None = None
+            if pending_output is not None:
+                assert coordinator is not None
+                try:
+                    capture_writer = self._prepare_artifact_writer(coordinator, pending_output)
+                except (OutputError, RuntimeError):
+                    failure = self._output_capture_failure("输出草稿无法恢复。")
+                    self._terminal(coordinator, False, failure.safe_message, failure=failure)
+                    yield StepEvent(
+                        kind="error", text=failure.safe_message, is_error=True, failure=failure
+                    )
+                    return
+
             yield StepEvent(
                 kind="activity",
                 phase="calling_model",
                 budget=budget_snapshot(cursor, budget),
             )
-            turn = yield from stream_model_turn(
-                self._client,
-                messages=request_messages,
-                tools=self._tool_schemas,
-                control_state=self._control_state,
-            )
+            try:
+                turn = yield from stream_model_turn(
+                    self._client,
+                    messages=request_messages,
+                    tools=[] if pending_output is not None else self._tool_schemas,
+                    control_state=self._control_state,
+                    content_sink=capture_writer.write if capture_writer is not None else None,
+                    emit_content=pending_output is None,
+                    collect_content=pending_output is None,
+                )
+            except OutputError:
+                failure = self._output_capture_failure("文件正文无效或超过输出限制。")
+                self._terminal(coordinator, False, failure.safe_message, failure=failure)
+                yield StepEvent(
+                    kind="error", text=failure.safe_message, is_error=True, failure=failure
+                )
+                return
             content = turn.content
             tool_calls = turn.tool_calls
             stream_failure = turn.failure
             interrupted = turn.control_state
             if interrupted is not ControlState.RUNNING or stream_failure is not None:
-                if content:
+                if content and pending_output is None:
                     self._conversation.add_assistant(content)
                 if interrupted is not ControlState.RUNNING:
                     text = "已中断（用户请求停止）"
@@ -307,7 +338,11 @@ class AgentLoop:
                         coordinator.pause(
                             text,
                             messages=self.export_history(),
-                            phase="model_pending",
+                            phase=(
+                                "artifact_capture"
+                                if pending_output is not None
+                                else "model_pending"
+                            ),
                         )
                     yield StepEvent(kind="interrupted", text=text)
                 else:
@@ -322,6 +357,22 @@ class AgentLoop:
                     )
                 return
 
+            if pending_output is not None:
+                assert capture_writer is not None and coordinator is not None
+                try:
+                    event = self._finalize_artifact_capture(
+                        coordinator, pending_output, capture_writer, tool_calls
+                    )
+                except OutputError:
+                    failure = self._output_capture_failure("文件正文无效或超过输出限制。")
+                    self._terminal(coordinator, False, failure.safe_message, failure=failure)
+                    yield StepEvent(
+                        kind="error", text=failure.safe_message, is_error=True, failure=failure
+                    )
+                    return
+                yield event
+                continue
+
             if not tool_calls:
                 final = content or "（模型未返回内容）"
                 self._conversation.add_assistant(final)
@@ -331,6 +382,20 @@ class AgentLoop:
 
             if coordinator is not None:
                 tool_calls = coordinator.normalize_tool_calls(tool_calls)
+            if any(call.name == "create_output" for call in tool_calls) and coordinator is None:
+                failure = self._output_capture_failure("当前运行入口不支持受管输出捕获。")
+                self._terminal(coordinator, False, failure.safe_message, failure=failure)
+                yield StepEvent(
+                    kind="error", text=failure.safe_message, is_error=True, failure=failure
+                )
+                return
+            if any(call.name == "create_output" for call in tool_calls) and len(tool_calls) != 1:
+                failure = self._output_capture_failure("create_output 必须作为单独的工具调用执行。")
+                self._terminal(coordinator, False, failure.safe_message, failure=failure)
+                yield StepEvent(
+                    kind="error", text=failure.safe_message, is_error=True, failure=failure
+                )
+                return
             repeats = cursor.record_signature(tool_calls)
             if coordinator is not None:
                 sync_loop_state(self, coordinator, cursor, budget)
@@ -401,6 +466,58 @@ class AgentLoop:
                         outcome.exhausted_reason, outcome.skipped_calls, coordinator
                     )
                     return
+
+    @staticmethod
+    def _output_capture_failure(message: str) -> RunFailure:
+        return RunFailure(
+            code="tool_failed",
+            safe_message=message,
+            retryable=True,
+            allowed_actions=("retry_run", "stop"),
+            phase="executing_tool",
+            terminal_status="failed",
+        )
+
+    def _prepare_artifact_writer(
+        self, coordinator: RunCoordinator, pending: PendingOutputCaptureState
+    ) -> ArtifactCaptureWriter:
+        output_store = self._tool_ctx.output_store
+        session_id = self._tool_ctx.current_session_id
+        if output_store is None or session_id is None:
+            raise RuntimeError("输出存储未绑定")
+        writer = ArtifactCaptureWriter(
+            output_store,
+            session_id=session_id,
+            run_id=coordinator.run_id,
+            pending=pending,
+        )
+        writer.start()
+        return writer
+
+    def _finalize_artifact_capture(
+        self,
+        coordinator: RunCoordinator,
+        pending: PendingOutputCaptureState,
+        writer: ArtifactCaptureWriter,
+        tool_calls: list[Any],
+    ) -> StepEvent:
+        if tool_calls:
+            raise OutputInvalidError("输出捕获轮禁止工具调用")
+        artifact = writer.finalize()
+        self._conversation.replace_tool_result(
+            pending.call_id,
+            "create_output",
+            f"已创建输出文件：{artifact.filename}（{artifact.size_bytes} bytes）",
+        )
+        coordinator.output_capture_completed(artifact, messages=self.export_history())
+        return StepEvent(
+            kind="tool_result",
+            tool_name="create_output",
+            text=f"已创建输出文件：{artifact.filename}（{artifact.size_bytes} bytes）",
+            call_id=pending.call_id,
+            result_code="output_created",
+            output=artifact,
+        )
 
     def _finish_budget_exhausted(
         self,

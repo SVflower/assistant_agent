@@ -23,6 +23,7 @@ from assistant_agent.contracts.time import utc_now_rfc3339
 RunStatus = Literal["running", "paused", "cancelled", "completed", "failed"]
 RunPhase = Literal[
     "model_pending",
+    "artifact_capture",
     "tools_pending",
     "awaiting_approval",
     "tool_uncertain",
@@ -40,7 +41,7 @@ ReplayPolicy = Literal["safe_readonly", "safe_idempotent", "requires_decision"]
 RetrySafety = Literal["safe", "unsafe", "uncertain", "unknown"]
 
 _RESOLVED_TOOL_STATUSES = {"completed", "failed", "skipped"}
-_SCHEMA_VERSION: Literal[9] = 9
+_SCHEMA_VERSION: Literal[10] = 10
 
 
 def now_iso() -> str:
@@ -124,6 +125,18 @@ class ToolResultState(StrictStateModel):
     output_artifact: OutputArtifactV1 | None = None
 
 
+class PendingOutputCaptureState(StrictStateModel):
+    """模型不可见、可恢复的原生 ArtifactWriter 捕获游标。"""
+
+    draft_id: str = Field(pattern=r"^draft_[a-f0-9]{32}$")
+    call_id: str = Field(min_length=1)
+    filename: str = Field(min_length=1, max_length=180)
+    media_type: str = Field(min_length=1, max_length=100)
+    disposition: Literal["inline", "download"]
+    title: str | None = Field(default=None, max_length=200)
+    max_chunk_bytes: int = Field(gt=0)
+
+
 class PermissionRequestState(StrictStateModel):
     tool: str
     capability: str
@@ -162,7 +175,7 @@ class RunState(StrictStateModel):
     成功写入 Session 后才能置真。三者用途不同，不能为了减少字段而互相重建。
     """
 
-    schema_version: Literal[9] = _SCHEMA_VERSION
+    schema_version: Literal[10] = _SCHEMA_VERSION
     run_id: str = Field(min_length=1)
     session_id: str | None = None
     task: str
@@ -202,6 +215,7 @@ class RunState(StrictStateModel):
     tool_calls: list[ToolCallState] = Field(default_factory=list)
     presentations: list[ChartArtifactV2] = Field(default_factory=list, max_length=16)
     outputs: list[OutputArtifactV1] = Field(default_factory=list, max_length=200)
+    pending_output_capture: PendingOutputCaptureState | None = None
     permission_grants: list[PermissionGrantState] = Field(default_factory=list)
     terminal_text: str = ""
     failure: RunFailure | None = None
@@ -224,6 +238,15 @@ class RunState(StrictStateModel):
             call.status not in _RESOLVED_TOOL_STATUSES for call in self.tool_calls
         ):
             raise ValueError("terminal Run 不能保留未结束工具调用")
+        if is_terminal and self.pending_output_capture is not None:
+            raise ValueError("terminal Run 不能保留输出捕获")
+        if self.phase == "artifact_capture" and self.pending_output_capture is None:
+            raise ValueError("artifact_capture phase 缺少 pending output")
+        if self.pending_output_capture is not None and self.phase not in {
+            "tools_pending",
+            "artifact_capture",
+        }:
+            raise ValueError("pending output 所处 phase 无效")
         if self.status == "failed" and (
             self.failure is None or self.failure.terminal_status != "failed"
         ):

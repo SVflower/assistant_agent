@@ -3,10 +3,25 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Literal
 
 from assistant_agent.contracts.charts import ChartArtifactV2
 from assistant_agent.contracts.outputs import OutputArtifactV1
+
+
+@dataclass(frozen=True)
+class OutputCaptureIntent:
+    """Runtime 私有输出捕获意图；不得进入模型消息或公共事件。"""
+
+    draft_id: str
+    session_id: str
+    run_id: str
+    call_id: str
+    filename: str
+    media_type: str
+    disposition: Literal["inline", "download"]
+    title: str | None
+    max_chunk_bytes: int
 
 
 @dataclass
@@ -73,6 +88,7 @@ class ToolResult:
     executed: bool = True
     chart: ChartArtifactV2 | None = None
     output_artifact: OutputArtifactV1 | None = None
+    output_capture: OutputCaptureIntent | None = None
 
     def __post_init__(self) -> None:
         if not self.code:
@@ -91,6 +107,7 @@ class ToolResult:
         artifacts: list[ArtifactRef] | None = None,
         chart: ChartArtifactV2 | None = None,
         output_artifact: OutputArtifactV1 | None = None,
+        output_capture: OutputCaptureIntent | None = None,
     ) -> ToolResult:
         return cls(
             output=output,
@@ -100,6 +117,7 @@ class ToolResult:
             artifacts=artifacts or [],
             chart=chart,
             output_artifact=output_artifact,
+            output_capture=output_capture,
         )
 
     @classmethod

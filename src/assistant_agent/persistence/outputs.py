@@ -267,6 +267,14 @@ class OutputStore:
         )
         return artifact
 
+    def reset_text_draft(self, *, session_id: str, run_id: str, draft_id: str) -> None:
+        """丢弃未发布分块，供暂停、崩溃后的捕获轮从头安全重放。"""
+        _metadata, directory = self._load_draft(session_id, run_id, draft_id)
+        if (directory / "finalized.json").exists():
+            raise OutputConflictError("输出草稿已经完成")
+        for path in self._draft_chunks(directory):
+            path.unlink(missing_ok=True)
+
     def discard_run_drafts(self, session_id: str, run_id: str) -> None:
         self._validate_identity(session_id, run_id)
         directory = self.root / ".drafts" / session_id / run_id

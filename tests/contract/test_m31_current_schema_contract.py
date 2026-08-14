@@ -34,8 +34,8 @@ def _chart_draft() -> dict:
 
 
 def test_breaking_service_contract_version_and_public_exports():
-    assert contracts.AGENT_SERVICE_CONTRACT_VERSION == 4
-    assert service.AGENT_SERVICE_CONTRACT_VERSION == 4
+    assert contracts.AGENT_SERVICE_CONTRACT_VERSION == 5
+    assert service.AGENT_SERVICE_CONTRACT_VERSION == 5
     assert contracts.OUTPUT_CONTRACT_VERSION == 1
     assert not hasattr(contracts, "ChartSpecV1")
     assert not hasattr(service, "ChartArtifact")
@@ -44,12 +44,12 @@ def test_breaking_service_contract_version_and_public_exports():
     assert service.UnsupportedChartSchemaError.code == "unsupported_chart_schema"
 
 
-def test_run_store_rejects_v1_through_v6_without_writing(tmp_path):
+def test_run_store_rejects_all_legacy_versions_without_writing(tmp_path):
     store = RunStore(tmp_path / "runs")
-    for version in range(1, 8):
+    for version in range(1, 10):
         with pytest.raises(UnsupportedRunStateSchemaError) as caught:
             store.save("run-old", {"schema_version": version, "run_id": "run-old"})
-        assert caught.value.expected_version == 9
+        assert caught.value.expected_version == 10
         assert caught.value.actual_version == version
     assert not (tmp_path / "runs" / "run-old.json").exists()
 

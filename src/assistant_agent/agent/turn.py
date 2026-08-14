@@ -27,6 +27,9 @@ def stream_model_turn(
     messages: list[dict[str, Any]],
     tools: list[dict[str, Any]],
     control_state: Callable[[], ControlState],
+    content_sink: Callable[[str], None] | None = None,
+    emit_content: bool = True,
+    collect_content: bool = True,
 ) -> Generator[StepEvent, None, ModelTurnResult]:
     """保持 provider 流事件顺序，并返回完整单轮事实。"""
     content_parts: list[str] = []
@@ -38,8 +41,12 @@ def stream_model_turn(
         if event.kind == "reasoning":
             yield StepEvent(kind="reasoning", text=event.text)
         elif event.kind == "content":
-            content_parts.append(event.text)
-            yield StepEvent(kind="content_delta", text=event.text)
+            if content_sink is not None:
+                content_sink(event.text)
+            if collect_content:
+                content_parts.append(event.text)
+            if emit_content:
+                yield StepEvent(kind="content_delta", text=event.text)
         elif event.kind == "tool_calls":
             tool_calls = event.tool_calls
         elif event.kind == "usage":

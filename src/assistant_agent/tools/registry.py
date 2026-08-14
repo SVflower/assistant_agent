@@ -30,12 +30,11 @@ from assistant_agent.tools.tool import Tool
 from assistant_agent.tools.validation import build_validator, validate_arguments
 
 _TRUNCATION_SUFFIX = "\n…（输出已截断，可缩小范围重试）"
-_OUTPUT_DRAFT_TOOLS = frozenset({"manage_output"})
-_MANAGED_OUTPUT_TOOLS = _OUTPUT_DRAFT_TOOLS | {"create_output"}
+_MANAGED_OUTPUT_TOOLS = frozenset({"create_output"})
 
 
 def _argument_failure_key(name: str) -> str:
-    return "managed_output_draft" if name in _OUTPUT_DRAFT_TOOLS else name
+    return name
 
 
 def _truncate_output(output: str, limit: int) -> str:
@@ -273,11 +272,7 @@ class ToolRegistry:
             return _notify_completed(lifecycle, call_id, limited, [], "requires_decision")
         failure_key = _argument_failure_key(name)
         if failure_key in ctx.blocked_argument_tools:
-            fallback = (
-                "请改用 manage_output 的 begin/append/finalize 动作。"
-                if name == "create_output"
-                else "请停止生成该文件，改为简短文字说明失败原因。"
-            )
+            fallback = "请停止重复调用，改为简短文字说明失败原因。"
             result = ToolResult.error(
                 f"[tool_arguments_exhausted] {name} 连续参数错误，"
                 f"当前 Run 已熔断该工具。{fallback}",
@@ -295,11 +290,7 @@ class ToolRegistry:
             if should_circuit:
                 metadata = {**metadata, "failure_count": failures, "failure_limit": 2}
             if should_circuit and failures >= 2:
-                fallback = (
-                    "请改用 manage_output 的 begin/append/finalize 动作。"
-                    if name == "create_output"
-                    else "请停止重试该工具并给出简短文字结果。"
-                )
+                fallback = "请停止重试该工具并给出简短文字结果。"
                 result = ToolResult.error(
                     f"[tool_arguments_exhausted] 连续参数校验失败，已熔断 {name}。{fallback}",
                     code="tool_arguments_exhausted",

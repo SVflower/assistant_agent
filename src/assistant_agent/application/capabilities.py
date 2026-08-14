@@ -75,7 +75,6 @@ class RuntimePolicy:
                 "load_skill",
                 "present_chart",
                 "create_output",
-                "manage_output",
                 "web_search",
             }
         )

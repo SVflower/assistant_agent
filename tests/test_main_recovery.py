@@ -102,7 +102,7 @@ def test_sessions_delete_uses_service_lifecycle_and_force_cascade(tmp_path, monk
     session = sessions.new_session(provider="p", model="openai/fake")
     sessions.save(session, [{"role": "user", "content": "active"}], must_exist=False)
     document = {
-        "schema_version": 9,
+        "schema_version": 10,
         "run_id": "run-active",
         "session_id": session.id,
         "task": "active",

@@ -127,6 +127,18 @@ class Conversation:
             }
         )
 
+    def replace_tool_result(self, tool_call_id: str, name: str, content: str) -> None:
+        """以最终框架事实替换捕获占位结果，不增加第二条对话消息。"""
+        for message in reversed(self._messages):
+            if (
+                message.get("role") == "tool"
+                and message.get("tool_call_id") == tool_call_id
+                and message.get("name") == name
+            ):
+                message["content"] = content
+                return
+        raise ValueError("待替换的工具结果不存在")
+
     def messages(self) -> list[dict[str, Any]]:
         """返回发给模型的消息列表。
 

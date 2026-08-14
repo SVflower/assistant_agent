@@ -5,6 +5,8 @@ from pathlib import Path
 
 import pytest
 
+from assistant_agent.agent.artifact_capture import ArtifactCaptureWriter
+from assistant_agent.agent.run.state import PendingOutputCaptureState
 from assistant_agent.application.sessions import AgentService
 from assistant_agent.config.schema import OutputConfig
 from assistant_agent.contracts.attachments import MessageContentV1, TextPartV1
@@ -19,10 +21,7 @@ from assistant_agent.contracts.sessions import PublicMessageSnapshot
 from assistant_agent.persistence.outputs import OutputStore
 from assistant_agent.persistence.run_store import RunStore
 from assistant_agent.persistence.store import SessionStore
-from assistant_agent.tools.outputs import (
-    CreateOutputTool,
-    ManageOutputTool,
-)
+from assistant_agent.tools.outputs import CreateOutputTool
 
 
 def _store(tmp_path: Path, **updates: object) -> OutputStore:
@@ -97,12 +96,14 @@ class _Context:
 def test_create_output_tool_is_safe_idempotent(tmp_path: Path) -> None:
     tool = CreateOutputTool()
     ctx = _Context(_store(tmp_path))
-    args = {"filename": "data.csv", "media_type": "text/csv", "content": "x,y\n1,2"}
+    args = {"filename": "data.csv", "media_type": "text/csv"}
     assert tool.replay_policy(args, ctx, []) == "safe_idempotent"  # type: ignore[arg-type]
     result = tool.run(args, ctx)  # type: ignore[arg-type]
-    assert result.code == "output_created"
-    assert result.output_artifact is not None
-    assert result.output_artifact.message_id is not None
+    assert result.code == "output_capture_started"
+    assert result.output_artifact is None
+    assert result.output_capture is not None
+    assert result.output_capture.filename == "data.csv"
+    assert "content" not in tool.parameters["properties"]
 
 
 def test_chunked_output_round_trip_is_ordered_idempotent_and_atomic(tmp_path: Path) -> None:
@@ -181,33 +182,49 @@ def test_chunked_output_enforces_utf8_byte_limit_order_and_run_ownership(tmp_pat
         )
 
 
-def test_chunked_output_tools_publish_only_on_finalize(tmp_path: Path) -> None:
-    ctx = _Context(_store(tmp_path))
-    tool = ManageOutputTool()
-    started = tool.run(
-        {"action": "begin", "filename": "admin.html", "media_type": "text/html"},
-        ctx,  # type: ignore[arg-type]
+def test_artifact_writer_streams_utf8_and_publishes_only_on_finalize(tmp_path: Path) -> None:
+    store = _store(tmp_path)
+    draft_id = store.begin_text_draft(
+        session_id="session-1",
+        run_id="run-1",
+        call_id="call-1",
+        filename="admin.html",
+        media_type="text/html",
     )
-    draft_id = str(started.metadata["draft_id"])
-    ctx.current_call_id = "append-1"
-    appended = tool.run(
-        {
-            "action": "append",
-            "draft_id": draft_id,
-            "chunk_index": 0,
-            "content": "<h1>ok</h1>",
-        },
-        ctx,  # type: ignore[arg-type]
+    writer = ArtifactCaptureWriter(
+        store,
+        session_id="session-1",
+        run_id="run-1",
+        pending=PendingOutputCaptureState(
+            draft_id=draft_id,
+            call_id="call-1",
+            filename="admin.html",
+            media_type="text/html",
+            disposition="download",
+            max_chunk_bytes=8,
+        ),
     )
-    assert appended.code == "output_chunk_appended"
-    assert ctx.output_store.list("session-1") == []
-    ctx.current_call_id = "finalize-1"
-    finalized = tool.run(
-        {"action": "finalize", "draft_id": draft_id},
-        ctx,  # type: ignore[arg-type]
+    writer.start()
+    writer.write("<h1>你好")
+    writer.write("</h1>")
+    assert store.list("session-1") == []
+    resumed = ArtifactCaptureWriter(
+        store,
+        session_id="session-1",
+        run_id="run-1",
+        pending=PendingOutputCaptureState(
+            draft_id=draft_id,
+            call_id="call-1",
+            filename="admin.html",
+            media_type="text/html",
+            disposition="download",
+            max_chunk_bytes=8,
+        ),
     )
-    assert finalized.code == "output_created"
-    assert finalized.output_artifact is not None
+    resumed.start()
+    resumed.write("<h1>恢复成功</h1>")
+    artifact = resumed.finalize()
+    assert store.get_payload("session-1", artifact.output_id).content == "<h1>恢复成功</h1>"
 
 
 def test_discard_run_drafts_is_isolated(tmp_path: Path) -> None:

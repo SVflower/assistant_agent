@@ -482,12 +482,8 @@ def test_registry_circuit_breaks_repeated_argument_errors_per_tool():
     registry = ToolRegistry()
     registry.register(CreateOutputTool())
     ctx = _ctx()
-    first = registry.execute(
-        "create_output", {"filename": "x.html", "media_type": "text/html"}, ctx
-    )
-    second = registry.execute(
-        "create_output", {"filename": "x.html", "media_type": "text/html"}, ctx
-    )
+    first = registry.execute("create_output", {"filename": "x.html"}, ctx)
+    second = registry.execute("create_output", {"filename": "x.html"}, ctx)
     third = registry.execute(
         "create_output",
         {"filename": "x.html", "media_type": "text/html", "content": "ok"},
@@ -496,4 +492,4 @@ def test_registry_circuit_breaks_repeated_argument_errors_per_tool():
     assert first.code == "invalid_arguments" and first.retryable is True
     assert second.code == "tool_arguments_exhausted" and second.retryable is False
     assert third.code == "tool_arguments_exhausted" and third.executed is False
-    assert "manage_output" in third.output
+    assert "停止重复调用" in third.output

@@ -44,6 +44,23 @@ class _FakeClient:
         yield StreamEvent(kind="content", text="done")
 
 
+class _UsageClient:
+    def __init__(self, _provider, *_args) -> None:
+        pass
+
+    def complete_stream(self, messages, tools=None) -> Iterator[StreamEvent]:
+        yield StreamEvent(kind="content", text="observed")
+        yield StreamEvent(
+            kind="usage",
+            usage={
+                "prompt_tokens": 120,
+                "completion_tokens": 8,
+                "model_duration_ms": 500,
+                "first_token_latency_ms": 100,
+            },
+        )
+
+
 class _RetryBaselineClient:
     def __init__(self, _provider) -> None:
         self.messages: list[list[dict]] = []
@@ -158,6 +175,39 @@ def test_public_facade_runs_and_syncs_terminal_session(tmp_path, monkeypatch):
         assert snapshot.final_candidate == "done"
         assert snapshot.execution_status == "inactive"
         assert snapshot.budget.iterations_limit > 0
+    finally:
+        session_runtime.close()
+
+
+def test_run_observability_is_authoritative_in_events_snapshot_and_checkpoint(
+    tmp_path, monkeypatch
+):
+    config = _config(tmp_path, monkeypatch)
+    monkeypatch.setattr(runtime_module, "LLMClient", _UsageClient)
+    service = AgentService(config_path=config, workspace_root=tmp_path)
+    session_runtime = service.create_session(interaction=SafeDefaultInteractionPort())
+    try:
+        execution = session_runtime.start_run("observe")
+        events = list(execution.events)
+        terminal = events[-1]
+        snapshot = session_runtime.run_snapshot(execution.run_id)
+        checkpoint = session_runtime.runtime.run_store.load(execution.run_id).document
+
+        assert terminal.kind == "run_terminal"
+        assert terminal.observability is not None
+        assert snapshot.observability == terminal.observability
+        assert snapshot.observability is not None
+        assert snapshot.observability.model_usage.input_tokens == 120
+        assert snapshot.observability.model_usage.output_tokens == 8
+        assert snapshot.observability.model_usage.cache_read_tokens is None
+        assert snapshot.observability.context.source == "provider"
+        assert snapshot.observability.task_plan is None
+        assert checkpoint["observability"] == snapshot.observability.model_dump(mode="json")
+        assert checkpoint["schema_version"] == 11
+        assert [event.kind for event in events].count("run_terminal") == 1
+        serialized = snapshot.observability.model_dump_json()
+        assert "reasoning" not in serialized
+        assert "api_key" not in serialized
     finally:
         session_runtime.close()
 

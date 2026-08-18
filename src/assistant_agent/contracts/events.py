@@ -11,6 +11,7 @@ from typing import Any, Literal
 
 from assistant_agent.contracts.charts import ChartArtifactV2
 from assistant_agent.contracts.failures import ActivityPhase, BudgetSnapshot, RunFailure
+from assistant_agent.contracts.observability import RunObservabilitySnapshot, TrajectoryEntry
 from assistant_agent.contracts.outputs import OutputArtifactV1
 
 
@@ -80,6 +81,8 @@ class StepEvent:
     budget: BudgetSnapshot | None = None
     chart: ChartArtifactV2 | None = None
     output: OutputArtifactV1 | None = None
+    observability: RunObservabilitySnapshot | None = None
+    trajectory_entry: TrajectoryEntry | None = None
 
     def __post_init__(self) -> None:
         if self.kind == "reasoning":

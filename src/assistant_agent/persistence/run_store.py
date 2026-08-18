@@ -454,10 +454,10 @@ class RunStore:
     @staticmethod
     def _require_current_schema(document: dict[str, Any]) -> None:
         actual = document.get("schema_version")
-        if actual != 10:
+        if actual != 11:
             raise UnsupportedRunStateSchemaError(
-                "Run checkpoint schema 不兼容：需要 v10",
-                expected_version=10,
+                "Run checkpoint schema 不兼容：需要 v11",
+                expected_version=11,
                 actual_version=actual,
             )
 

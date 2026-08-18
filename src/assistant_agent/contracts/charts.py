@@ -14,6 +14,7 @@ from assistant_agent.contracts.charts_v2 import (
 )
 from assistant_agent.contracts.errors import UnsupportedChartSchemaError
 from assistant_agent.contracts.failures import AllowedAction, BudgetSnapshot, RunFailure
+from assistant_agent.contracts.observability import RunObservabilitySnapshot
 from assistant_agent.contracts.outputs import OutputArtifactV1
 from assistant_agent.contracts.presentation_common import (
     MAX_ARTIFACT_BYTES,
@@ -88,6 +89,7 @@ class RunSnapshot(_StrictModel):
     allowed_actions: tuple[AllowedAction, ...] = ()
     execution_status: Literal["active", "inactive", "unknown"]
     retry_of_run_id: str | None = None
+    observability: RunObservabilitySnapshot | None = None
 
     @field_validator("artifacts", "outputs", mode="before")
     @classmethod

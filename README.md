@@ -300,13 +300,15 @@ Run/Interaction/compaction。Event v1、RunState v6 与 Agent Loop 不变，API/
 M28 曾新增逐字节兼容 V1 的受控 ChartSpecV2、15 类普通图表与确定性数据派生；M30 收紧 Heatmap
 新建路径为 X/Y category axis，拒绝空数据、全 null value 和空白坐标，并提供按图表意图隔离、可恢复的
 一次定向纠错 metadata。Event v1、Session contract/schema v3、RunState v7 保持不变。
-M31-M33 开发期 hard cut 后，当前只支持 RunState v10、Session v5、Chart V2、Attachment/Content v1
+M31-M34 开发期 hard cut 后，当前只支持 RunState v11、Session v5、Chart V2、Attachment/Content v1
 和 Managed Output v1；旧格式不迁移，版本不匹配 fail closed。HTML/CSV/JSON/Markdown/文本交付物
 统一写入可配置的 `<workspace>/outputs/YYYY/MM/DD/<session-id>/`。`create_output` 仅声明元数据，
 Runtime 原生捕获下一轮正文；公共契约不暴露服务器路径或草稿协议。
+M34 新增 Observability v1：RunSnapshot 与非高频 StepEvent 提供受控 timing、context、model usage 和
+有界 trajectory；Provider 未报告的指标保持 null。TaskPlan 首批为 null，且没有 trajectory 分页接口。
 当前 859 个测试通过（10 个平台能力测试跳过）、覆盖率 84%、19,753 行/138 文件生产 Python 源码 + 1,411 行 eval
 基础设施；scripted 23/23、
-recovery 4/4；剩余 7 项技术债（4 中/3 低，无高优先级）。详见
+recovery 4/4；剩余 8 项技术债（5 中/3 低，无高优先级）。详见
 [架构事实源](docs/ARCHITECTURE.md)和[通用服务调用指南](docs/agent-service-integration-guide.md)。
 
 详见 [DESIGN.md](DESIGN.md)。

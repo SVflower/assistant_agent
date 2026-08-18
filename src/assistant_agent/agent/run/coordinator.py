@@ -20,6 +20,7 @@ from assistant_agent.agent.run.checkpoint import (
     encode_result,
 )
 from assistant_agent.agent.run.failures import tool_failure
+from assistant_agent.agent.run.observability import RunObservabilityRecorder, new_observability
 from assistant_agent.agent.run.ports import (
     LoadedRunPort,
     NullRunTelemetry,
@@ -45,6 +46,7 @@ from assistant_agent.contracts.charts import (
     MAX_RUN_ARTIFACTS,
 )
 from assistant_agent.contracts.failures import RunFailure
+from assistant_agent.contracts.observability import RunObservabilitySnapshot
 from assistant_agent.contracts.outputs import OutputArtifactV1
 from assistant_agent.providers.ports import ToolCall
 from assistant_agent.tools.context import ToolContext
@@ -75,6 +77,7 @@ class RunCoordinator(ContinuationStateMixin, DefinitionStateMixin):
         self.load_info = load_info
         self._logger = logger or NullRunTelemetry()
         self._tool_context: ToolContext | None = None
+        self._observability = RunObservabilityRecorder(self.run_id, state.observability)
 
     @classmethod
     def create(
@@ -104,8 +107,9 @@ class RunCoordinator(ContinuationStateMixin, DefinitionStateMixin):
         logger: RunTelemetry | None = None,
     ) -> RunCoordinator:
         timestamp = now_iso()
+        resolved_run_id = run_id or new_run_id()
         state = RunState(
-            run_id=run_id or new_run_id(),
+            run_id=resolved_run_id,
             session_id=session_id,
             task=task,
             interactive=interactive,
@@ -141,6 +145,7 @@ class RunCoordinator(ContinuationStateMixin, DefinitionStateMixin):
                 hard_limit=max_tool_output_chars_hard or max(max_total_tool_output_chars * 4, 1),
                 max_extensions=continuation_max_extensions,
             ),
+            observability=new_observability(resolved_run_id, timestamp),
             created_at=timestamp,
             updated_at=timestamp,
         )
@@ -163,6 +168,7 @@ class RunCoordinator(ContinuationStateMixin, DefinitionStateMixin):
 
     def checkpoint(self) -> None:
         self.state.updated_at = now_iso()
+        self.state.observability = self._observability.checkpoint_snapshot()
         validated = RunState.model_validate(self.state.model_dump(mode="python"))
         self.store.save(self.run_id, validated.model_dump(mode="json"))
         self.state = validated
@@ -187,6 +193,27 @@ class RunCoordinator(ContinuationStateMixin, DefinitionStateMixin):
             model=self.state.model,
             warning=warning,
         )
+        self._observability.resume(now_iso())
+        self.checkpoint()
+
+    def observability_snapshot(self) -> RunObservabilitySnapshot:
+        return self.state.observability
+
+    def observe_context(self, report: dict[str, int]) -> None:
+        self._observability.update_estimated_context(report)
+        self.checkpoint()
+
+    def observe_content_signal(self) -> None:
+        if self._observability.first_model_signal(now_iso()):
+            self.checkpoint()
+
+    def observe_usage(self, usage: dict[str, int]) -> None:
+        if self._observability.observe_usage(usage):
+            self.checkpoint()
+
+    def observe_activity(self, phase: str) -> None:
+        self._observability.record_phase(phase, now_iso())
+        self.checkpoint()
 
     def bind_tool_context(self, ctx: ToolContext) -> None:
         self._tool_context = ctx
@@ -244,6 +271,7 @@ class RunCoordinator(ContinuationStateMixin, DefinitionStateMixin):
             "artifact_capture" if self.state.pending_output_capture is not None else "model_pending"
         )
         self.state.tool_calls = []
+        self._observability.start_model(now_iso())
         self._capture_bound_context()
         self.checkpoint()
 
@@ -272,6 +300,7 @@ class RunCoordinator(ContinuationStateMixin, DefinitionStateMixin):
         return normalized
 
     def model_completed(self, messages: list[dict[str, Any]], calls: list[ToolCall]) -> None:
+        self._observability.finish_model(now_iso())
         self.state.messages = messages
         self.state.tool_calls = [
             ToolCallState(id=call.id, name=call.name, arguments=call.arguments) for call in calls
@@ -292,6 +321,7 @@ class RunCoordinator(ContinuationStateMixin, DefinitionStateMixin):
         call.status = "awaiting_approval"
         call.permission_requests = [encode_request(item) for item in requests]
         call.replay_policy = replay_policy
+        self._observability.start_interaction(call_id, "Waiting for tool approval", now_iso())
         self.state.phase = "awaiting_approval"
         self._capture_bound_context()
         self.checkpoint()
@@ -308,6 +338,7 @@ class RunCoordinator(ContinuationStateMixin, DefinitionStateMixin):
         call.status = "started"
         call.permission_requests = [encode_request(item) for item in requests]
         call.replay_policy = replay_policy
+        self._observability.start_tool(call_id, call.name, now_iso())
         self.state.phase = "tools_pending"
         self._capture_bound_context()
         self.checkpoint()
@@ -324,7 +355,11 @@ class RunCoordinator(ContinuationStateMixin, DefinitionStateMixin):
             raise ValueError(f"非法 completed 转换：{call.status}")
         call.permission_requests = [encode_request(item) for item in requests]
         call.replay_policy = replay_policy
+        self._observability.finish_interactions(now_iso())
         if result.code == "mcp_outcome_unknown":
+            self._observability.finish_tool(
+                call_id, now_iso(), failed=True, result_code=result.code
+            )
             if self.state.retry_safety == "safe":
                 self.state.retry_safety = "uncertain"
             call.status = "started"
@@ -332,6 +367,7 @@ class RunCoordinator(ContinuationStateMixin, DefinitionStateMixin):
             self.state.status = "paused"
             self.state.phase = "tool_uncertain"
             self.state.failure = tool_failure(result.code, retryable=False)
+            self._observability.pause(now_iso())
             self._capture_bound_context()
             self.checkpoint()
             return
@@ -364,6 +400,14 @@ class RunCoordinator(ContinuationStateMixin, DefinitionStateMixin):
             "skipped" if not result.executed else ("failed" if result.is_error else "completed")
         )
         call.result = encode_result(result)
+        self._observability.finish_tool(
+            call_id,
+            now_iso(),
+            failed=result.is_error,
+            result_code=result.code,
+        )
+        if result.output_artifact is not None or result.chart is not None:
+            self._observability.record_output(call_id, now_iso(), result.code)
         self.state.messages.append(
             {
                 "role": "tool",
@@ -495,6 +539,7 @@ class RunCoordinator(ContinuationStateMixin, DefinitionStateMixin):
                 )
             )
         )
+        self._observability.finish_run("completed" if success else "failed", now_iso())
         if self.state.failure is not None and self.state.retry_safety != "safe":
             actions = tuple(
                 action for action in self.state.failure.allowed_actions if action != "retry_run"
@@ -533,6 +578,7 @@ class RunCoordinator(ContinuationStateMixin, DefinitionStateMixin):
         self.state.phase = "terminal"
         self.state.terminal_text = text
         self.state.failure = None
+        self._observability.finish_run("cancelled", now_iso())
         self.state.session_synced = self.state.session_id is None
         self._capture_bound_context()
         self.checkpoint()
@@ -552,6 +598,7 @@ class RunCoordinator(ContinuationStateMixin, DefinitionStateMixin):
         if phase is not None:
             self.state.phase = phase
         self.state.terminal_text = text
+        self._observability.pause(now_iso())
         self._capture_bound_context()
         self.checkpoint()
 
@@ -563,6 +610,7 @@ class RunCoordinator(ContinuationStateMixin, DefinitionStateMixin):
             self.state.status = "paused"
             self.state.phase = "tool_uncertain"
             self.state.failure = tool_failure("mcp_outcome_unknown", retryable=False)
+            self._observability.pause(now_iso())
             self.checkpoint()
         return uncertain
 

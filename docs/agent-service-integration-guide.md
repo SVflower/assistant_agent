@@ -5,12 +5,38 @@
 >
 > 本文是公共服务契约的长期唯一正式入口；里程碑归档和阶段性交接不能替代本文。
 > 当前公共事件契约：`EVENT_CONTRACT_VERSION == 1`；Session 服务契约：
-> `SESSION_CONTRACT_VERSION == 5`；当前 Run checkpoint：schema v10；当前 Session 文档：schema v5；
+> `SESSION_CONTRACT_VERSION == 5`；当前 Run checkpoint：schema v11；当前 Session 文档：schema v5；
 > 当前 Output contract：v1。
-> 最近同步：M33 Native ArtifactWriter（2026-08-14）。
+> 最近同步：M34 Run observability（2026-08-18）。
 >
-> **破坏性契约版本：`AGENT_SERVICE_CONTRACT_VERSION = 5`。** Agent 只读取和写入 RunState v10、
+> **破坏性契约版本：`AGENT_SERVICE_CONTRACT_VERSION = 5`。** Agent 只读取和写入 RunState v11、
 > Session v5、Chart V2、Attachment/Content v1 和 Output v1；旧状态不迁移。
+
+## M34 Run Observability
+
+`RunSnapshot.observability` 是重启、事件缺口和断线恢复后的权威运行观测入口。公共根新增导出
+`OBSERVABILITY_CONTRACT_VERSION == 1`、`RunObservabilitySnapshot`、`TimingSnapshot`、
+`ContextUsageSnapshot`、`ModelUsageSnapshot`、`TrajectoryEntry`、`TaskPlanSnapshot` 和
+`TaskPlanItem`。Event v1 与 Service v5 保持不变；Run checkpoint current-only 升为 v11。
+
+`StepEvent` additive 增加 `observability: RunObservabilitySnapshot | None` 与
+`trajectory_entry: TrajectoryEntry | None`。API 应将前者映射为 `run.observability`，将后者按
+`entry_id` upsert 为 `run.trajectory`；不能只 append。现有 `usage -> run.usage` 继续保留，但必须与
+`observability.model_usage` 同源，API 不建立第二个 Token 累计器。
+
+观测快照包含：
+
+- `timing`：Run/模型/工具/Interaction 累计耗时、TTFT、吞吐及来源；
+- `context`：prompt 侧 used/projected/limit/percent 及 `provider|estimated|unavailable` 来源；
+- `model_usage`：input/output/cache read/cache write/cache hit 与来源；
+- `trajectory`：最多 256 条安全阶段事实，超限时 `truncated=true`；
+- `task_plan`：M34 首批始终为 `null`，因为尚无显式整表写入工具；
+- `schema_version=1`。
+
+Provider 未报告的 cache、TTFT 或 Token 值必须保持 `null`，不得填 0。trajectory 不含 hidden
+reasoning、原始 prompt/provider payload、密钥、环境变量、服务器路径、PID、完整工具参数、完整输出或
+文件正文。首批没有 trajectory 分页接口；API 原样暴露有界 snapshot，不复制历史库。完整字段、事件序列
+和接入验收见 [M34 API handoff](archive/phase24/m34-agent-api-handoff.md)。
 
 ## M33 Managed Output
 
@@ -29,7 +55,8 @@ Output ref 包含 opaque `output_id`、Session/Run/message/call 归属、filenam
 
 捕获正文不发布 `content_delta`。暂停/崩溃恢复时丢弃半文件并从头捕获；取消或失败不发布 artifact。
 成功仍以原 `create_output` call_id 的 `tool_result` 发布唯一 OutputArtifactV1。API 不管理草稿。
-当前契约为 service v5、Session v5、RunState v10、Output v1、Event v1。
+M33 交付时契约为 service v5、Session v5、RunState v10、Output v1、Event v1；M34 已将
+current-only RunState 提升为 v11，其余版本保持不变。
 > Session v5、ChartSpec/ChartArtifact V2、Attachment/Content v1 与 Output v1；不再读取或迁移旧版本。调用方
 > 升级前必须清理旧测试状态，并删除所有 V1 图表与旧迁移分支。
 
@@ -1025,8 +1052,8 @@ artifact URL 必须返回统一 404，跨 Session 查询也返回同一 404，�
 - 只把 V2 白名单字段映射为 renderer 配置，禁止透传 option/formatter/HTML/URL/JS/style；
 - 直接使用 Agent 产生的 histogram/boxplot/percent derived dataset，不在 API/Web 重算；
 - 未知或损坏 V2 只降级当前图表，不丢失文字消息，不改变 final/run_terminal；
-- M31-M33 之后，上述历史兼容范围不再适用于当前运行时；当前只接受 Chart V2、Session v5、Run
-  checkpoint v9 和 Output v1，API 不复制迁移状态机，旧状态在部署前清理。
+- M31-M34 之后，上述历史兼容范围不再适用于当前运行时；当前只接受 Chart V2、Session v5、Run
+  checkpoint v11 和 Output v1，API 不复制迁移状态机，旧状态在部署前清理。
 
 M30 保持 Event v1、Session contract v3、RunState v7 和 ChartSpecV2 字段不变，仅收紧 Agent 新建
 Heatmap 的模型输入边界：生成的 X/Y 轴均为 `category`，空 rows、全 null value、null/空白分类坐标
@@ -1046,7 +1073,7 @@ correction_remaining: 0 | 1
 额度从既有 checkpoint 消息账本重建，不增加 checkpoint 字段。`artifact_rejected` 仍只表示图表局部
 失败，不能改变文字回答、`final` 或唯一 `run_terminal`。
 
-### 12.1 M31-M33 current-only 覆盖规则
+### 12.1 M31-M34 current-only 覆盖规则
 
 M31 的 hard cut 覆盖本节此前的兼容读取说明：
 
@@ -1054,7 +1081,7 @@ M31 的 hard cut 覆盖本节此前的兼容读取说明：
 - `ChartSpecV1`、`ChartArtifact`、`PresentationArtifactRef`、`AnyChartArtifact` 和
   `AnyPresentationArtifactRef` 已删除，不再提供 re-export。
 - `StepEvent.chart`、Run/Session presentations、公开 message refs 均只接受 V2。
-- RunStore 的写入、双槽读取和 Coordinator 恢复只接受 checkpoint v9；v1-v8 不回退、不迁移。
+- RunStore 的写入、双槽读取和 Coordinator 恢复只接受 checkpoint v11；v1-v10 不回退、不迁移。
 - SessionStore 的读取、catalog、summary、fork 和写入只接受 Session v5；v0-v4 不回写、不迁移。
 - UserMessageInput/MessageContent/AttachmentRef 当前只接受 Content/Attachment v1；checkpoint/session 只保存
   ref，不保存附件正文、base64、path 或 EXIF。
@@ -1086,7 +1113,8 @@ M31 的 hard cut 覆盖本节此前的兼容读取说明：
 
 1. 只导入 `assistant_agent.service`、`assistant_agent.contracts` 和必要的 `assistant_agent.interaction` 实现；
 2. 启动时验证 `AGENT_SERVICE_CONTRACT_VERSION == 5`、`SESSION_CONTRACT_VERSION == 5`、
-   `OUTPUT_CONTRACT_VERSION == 1` 与 `EVENT_CONTRACT_VERSION == 1`；
+   `OUTPUT_CONTRACT_VERSION == 1`、`OBSERVABILITY_CONTRACT_VERSION == 1` 与
+   `EVENT_CONTRACT_VERSION == 1`；
 3. config/workspace 路径由服务端固定；
 4. Iterator 在有界工作线程中逐事件消费；
 5. reasoning 和原始工具参数不进入网络 DTO；

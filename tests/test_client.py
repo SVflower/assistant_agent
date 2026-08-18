@@ -100,6 +100,47 @@ def test_normalize_usage():
     }
 
 
+def test_normalize_usage_preserves_reported_cache_and_omits_unreported_cache():
+    without_cache = SimpleNamespace(prompt_tokens=10, completion_tokens=5, total_tokens=15)
+    assert "cache_read_tokens" not in _normalize_usage(without_cache)
+    assert "cache_write_tokens" not in _normalize_usage(without_cache)
+
+    with_cache = SimpleNamespace(
+        prompt_tokens=10,
+        completion_tokens=5,
+        total_tokens=15,
+        prompt_tokens_details=SimpleNamespace(cached_tokens=4),
+        cache_creation_input_tokens=2,
+    )
+    normalized = _normalize_usage(with_cache)
+    assert normalized["cache_read_tokens"] == 4
+    assert normalized["cache_write_tokens"] == 2
+
+
+def test_stream_usage_includes_monotonic_ttft_for_tool_fragment(monkeypatch):
+    import litellm
+
+    fragment = SimpleNamespace(
+        choices=[
+            SimpleNamespace(delta=SimpleNamespace(content=None, tool_calls=[_frag(name="x")]))
+        ],
+        usage=None,
+    )
+    usage = SimpleNamespace(
+        choices=[],
+        usage=SimpleNamespace(prompt_tokens=10, completion_tokens=2, total_tokens=12),
+    )
+    ticks = iter((10.0, 10.2, 11.0))
+    monkeypatch.setattr("assistant_agent.providers.litellm.time.monotonic", lambda: next(ticks))
+    monkeypatch.setattr(litellm, "completion", lambda **_kwargs: iter((fragment, usage)))
+
+    events = list(LLMClient(ProviderConfig(model="openai/fake")).complete_stream([]))
+    observed = next(event.usage for event in events if event.kind == "usage")
+
+    assert observed["first_token_latency_ms"] == 200
+    assert observed["model_duration_ms"] == 1000
+
+
 def test_bypass_proxy_adds_local_host(monkeypatch):
     monkeypatch.delenv("NO_PROXY", raising=False)
     monkeypatch.delenv("no_proxy", raising=False)

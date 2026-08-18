@@ -2,9 +2,8 @@
 
 > AI 迭代开发中，债务会隐形复利（LLM 在每个决策点埋入未言明的假设）。
 > 这里显式追踪，防止"上次说的债"下次忘。每次里程碑评审更新本表。
-> 最后更新：2026-07-23（M32 按需定向验证：附件/上下文/配置/服务/Session/Run/恢复/契约 109 项通过；未运行全量 coverage，
-> Ruff/format/mypy、12 条 import-linter、scripted 23/23、recovery 4/4 全绿；生产源码
-> 19,753 行/138 文件。未新增技术债，现有 7 项。）
+> 最后更新：2026-08-18（M34 按需定向验证 102 项通过；相关 Ruff/format 与 mypy 全绿，未运行
+> 全量 pytest/coverage。新增 D26，现有 8 项。）
 
 ## 状态说明
 - 🔴 高：影响正确性/安全，或脆弱的关键路径
@@ -36,6 +35,7 @@
 | D23 | ~~**父进程先退出时进程输出收尾可无限等待**~~ ✅ 已还清（M21） | `execution/process.py`、`execution/jobs.py` | ✅ | 完整 deadline 覆盖 execution/drain/cleanup；遗留 PIPE 后代结构化失败并清理；`manage_process` 提供 Runtime 隔离的启动/状态/日志/停止，opaque ID、输出和历史均有界 | Windows `start /b` 与通用继承 PIPE 实测；POSIX shell 后台路径进入 CI。方案见 [归档](archive/phase14/m21-managed-command-lifecycle-plan.md) |
 | D24 | **公开 URL 校验未绑定实际连接地址** | `integrations/web_access/security.py`、`client.py` | 🟡 | URL 层拒绝非公网 DNS 结果并复检重定向，但 httpx 建连会再次解析，无法证明抵御 DNS rebinding。M25 已把 `fetch_url` 排除在 Web profile；CLI 仍需用户授权 | 引入可验证的 DNS pinning/自定义 transport，并测试连接目标与每跳解析一致后，才允许 Web profile 自动开放通用抓取 |
 | D25 | **Session/Run 应用门面继续增长** | `application/runs.py` | 🟡 | M22 后已偏大，M23-R2 增加权威 ledger、Session snapshot 和绑定源 fork 后达到 1085 行；2026-07-21 仅增加教学注释至 1101 行。状态改写仍委托 RunCoordinator，但查询/映射/fork 已具备独立变化原因 | 下一里程碑优先提取无状态 snapshot/ledger 映射、fork 与 retry/reconcile Application 用例；不拆散 Iterator 结束/释放 lease/Session sync 不变量 |
+| D26 | **Session catalog 测试工厂落后于当前 Service 构造契约** | `tests/test_session_catalog.py` | 🟡 | M32/M33 已要求 `attachment_store` 与 `output_store`，但该文件 `_service()` 仍按旧签名构造 AgentService；整文件定向运行 28 failed/2 passed，失败发生在进入业务断言前，不是 M34 回归 | 独立维护提交补齐当前 Store fixture，并把旧 Session v3 原始文档更新为 current-only v5 或改成明确 fail-closed 用例；随后恢复整文件和全量门禁 |
 
 ## 已还清（保留记录）
 - **任务级工具资源无边界** → M6.5 增加单次输出、累计输出、工具调用总数预算；多 tool-call 批次补齐结果后终止。✅ 2026-07-14

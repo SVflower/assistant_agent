@@ -6,6 +6,7 @@ import pytest
 
 import assistant_agent.service as service
 from assistant_agent import contracts
+from assistant_agent.agent.run.observability import new_observability
 from assistant_agent.agent.run.state import RunState, parse_run_state
 from assistant_agent.contracts.events import EVENT_CONTRACT_VERSION
 
@@ -48,6 +49,7 @@ def test_v5_checkpoint_is_rejected_without_migration():
             "used_calls": 0,
             "used_output_chars": 0,
         },
+        observability=new_observability("run-1", "2026-01-01T00:00:00Z"),
         created_at="2026-01-01T00:00:00",
         updated_at="2026-01-01T00:00:00",
     ).model_dump(mode="python")

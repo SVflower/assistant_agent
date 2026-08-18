@@ -2,11 +2,11 @@
 
 > 开工蓝本。第一阶段（MVP）已完成，见 [DESIGN.md](DESIGN.md) 第 8 节。
 > 本文档规划第二阶段起的里程碑，每个里程碑只列可清晰验收的目标。
-> 最后更新：2026-07-22
+> 最后更新：2026-08-18
 
 ---
 
-## 项目当前状态（截至 2026-07-23）
+## 项目当前状态（截至 2026-08-18）
 
 **一句话**：从"能跑的 MVP"长成了一个功能相当完整、多平台实测、可观测且运行时预算可控、全程守调研→方案→测试→验收纪律的本地 Agent。
 
@@ -16,6 +16,11 @@ RunState v8、Event v1；API/Web 按 `docs/archive/phase23/m32-agent-api-handoff
 RunState v10、Output v1、Event v1；模型只声明输出元数据，Runtime 原生捕获正文并写入日期/Session 分片目录，
 API/Web 按 `docs/m33-managed-outputs-plan.md` 与正式 service guide 接入。
 109 项通过（附件/上下文/配置/服务/Session/Run/恢复/契约），未运行全量 pytest/coverage。
+
+**M34 当前状态**：Agent 侧已完成受控 Run observability v1。RunSnapshot/StepEvent additive 提供 timing、
+context、model usage 与最多 256 条安全 trajectory；RunState current-only 升为 v11，Event v1、Service v5、
+Session v5 保持不变。TaskPlan 首批为 `null`，不从自然语言猜测；首批无 trajectory 分页接口。API/Web 按
+`docs/archive/phase24/m34-agent-api-handoff.md` 接入。
 
 **已具备能力**：
 - **模型**：后端可切换（云端 OpenAI 兼容 / Anthropic / 本地 LM Studio·Ollama·vLLM），config/`--provider`/对话内 `/model` 三种切法，切换保留上下文。
@@ -65,6 +70,9 @@ API/Web 按 `docs/m33-managed-outputs-plan.md` 与正式 service guide 接入。
   Event v1 不变，Session schema/contract v3、RunState v7。
 - **M30 Heatmap 契约与纠错**：新建 Heatmap 固定 X/Y category axis，拒绝空数据、全 null value 和
   空白坐标；多面板重复坐标错误提供精确 field path、聚合候选和按图表意图隔离的一次修正额度。
+- **M34 运行观测**：Conversation 与 trajectory 展示事实分离；RunState v11 权威持久化上下文压力、
+  provider usage/cache、monotonic 阶段耗时和安全轨迹；缺失指标保持 null，不展示 hidden reasoning，
+  不改变权限、恢复或终态语义。
 - **工具**：读/写/局部编辑/列目录/shell/代码检索/git 只读/用户澄清，以及带来源的
   `web_search`/`fetch_url`；搜索 backend 可替换，抓取含 SSRF、重定向和响应上限防护。
 - **命令层**：slash 命令系统本地拦截不花 token；`/skills` 与 `/mcp` 支持列出、安装、诊断、
@@ -87,7 +95,7 @@ API/Web 按 `docs/m33-managed-outputs-plan.md` 与正式 service guide 接入。
 1,617 行 eval 基础设施，Ruff/mypy 全绿。架构适应度测试（12 条声明式依赖契约 + 旧路径防回归 +
 600 行非阻断评审）、技术债册、
 DoD 和里程碑工作流全在；CI 已加入 format/lint/mypy/coverage/scripted eval/recovery eval 与
-Windows/Linux、Python 3.11/3.13 矩阵。剩余 7 项技术债（4 中/3 低，无高优先级）。
+  Windows/Linux、Python 3.11/3.13 矩阵。剩余 8 项技术债（5 中/3 低，无高优先级）。
 
 **边界（明确未做）**：外置 MCP/自定义 Python Tool 的容器化、远程 Workspace、子 Agent 编排、
 Web GUI、rewind/recap、非交互 init、PyPI 分发。
@@ -107,7 +115,7 @@ API/Web 尚待按 R2 冻结契约接入。公共调用继续只依赖
 `assistant_agent.service` / `contracts` / `interaction`。见
 [架构事实源](docs/ARCHITECTURE.md)与[正式服务契约](docs/agent-service-integration-guide.md)。
 
-**剩余技术债**：7 项（D5/D6/D12/D20/D21/D24/D25）。M9a 已还清 D13/D15/D17，M9b 已还清
+**剩余技术债**：8 项（D5/D6/D12/D20/D21/D24/D25/D26）。M9a 已还清 D13/D15/D17，M9b 已还清
 D14，M9c 已还清 D9，M10a 已还清 D16，M10b 已还清 D8，M11a 已还清 D19，M14a 已还清 D18。详见
 [技术债登记册](docs/TECH_DEBT.md)。
 

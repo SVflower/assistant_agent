@@ -691,6 +691,7 @@ class SessionRuntime:
                 else ("unknown" if state.status == "running" else "inactive")
             ),
             retry_of_run_id=state.retry_of_run_id,
+            observability=state.observability,
         )
 
     def start_run(self, task: str | UserMessageInputV1) -> RunExecution:
@@ -791,6 +792,7 @@ class SessionRuntime:
                 text=coordinator.state.terminal_text,
                 terminal_status="cancelled",
             )
+            self._decorate_observability(coordinator, terminal)
             notices = tuple(self._finalization_notice(code) for code in finalized.notice_codes)
             return RunExecution(run_id, iter((*notices, terminal)), _load_warning(coordinator))
         finally:
@@ -889,18 +891,16 @@ class SessionRuntime:
                     f"只有遗留 running Run 可以协调，当前状态为 {state.status}"
                 )
             coordinator.reconcile_orphan(request_hash)
+            terminal = StepEvent(
+                kind="run_terminal",
+                text=coordinator.state.terminal_text,
+                terminal_status="paused",
+                failure=coordinator.state.failure,
+            )
+            self._decorate_observability(coordinator, terminal)
             return RunExecution(
                 run_id,
-                iter(
-                    (
-                        StepEvent(
-                            kind="run_terminal",
-                            text=coordinator.state.terminal_text,
-                            terminal_status="paused",
-                            failure=coordinator.state.failure,
-                        ),
-                    )
-                ),
+                iter((terminal,)),
                 _load_warning(coordinator),
             )
         finally:
@@ -1143,12 +1143,14 @@ class SessionRuntime:
 
     def _paused_stream(self, coordinator: RunCoordinator) -> Iterator[StepEvent]:
         try:
-            yield StepEvent(
+            event = StepEvent(
                 kind="run_terminal",
                 text=coordinator.state.terminal_text,
                 terminal_status="paused",
                 failure=coordinator.state.failure,
             )
+            self._decorate_observability(coordinator, event)
+            yield event
         finally:
             self._end_run()
 
@@ -1157,7 +1159,9 @@ class SessionRuntime:
     ) -> Iterator[StepEvent]:
         exhausted = False
         try:
-            yield from source
+            for event in source:
+                self._decorate_observability(coordinator, event)
+                yield event
             exhausted = True
         except Exception:
             if coordinator.state.status == "running":
@@ -1192,18 +1196,41 @@ class SessionRuntime:
                 # source 耗尽之前），故此处的 yield 只在 source 正常走完后触发，不会撞上
                 # GeneratorExit。改动上面的控制流时须维持这一点，否则 finally 内 yield 会抛错。
                 if exhausted:
-                    yield StepEvent(kind="activity", phase="syncing_session")
+                    syncing = StepEvent(kind="activity", phase="syncing_session")
+                    self._decorate_observability(coordinator, syncing)
+                    yield syncing
                     finalized = self._finish_run(coordinator)
                     for code in finalized.notice_codes:
                         yield self._finalization_notice(code)
-                    yield StepEvent(
+                    terminal = StepEvent(
                         kind="run_terminal",
                         text=coordinator.state.terminal_text,
                         terminal_status=finalized.status,
                         failure=coordinator.state.failure,
                     )
+                    self._decorate_observability(coordinator, terminal)
+                    yield terminal
             finally:
                 self._end_run()
+
+    def _decorate_observability(self, coordinator: RunCoordinator, event: StepEvent) -> None:
+        if event.kind == "content_delta":
+            coordinator.observe_content_signal()
+        elif event.kind == "usage" and event.usage:
+            coordinator.observe_usage(event.usage)
+        elif event.kind == "activity" and event.phase is not None:
+            coordinator.observe_activity(event.phase)
+
+        if event.kind in {"activity", "usage"}:
+            try:
+                coordinator.observe_context(self.runtime.loop.context_report())
+            except (RuntimeError, ValueError):
+                pass
+
+        if event.kind not in {"reasoning", "content_delta"}:
+            event.observability = coordinator.observability_snapshot()
+            trajectory = event.observability.trajectory
+            event.trajectory_entry = trajectory[-1] if trajectory else None
 
     @staticmethod
     def _finalization_notice(code: str) -> StepEvent:

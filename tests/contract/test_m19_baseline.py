@@ -2,6 +2,7 @@
 
 from dataclasses import fields
 
+from assistant_agent.agent.run.observability import new_observability
 from assistant_agent.agent.run.state import RunState, ToolBudgetState
 from assistant_agent.contracts.events import EVENT_CONTRACT_VERSION, StepEvent
 from assistant_agent.contracts.interactions import (
@@ -21,6 +22,8 @@ def test_service_public_exports_baseline():
         "ATTACHMENT_CONTRACT_VERSION",
         "CONTENT_PARTS_VERSION",
         "OUTPUT_CONTRACT_VERSION",
+        "OBSERVABILITY_CONTRACT_VERSION",
+        "MAX_TRAJECTORY_ENTRIES",
         "AgentRuntime",
         "AgentService",
         "AgentServiceError",
@@ -44,6 +47,7 @@ def test_service_public_exports_baseline():
         "RunExecution",
         "RetryRunExecution",
         "RunSnapshot",
+        "RunObservabilitySnapshot",
         "RunStillActiveError",
         "RunNotFoundError",
         "RunNotResumableError",
@@ -61,6 +65,9 @@ def test_service_public_exports_baseline():
         "RuntimePolicy",
         "RuntimeCapabilities",
         "MCPServerCapability",
+        "ContextUsageSnapshot",
+        "MetricSource",
+        "ModelUsageSnapshot",
         "MessageContentV1",
         "OutputArtifactV1",
         "OutputConflictError",
@@ -104,7 +111,11 @@ def test_service_public_exports_baseline():
         "UserMessageNotFoundError",
         "UpdateSessionMetadataRequest",
         "TabularDatasetV1",
+        "TaskPlanItem",
+        "TaskPlanSnapshot",
         "TextPartV1",
+        "TimingSnapshot",
+        "TrajectoryEntry",
         "UnsupportedInputModalityError",
         "UserMessageInputV1",
     }
@@ -134,6 +145,8 @@ def test_step_event_v1_field_baseline_and_sensitive_reasoning():
         "budget",
         "chart",
         "output",
+        "observability",
+        "trajectory_entry",
     ]
     event = StepEvent(kind="reasoning", text="private")
     assert event.contract_version == 1
@@ -258,6 +271,8 @@ def test_run_state_v8_field_baseline():
         "tool_calls",
         "presentations",
         "outputs",
+        "observability",
+        "pending_output_capture",
         "permission_grants",
         "terminal_text",
         "failure",
@@ -286,7 +301,8 @@ def test_run_state_v8_field_baseline():
             used_calls=0,
             used_output_chars=0,
         ),
+        observability=new_observability("run-contract", "2026-07-19T00:00:00Z"),
         created_at="2026-07-19T00:00:00",
         updated_at="2026-07-19T00:00:00",
     )
-    assert state.schema_version == 10
+    assert state.schema_version == 11

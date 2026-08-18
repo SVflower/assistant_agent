@@ -61,6 +61,32 @@ def test_create_initialize_and_load(tmp_path):
     assert loaded.state.phase == "model_pending"
 
 
+def test_observability_recovery_preserves_entries_and_resume_does_not_duplicate(tmp_path):
+    coordinator = _coordinator(tmp_path)
+    budget = ToolBudget(max_calls=10, max_total_output_chars=100)
+    coordinator.initialize([], None, budget)
+    coordinator.before_model(
+        messages=[],
+        compaction_checkpoint=None,
+        iteration=1,
+        iteration_budget=5,
+        last_signature=None,
+        repeat_count=0,
+        budget=budget,
+    )
+    before = coordinator.state.observability
+
+    loaded = RunCoordinator.load(RunStore(tmp_path), coordinator.run_id)
+    assert loaded.state.observability == before
+    assert len({item.entry_id for item in before.trajectory}) == len(before.trajectory)
+
+    loaded.note_resume()
+    resumed = loaded.state.observability
+    assert len(resumed.trajectory) == len(before.trajectory) + 1
+    assert resumed.trajectory[-1].title == "Run resumed"
+    assert len({item.entry_id for item in resumed.trajectory}) == len(resumed.trajectory)
+
+
 def test_tool_lifecycle_checkpoints_each_transition(tmp_path):
     coordinator = _coordinator(tmp_path)
     _planned(coordinator)

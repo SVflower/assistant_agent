@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 from collections.abc import Iterator
 from typing import Any
 from urllib.parse import urlparse
@@ -91,11 +92,30 @@ def _finalize_tool_calls(buffers: dict[int, dict[str, str]]) -> list[ToolCall]:
 
 def _normalize_usage(usage: Any) -> dict[str, int]:
     """把 litellm 的 usage 对象归一化为简单 dict。"""
-    return {
+    normalized = {
         "prompt_tokens": getattr(usage, "prompt_tokens", 0) or 0,
         "completion_tokens": getattr(usage, "completion_tokens", 0) or 0,
         "total_tokens": getattr(usage, "total_tokens", 0) or 0,
     }
+    details = getattr(usage, "prompt_tokens_details", None)
+    cache_read = _usage_value(usage, "cache_read_input_tokens")
+    if cache_read is None:
+        cache_read = _usage_value(details, "cached_tokens")
+    cache_write = _usage_value(usage, "cache_creation_input_tokens")
+    if cache_write is None:
+        cache_write = _usage_value(usage, "cache_write_input_tokens")
+    if cache_read is not None:
+        normalized["cache_read_tokens"] = cache_read
+    if cache_write is not None:
+        normalized["cache_write_tokens"] = cache_write
+    return normalized
+
+
+def _usage_value(value: Any, name: str) -> int | None:
+    if value is None:
+        return None
+    raw = value.get(name) if isinstance(value, dict) else getattr(value, name, None)
+    return raw if isinstance(raw, int) and not isinstance(raw, bool) and raw >= 0 else None
 
 
 def _bypass_proxy_for_local(api_base: str | None) -> None:
@@ -177,6 +197,8 @@ class LLMClient:
         kwargs["stream"] = True
         # 要求在流末尾附带 token 用量（OpenAI 兼容端点通用参数）
         kwargs["stream_options"] = {"include_usage": True}
+        request_started = time.monotonic()
+        first_signal: float | None = None
 
         # tool_call 碎片缓冲：index -> {"id","name","args"}
         buffers: dict[int, dict[str, str]] = {}
@@ -195,14 +217,25 @@ class LLMClient:
 
                     content = getattr(delta, "content", None)
                     if content:
+                        if first_signal is None:
+                            first_signal = time.monotonic()
                         yield StreamEvent(kind="content", text=content)
 
                     for frag in getattr(delta, "tool_calls", None) or []:
+                        if first_signal is None:
+                            first_signal = time.monotonic()
                         self._accumulate_tool_call(buffers, frag)
 
                 usage = getattr(chunk, "usage", None)
                 if usage is not None:
-                    yield StreamEvent(kind="usage", usage=_normalize_usage(usage))
+                    observed_at = time.monotonic()
+                    normalized = _normalize_usage(usage)
+                    normalized["model_duration_ms"] = _duration_ms(request_started, observed_at)
+                    if first_signal is not None:
+                        normalized["first_token_latency_ms"] = _duration_ms(
+                            request_started, first_signal
+                        )
+                    yield StreamEvent(kind="usage", usage=normalized)
         except Exception as exc:  # 流中途失败：产出脱敏 error 事件而非抛出
             failure = classify_provider_exception(exc)
             yield StreamEvent(kind="error", text=failure.safe_message, failure=failure)
@@ -232,3 +265,7 @@ class LLMClient:
             args = getattr(function, "arguments", None)
             if args:
                 buf["args"] += args
+
+
+def _duration_ms(start: float, end: float) -> int:
+    return max(0, int(round((end - start) * 1000)))

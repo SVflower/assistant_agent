@@ -7,10 +7,28 @@
 > 当前公共事件契约：`EVENT_CONTRACT_VERSION == 1`；Session 服务契约：
 > `SESSION_CONTRACT_VERSION == 5`；当前 Run checkpoint：schema v11；当前 Session 文档：schema v5；
 > 当前 Output contract：v1。
-> 最近同步：M34 Run observability（2026-08-18）。
+> 最近同步：M35-R1 历史运行关联（2026-08-19）。
 >
 > **破坏性契约版本：`AGENT_SERVICE_CONTRACT_VERSION = 5`。** Agent 只读取和写入 RunState v11、
 > Session v5、Chart V2、Attachment/Content v1 和 Output v1；旧状态不迁移。
+
+## M35-R1 历史运行关联
+
+`PublicMessageSnapshot.run_id: str | None` 是公开消息到原始 Run 的唯一权威关联。新 Run 在 terminal
+同步时把本次新增的 user/assistant 消息都绑定到同一个 `run_id`；重复同步保持消息和关联不变。无法证明
+来源的既有消息保持 `null`，调用方不得按消息位置、文本、时间或 assistant reply 猜测 Run。fork 会为
+复制消息生成新 ID，并把全部 `run_id` 清为 `null`，防止目标 Session 借用源 Session 的 Run ownership。
+
+`RunSnapshot` additive 增加 `created_at: str` 与
+`execution_model: ExecutionModelSnapshot | None`。后者严格只含 `provider` 和 `model`，不含 API key、
+base URL、provider payload 或配置。`SessionRuntime.run_snapshot(run_id)` 仍执行 Session ownership 校验，
+并从 Run checkpoint 恢复上述字段以及既有 observability、failure、budget、outputs 和 artifacts。
+
+这项能力只保证 **Run 保留期内** 的权威历史关联：默认 `RecoveryConfig.max_completed_runs=100`，表示
+RunStore 全局最多保留 100 个已同步 terminal Run；`list_runs` 当前不分页。每个 Run 的 trajectory 最多
+256 条，超限时保留首条与末尾 255 条并设置 `truncated=true`。R1 没有 Session trajectory 分页或完整
+TraceStore，不能宣称永久、完整的运行历史。API 只调用公共 service，不扫描 Session/Run 文件或复制
+Agent 状态机。版本保持 Service v5、Session v5、RunState v11、Observability v1、Event v1。
 
 ## M34 Run Observability
 
@@ -460,7 +478,7 @@ tombstone。Session cascade 遵守上述统一锁顺序，与 M22 execution leas
 
 ```text
 PublicMessageSnapshot = {
-  id, role, created_at, reply_to_message_id, content, artifacts
+  id, role, run_id, created_at, reply_to_message_id, content, artifacts, outputs
 }
 SessionSnapshot = {
   id, schema_version=2, title, title_source, metadata_version,
@@ -487,6 +505,7 @@ forked = session_runtime.fork_session(
 按 source->target 映射重写 assistant reply。目标不复制 Run、Interaction 或 compaction checkpoint。复制
 范围内的 Chart Artifact 会深复制、生成新 artifact ID、重绑定目标 Session/message，`run_id=null`，
 `created_at` 使用 fork 提交时间；源 Session、Run 和 Artifact 不变。
+复制消息自身的 `run_id` 同样固定为 `null`，不得形成跨 Session Run 查询关系。
 
 幂等键必须是 1..200 个可见 ASCII 字符。相同源 + key + 边界跨 Runtime/进程重启永久返回同一目标；
 相同 key 改用其他边界返回冲突。首次创建的 snapshot 为 `fork_created=true`，重放为 `false`，普通
@@ -1108,6 +1127,7 @@ M31 的 hard cut 覆盖本节此前的兼容读取说明：
 - 把完整 Chart rows 放入 WebSocket 重连缓存，或让 Web 接收模型生成的 ECharts option；
 - API 扫描 Agent Session/Run 文件、复制完整 Artifact，或为旧消息补造不稳定 message ID。
 - API 按消息数组位置/文本推断 reply，或自行复制 history/Artifact 实现 fork。
+- API 按消息位置、文本或时间猜测历史 `run_id`，或在 `run_id=null` 时展示伪造的 Run 详情。
 
 ## 14. 接入验收清单
 
@@ -1141,6 +1161,7 @@ M31 的 hard cut 覆盖本节此前的兼容读取说明：
 25. API 固定 `SESSION_CONTRACT_VERSION == 5`，保真映射 message ID/time/reply/artifacts/outputs/content parts；
 26. fork 首次/重放按 `fork_created` 映射 201/200，同 key 异参、跨 Session 边界和迁移失败均按稳定 code；
 27. edit/regenerate 先 fork、再显式创建普通 Run，第二步失败不得再次隐式 fork；
+28. 历史消息只按 `message.run_id` 查询 Session-scoped Run；`null` 时隐藏 Run 详情入口，fork 消息不得继承源 Run；
 21. opaque process ID 不作为 OS PID 展示、不跨 Runtime 持久化，Runtime 淘汰/关闭后不自动恢复；
 22. `background_process_detected`、`managed_process_container_unsupported` 和
     `managed_process_detached_child` 按结构化工具结果处理，不解析中文文本；

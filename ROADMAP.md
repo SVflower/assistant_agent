@@ -2,11 +2,11 @@
 
 > 开工蓝本。第一阶段（MVP）已完成，见 [DESIGN.md](DESIGN.md) 第 8 节。
 > 本文档规划第二阶段起的里程碑，每个里程碑只列可清晰验收的目标。
-> 最后更新：2026-08-18
+> 最后更新：2026-08-19
 
 ---
 
-## 项目当前状态（截至 2026-08-18）
+## 项目当前状态（截至 2026-08-19）
 
 **一句话**：从"能跑的 MVP"长成了一个功能相当完整、多平台实测、可观测且运行时预算可控、全程守调研→方案→测试→验收纪律的本地 Agent。
 
@@ -21,6 +21,11 @@ API/Web 按 `docs/m33-managed-outputs-plan.md` 与正式 service guide 接入。
 context、model usage 与最多 256 条安全 trajectory；RunState current-only 升为 v11，Event v1、Service v5、
 Session v5 保持不变。TaskPlan 首批为 `null`，不从自然语言猜测；首批无 trajectory 分页接口。API/Web 按
 `docs/archive/phase24/m34-agent-api-handoff.md` 接入。
+
+**M35-R1 当前状态**：Agent 侧已完成历史消息到 Run 的权威关联。新 Run 的 user/assistant 公共消息持久化
+`run_id`，fork 明确清空；RunSnapshot additive 暴露安全 `created_at` 与 provider/model 身份。版本保持
+Service v5、Session v5、RunState v11、Observability v1、Event v1；能力受全局默认 100 个 terminal Run
+保留和每 Run 256 条 trajectory 限制，不宣称完整长期 TraceStore。
 
 **已具备能力**：
 - **模型**：后端可切换（云端 OpenAI 兼容 / Anthropic / 本地 LM Studio·Ollama·vLLM），config/`--provider`/对话内 `/model` 三种切法，切换保留上下文。
@@ -73,6 +78,8 @@ Session v5 保持不变。TaskPlan 首批为 `null`，不从自然语言猜测�
 - **M34 运行观测**：Conversation 与 trajectory 展示事实分离；RunState v11 权威持久化上下文压力、
   provider usage/cache、monotonic 阶段耗时和安全轨迹；缺失指标保持 null，不展示 hidden reasoning，
   不改变权限、恢复或终态语义。
+- **M35-R1 历史关联**：公开消息以 nullable `run_id` 关联原 Run；重启后可从权威 RunSnapshot 恢复
+  创建时间、执行模型和既有观测详情，fork 不继承源 Run ownership。
 - **工具**：读/写/局部编辑/列目录/shell/代码检索/git 只读/用户澄清，以及带来源的
   `web_search`/`fetch_url`；搜索 backend 可替换，抓取含 SSRF、重定向和响应上限防护。
 - **命令层**：slash 命令系统本地拦截不花 token；`/skills` 与 `/mcp` 支持列出、安装、诊断、
@@ -463,6 +470,17 @@ D14，M9c 已还清 D9，M10a 已还清 D16，M10b 已还清 D8，M11a 已还清
 > Agent service contract 升为 v2，Event v1 保持不变，未修改 Loop。859 passed、10 skipped、覆盖率 84%；
 > Ruff、mypy、12/12 import-linter、scripted 23/23、recovery 4/4 全绿；生产 Python 19,753 行/138 文件，
 > eval 基础设施 1,411 行。旧测试状态须按交接文档备份后清理。
+
+### 第二十五阶段（Agent R1 已完成）
+
+| 里程碑 | 主题 | 状态 |
+|--------|------|------|
+| M35-R1 Agent | 历史消息与 Run 权威关联 | ✅ Agent · [API 交接](docs/archive/phase25/m35-r1-agent-api-handoff.md) |
+
+> **M35-R1 Agent 已完成**：`PublicMessageSnapshot.run_id` 连接历史 user/assistant 消息与原 Run；
+> `RunSnapshot.created_at/execution_model` 从既有 v11 checkpoint 安全投影，重启可恢复。旧消息保持 null，
+> fork 强制清空，Service/Session/RunState/Event 版本均不提升，未修改 Loop。R1 不增加 TraceStore、
+> Session trajectory 分页或敏感工具载荷持久化。
 
 ## 未来方向（P3，信号驱动，暂不做）
 

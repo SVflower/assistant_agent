@@ -26,6 +26,7 @@ from assistant_agent.contracts.capabilities import (
 from assistant_agent.contracts.charts import (
     AssistantMessageSnapshot,
     ChartSpecV2,
+    ExecutionModelSnapshot,
     PendingInteractionSnapshot,
     PresentationArtifactRefV2,
     RunSnapshot,
@@ -175,6 +176,7 @@ __all__ = [
     "ArtifactNotFoundError",
     "ArtifactUnavailableError",
     "AssistantMessageSnapshot",
+    "ExecutionModelSnapshot",
     "AllowedAction",
     "ApprovalChoice",
     "ApprovalDecision",

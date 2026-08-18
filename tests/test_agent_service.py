@@ -32,6 +32,7 @@ from assistant_agent.service import (
     SessionBusyError,
     SessionNotFoundError,
     SessionRunConflictError,
+    sync_terminal_session,
 )
 from tests.support import ToolBudget
 
@@ -179,6 +180,40 @@ def test_public_facade_runs_and_syncs_terminal_session(tmp_path, monkeypatch):
         session_runtime.close()
 
 
+def test_history_messages_bind_to_run_and_terminal_sync_is_idempotent(tmp_path, monkeypatch):
+    service = AgentService(config_path=_config(tmp_path, monkeypatch), workspace_root=tmp_path)
+    session_runtime = service.create_session()
+    other_runtime = service.create_session()
+    try:
+        execution = session_runtime.start_run("history")
+        assert list(execution.events)[-1].terminal_status == "completed"
+        first = session_runtime.snapshot()
+        assert [message.role for message in first.messages] == ["user", "assistant"]
+        assert {message.run_id for message in first.messages} == {execution.run_id}
+
+        coordinator = session_runtime._load_coordinator(execution.run_id)  # noqa: SLF001
+        sync_terminal_session(
+            coordinator,
+            session_runtime.runtime.session_store,
+            session_runtime.session,
+        )
+        repeated = session_runtime.snapshot()
+        assert repeated.messages == first.messages
+
+        snapshot = session_runtime.run_snapshot(execution.run_id)
+        assert snapshot.created_at
+        assert snapshot.execution_model is not None
+        assert snapshot.execution_model.model_dump() == {
+            "provider": "fake",
+            "model": "openai/fake",
+        }
+        with pytest.raises(ArtifactNotFoundError, match="不属于当前 Session"):
+            other_runtime.run_snapshot(execution.run_id)
+    finally:
+        session_runtime.close()
+        other_runtime.close()
+
+
 def test_run_observability_is_authoritative_in_events_snapshot_and_checkpoint(
     tmp_path, monkeypatch
 ):
@@ -186,8 +221,11 @@ def test_run_observability_is_authoritative_in_events_snapshot_and_checkpoint(
     monkeypatch.setattr(runtime_module, "LLMClient", _UsageClient)
     service = AgentService(config_path=config, workspace_root=tmp_path)
     session_runtime = service.create_session(interaction=SafeDefaultInteractionPort())
+    run_id = ""
+    session_id = session_runtime.session.id
     try:
         execution = session_runtime.start_run("observe")
+        run_id = execution.run_id
         events = list(execution.events)
         terminal = events[-1]
         snapshot = session_runtime.run_snapshot(execution.run_id)
@@ -210,6 +248,21 @@ def test_run_observability_is_authoritative_in_events_snapshot_and_checkpoint(
         assert "api_key" not in serialized
     finally:
         session_runtime.close()
+
+    recovered = service.load_session(session_id)
+    try:
+        snapshot = recovered.run_snapshot(run_id)
+        assert snapshot.created_at == checkpoint["created_at"]
+        assert snapshot.execution_model is not None
+        assert snapshot.execution_model.model_dump() == {
+            "provider": "fake",
+            "model": "openai/fake",
+        }
+        assert snapshot.observability is not None
+        assert snapshot.observability.model_usage.input_tokens == 120
+        assert {message.run_id for message in recovered.snapshot().messages} == {run_id}
+    finally:
+        recovered.close()
 
 
 def test_native_artifact_writer_captures_stream_without_assistant_delta(tmp_path, monkeypatch):

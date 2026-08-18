@@ -34,6 +34,7 @@ from assistant_agent.contracts.capabilities import RuntimeCapabilities
 from assistant_agent.contracts.charts import (
     AssistantMessageSnapshot,
     ChartArtifactV2,
+    ExecutionModelSnapshot,
     PendingInteractionSnapshot,
     PresentationArtifactRefV2,
     RunSnapshot,
@@ -362,6 +363,7 @@ def _synchronize_run_ledger(session: Session, state: RunState) -> None:
             PublicMessageSnapshot(
                 id=message_id,
                 role=role,
+                run_id=state.run_id,
                 created_at=created_at,
                 reply_to_message_id=reply_to,
                 content=(
@@ -384,6 +386,7 @@ def _synchronize_run_ledger(session: Session, state: RunState) -> None:
             PublicMessageSnapshot(
                 id=artifact_message_id,
                 role="assistant",
+                run_id=state.run_id,
                 created_at=state.updated_at,
                 reply_to_message_id=current_user_id,
                 content="",
@@ -401,6 +404,7 @@ def _synchronize_run_ledger(session: Session, state: RunState) -> None:
             PublicMessageSnapshot(
                 id=output_message_id,
                 role="assistant",
+                run_id=state.run_id,
                 created_at=state.updated_at,
                 reply_to_message_id=current_user_id,
                 content="",
@@ -665,6 +669,11 @@ class SessionRuntime:
         return RunSnapshot(
             id=run_id,
             session_id=state.session_id,
+            created_at=state.created_at,
+            execution_model=ExecutionModelSnapshot(
+                provider=state.provider,
+                model=state.model,
+            ),
             status=state.status,
             phase=state.phase,
             updated_at=state.updated_at,

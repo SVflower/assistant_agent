@@ -71,9 +71,16 @@ class PendingInteractionSnapshot(_StrictModel):
     call_id: str | None = None
 
 
+class ExecutionModelSnapshot(_StrictModel):
+    provider: str = Field(min_length=1, max_length=200)
+    model: str = Field(min_length=1, max_length=300)
+
+
 class RunSnapshot(_StrictModel):
     id: str
     session_id: str | None = None
+    created_at: str
+    execution_model: ExecutionModelSnapshot | None = None
     status: Literal["running", "paused", "cancelled", "completed", "failed"]
     phase: str
     updated_at: str
@@ -102,6 +109,7 @@ __all__ = [
     "AssistantMessageSnapshot",
     "ChartArtifactV2",
     "ChartSpecV2",
+    "ExecutionModelSnapshot",
     "MAX_ARTIFACT_BYTES",
     "MAX_RUN_ARTIFACT_BYTES",
     "MAX_RUN_ARTIFACTS",

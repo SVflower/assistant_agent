@@ -40,6 +40,7 @@ def test_service_public_exports_baseline():
         "AttachmentUnavailableError",
         "AttachmentUploadV1",
         "AssistantMessageSnapshot",
+        "ExecutionModelSnapshot",
         "ChartArtifactV2",
         "ChartSpecV2",
         "DatasetColumnV1",

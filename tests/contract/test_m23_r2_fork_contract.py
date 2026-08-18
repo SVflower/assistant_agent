@@ -89,12 +89,14 @@ def _source_with_three_turns(store: SessionStore):
                 PublicMessageSnapshot(
                     id=user_id,
                     role="user",
+                    run_id=f"run-source-{index}",
                     created_at=None,
                     content=_content(f"user-{index}"),
                 ),
                 PublicMessageSnapshot(
                     id=assistant_id,
                     role="assistant",
+                    run_id=f"run-source-{index}",
                     created_at=None,
                     reply_to_message_id=user_id,
                     content=f"assistant-{index}",
@@ -167,6 +169,8 @@ def test_fork_uses_exclusive_user_boundaries_and_ignores_compaction(
     assert [item.content for item in forked.message_ledger] == [
         item.content for item in source.message_ledger[:expected_count]
     ]
+    assert all(item.run_id is None for item in forked.message_ledger)
+    assert all(item.run_id is not None for item in source.message_ledger)
     for message in forked.message_ledger:
         if message.role == "assistant":
             assert message.reply_to_message_id in {
@@ -211,6 +215,7 @@ def test_fork_deep_copies_artifact_and_rebinds_public_identity(tmp_path):
         PublicMessageSnapshot(
             id=artifact.message_id,
             role="assistant",
+            run_id="run-source",
             reply_to_message_id=user_id,
             content="ready",
             artifacts=(artifact.ref,),
@@ -234,6 +239,7 @@ def test_fork_deep_copies_artifact_and_rebinds_public_identity(tmp_path):
     assert cloned.message_id == forked.message_ledger[1].id
     assert cloned.created_at == forked.created_at
     assert forked.message_ledger[1].artifacts == (cloned.ref,)
+    assert all(message.run_id is None for message in forked.message_ledger)
     assert store.load(source.id) == source_before
 
 

@@ -81,6 +81,7 @@ class UpdateSessionMetadataRequest(_StrictModel):
 class PublicMessageSnapshot(_StrictModel):
     id: str = Field(pattern=r"^msg_[a-f0-9]{24}$")
     role: Literal["user", "assistant"]
+    run_id: str | None = Field(default=None, min_length=1, max_length=200)
     created_at: str | None = None
     reply_to_message_id: str | None = Field(default=None, pattern=r"^msg_[a-f0-9]{24}$")
     content: str | MessageContentV1 = ""
@@ -158,9 +159,21 @@ class SessionSnapshot(_StrictModel):
             ):
                 raise ValueError("message Artifact 归属不一致")
             if any(
+                message.run_id is not None
+                and ref.run_id is not None
+                and ref.run_id != message.run_id
+                for ref in message.artifacts
+            ):
+                raise ValueError("message Artifact Run 归属不一致")
+            if any(
                 ref.session_id != self.id or ref.message_id != message.id for ref in message.outputs
             ):
                 raise ValueError("message Output 归属不一致")
+            if any(
+                message.run_id is not None and ref.run_id != message.run_id
+                for ref in message.outputs
+            ):
+                raise ValueError("message Output Run 归属不一致")
         if any(ref.session_id != self.id for ref in self.artifacts):
             raise ValueError("Session Artifact 归属不一致")
         if any(ref.session_id != self.id for ref in self.outputs):

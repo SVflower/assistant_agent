@@ -92,6 +92,7 @@ def build_forked_session(
             PublicMessageSnapshot(
                 id=new_id,
                 role=message.role,
+                run_id=None,
                 created_at=message.created_at,
                 reply_to_message_id=reply_to,
                 content=message.content,

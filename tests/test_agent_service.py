@@ -29,6 +29,7 @@ from assistant_agent.service import (
     RunNotRetryableError,
     RunStillActiveError,
     RuntimeConfigError,
+    RuntimePolicy,
     SessionBusyError,
     SessionNotFoundError,
     SessionRunConflictError,
@@ -906,6 +907,15 @@ class _ChartThenFailClient(_ChartClient):
         raise RuntimeError("provider failed after chart")
 
 
+class _ChartThenEmptyClient(_ChartClient):
+    def complete_stream(self, messages, tools=None) -> Iterator[StreamEvent]:
+        if self.calls == 0:
+            yield from super().complete_stream(messages, tools)
+            return
+        self.calls += 1
+        yield from ()
+
+
 class _InvalidChartTwiceClient:
     def __init__(self, _provider) -> None:
         self.calls = 0
@@ -1016,6 +1026,42 @@ def test_failed_run_keeps_chart_bound_to_authoritative_assistant_message(tmp_pat
         assert message.content == ""
         assert message.artifacts == (chart.ref,)
         assert message.reply_to_message_id == snapshot.messages[0].id
+    finally:
+        session_runtime.close()
+
+
+def test_empty_provider_failure_keeps_completed_chart_artifact(tmp_path, monkeypatch):
+    config = _config(tmp_path, monkeypatch)
+    config.write_text(
+        "active: fake\nproviders:\n  fake:\n    model: openai/fake\n    context_window: 200000\n"
+        "agent:\n  max_context_tokens: 200000\nsandbox:\n  mode: workspace\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(runtime_module, "LLMClient", _ChartThenEmptyClient)
+    session_runtime = AgentService(
+        config_path=config,
+        workspace_root=tmp_path,
+        runtime_policy=RuntimePolicy.web(),
+    ).create_session()
+    try:
+        execution = session_runtime.start_run("画图后返回空响应")
+        events = list(execution.events)
+        chart_events = [item.chart for item in events if item.chart is not None]
+        assert chart_events, [
+            (item.kind, item.tool_name, item.result_code, item.text) for item in events
+        ]
+        chart = chart_events[0]
+        terminal = events[-1]
+
+        assert terminal.kind == "run_terminal"
+        assert terminal.terminal_status == "failed"
+        assert terminal.failure is not None
+        assert terminal.failure.code == "provider_empty_response"
+        assert session_runtime.get_artifact(chart.artifact_id) == chart
+        snapshot = session_runtime.snapshot()
+        message = next(item for item in snapshot.messages if item.id == chart.message_id)
+        assert message.artifacts == (chart.ref,)
+        assert session_runtime.run_snapshot(execution.run_id).artifacts == (chart.ref,)
     finally:
         session_runtime.close()
 
@@ -1308,6 +1354,53 @@ class _ProviderFailureClient:
 
     def complete_stream(self, messages, tools=None):
         yield StreamEvent(kind="error", text="secret raw exception")
+
+
+class _EmptyProviderClient:
+    instances: list[_EmptyProviderClient] = []
+
+    def __init__(self, _provider) -> None:
+        self.calls = 0
+        self.messages: list[list[dict]] = []
+        self.__class__.instances.append(self)
+
+    def complete_stream(self, messages, tools=None):
+        self.calls += 1
+        self.messages.append([dict(message) for message in messages])
+        yield from ()
+
+
+def test_service_empty_provider_response_persists_one_failed_terminal(tmp_path, monkeypatch):
+    config = _config(tmp_path, monkeypatch)
+    _EmptyProviderClient.instances.clear()
+    monkeypatch.setattr(runtime_module, "LLMClient", _EmptyProviderClient)
+    session_runtime = AgentService(config_path=config, workspace_root=tmp_path).create_session()
+    try:
+        execution = session_runtime.start_run("empty")
+        events = list(execution.events)
+        client = _EmptyProviderClient.instances[-1]
+        terminals = [event for event in events if event.kind == "run_terminal"]
+
+        assert client.calls == 2
+        assert len(client.messages[1]) == len(client.messages[0]) + 1
+        assert client.messages[1][-1]["role"] == "user"
+        assert len(terminals) == 1
+        assert terminals[0].terminal_status == "failed"
+        assert terminals[0].failure is not None
+        assert terminals[0].failure.code == "provider_empty_response"
+        assert terminals[0].failure.phase == "calling_model"
+        assert terminals[0].failure.retryable is True
+        assert not any(event.kind == "final" for event in events)
+
+        snapshot = session_runtime.run_snapshot(execution.run_id)
+        assert snapshot.status == "failed"
+        assert snapshot.failure == terminals[0].failure
+        assert all(
+            message.content != "（模型未返回内容）"
+            for message in session_runtime.snapshot().messages
+        )
+    finally:
+        session_runtime.close()
 
 
 def test_service_failed_terminal_is_unique_and_structured(tmp_path, monkeypatch):

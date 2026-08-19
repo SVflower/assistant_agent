@@ -3,7 +3,7 @@
 import pytest
 from pydantic import ValidationError
 
-from assistant_agent.agent.run.failures import budget_failure, tool_failure
+from assistant_agent.agent.run.failures import budget_failure, provider_failure, tool_failure
 from assistant_agent.service import RunFailure
 
 
@@ -30,6 +30,20 @@ def test_non_terminal_tool_failure_does_not_claim_run_terminal() -> None:
     failure = tool_failure("tool_exception", retryable=True)
 
     assert failure.terminal_status is None
+
+
+def test_empty_provider_response_is_a_stable_retryable_failure() -> None:
+    failure = provider_failure(
+        "provider_empty_response",
+        "模型连续两次未返回可用内容。",
+        retryable=True,
+    )
+
+    assert failure.code == "provider_empty_response"
+    assert failure.phase == "calling_model"
+    assert failure.retryable is True
+    assert failure.terminal_status == "failed"
+    assert failure.allowed_actions == ("retry_run", "stop")
 
 
 def test_failure_model_rejects_extra_sensitive_fields() -> None:

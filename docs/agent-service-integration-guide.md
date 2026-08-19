@@ -7,10 +7,32 @@
 > 当前公共事件契约：`EVENT_CONTRACT_VERSION == 1`；Session 服务契约：
 > `SESSION_CONTRACT_VERSION == 5`；当前 Run checkpoint：schema v11；当前 Session 文档：schema v5；
 > 当前 Output contract：v1。
-> 最近同步：M35-R1 历史运行关联（2026-08-19）。
+> 最近同步：空 Provider 响应失败语义（2026-08-19）。
 >
 > **破坏性契约版本：`AGENT_SERVICE_CONTRACT_VERSION = 5`。** Agent 只读取和写入 RunState v11、
 > Session v5、Chart V2、Attachment/Content v1 和 Output v1；旧状态不迁移。
+
+## 空 Provider 响应
+
+Provider 一次调用正常结束但既无文本也无 `tool_calls` 时，Agent 在同一 Run、同一模型轮次边界内做
+一次有界修正请求。修正提示只存在于第二次 Provider 请求，不进入 Conversation、Session、checkpoint
+或公共事件；既有消息已包含完成的工具调用及结果，Agent 不重放工具。第一次为空、第二次返回文本或
+工具调用时，Run 按原流程继续。
+
+连续两次为空时，Agent 不再写入“模型未返回内容”占位符，也不得标记 completed。权威终态为唯一：
+
+```text
+run_terminal.terminal_status = failed
+run_terminal.failure.code = provider_empty_response
+run_terminal.failure.phase = calling_model
+run_terminal.failure.retryable = true
+run_terminal.failure.allowed_actions = [retry_run, stop]
+```
+
+空响应前已经完成的工具事实、Chart Artifact 和 Output Artifact 继续保留。重试前若收到 pause/cancel，
+优先按既有控制语义结束，不产生 `provider_empty_response`。API/Web 应按稳定 code 展示可重试失败，不解析
+`safe_message`，不在 API 层自动再试，不合成第二个 terminal。该扩展保持 Service v5、Session v5、
+RunState v11、Event v1 不变。
 
 ## M35-R1 历史运行关联
 
@@ -725,7 +747,7 @@ terminal_status, phase, unknown_side_effect
 ```text
 tool_output_budget_exhausted | tool_call_budget_exhausted |
 iteration_limit_reached | context_limit_exceeded |
-provider_rate_limited | provider_unavailable | provider_timeout |
+provider_rate_limited | provider_unavailable | provider_timeout | provider_empty_response |
 tool_failed | permission_denied | dependency_unavailable | internal_error
 ```
 

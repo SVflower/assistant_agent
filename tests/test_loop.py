@@ -4,12 +4,18 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 
+import pytest
+
 from assistant_agent.agent.loop import AgentLoop
 from assistant_agent.agent.run.failures import ContinuationResult
+from assistant_agent.agent.run.ports import ControlState
+from assistant_agent.agent.turn import stream_model_turn
 from assistant_agent.config.schema import AppConfig
+from assistant_agent.execution import RunControl
 from assistant_agent.observability import NullLogger
 from assistant_agent.providers.ports import StreamEvent, ToolCall
 from assistant_agent.tools.registry import ToolRegistry, build_default_registry
+from assistant_agent.tools.runtime_inspection import InspectRuntimeTool
 from tests.support import Tool, ToolContextFixture, ToolResult
 
 
@@ -97,6 +103,100 @@ def test_loop_finishes_without_tools():
     assert events[-1].kind == "final"
     assert events[-1].text == "任务完成了。"
     assert client.calls == 1
+
+
+def test_loop_retries_one_empty_response_then_completes():
+    client = FakeStreamClient([[], _text_round("重试后完成。")])
+
+    events = list(_loop(client).run("继续任务"))
+
+    assert events[-1].kind == "final"
+    assert events[-1].text == "重试后完成。"
+    assert client.calls == 2
+
+
+def test_loop_continuous_empty_response_fails_with_stable_code():
+    client = FakeStreamClient([[], []])
+
+    events = list(_loop(client).run("继续任务"))
+
+    assert client.calls == 2
+    assert events[-1].kind == "error"
+    assert events[-1].failure is not None
+    assert events[-1].failure.code == "provider_empty_response"
+    assert events[-1].failure.phase == "calling_model"
+    assert events[-1].failure.retryable is True
+    assert not any(event.kind == "final" for event in events)
+
+
+def test_empty_retry_keeps_completed_ask_and_runtime_inspection_history():
+    client = FakeStreamClient(
+        [
+            _tool_round(
+                ToolCall(
+                    id="ask-1",
+                    name="ask_user",
+                    arguments={"question": "选择数据？", "options": ["模拟数据", "真实数据"]},
+                )
+            ),
+            _tool_round(ToolCall(id="inspect-1", name="inspect_runtime", arguments={})),
+            [],
+            [],
+        ]
+    )
+    registry = build_default_registry()
+    registry.register(
+        InspectRuntimeTool(
+            sandbox="host",
+            tool_names=lambda: tuple(registry.names()),
+            skills=lambda: (),
+            mcp_servers=lambda: (),
+        )
+    )
+    loop = AgentLoop(
+        _config(),
+        client,
+        registry,
+        ToolContextFixture(confirm=lambda _message: "allow", ask=lambda _q, options: options[0]),
+    )
+
+    events = list(loop.run("展示 SPC"))
+
+    calls = [event.tool_name for event in events if event.kind == "tool_call"]
+    results = [event.tool_name for event in events if event.kind == "tool_result"]
+    assert calls == ["ask_user", "inspect_runtime"]
+    assert results == calls
+    assert client.calls == 4
+    assert events[-1].failure is not None
+    assert events[-1].failure.code == "provider_empty_response"
+    assert sum(event.kind == "error" for event in events) == 1
+
+
+@pytest.mark.parametrize("requested", [ControlState.PAUSE_REQUESTED, ControlState.CANCEL_REQUESTED])
+def test_empty_response_does_not_retry_after_pause_or_cancel(requested):
+    control = RunControl()
+
+    class _InterruptAfterEmptyClient(FakeStreamClient):
+        def complete_stream(self, messages, tools=None):
+            if requested is ControlState.PAUSE_REQUESTED:
+                control.request_pause()
+            else:
+                control.request_cancel()
+            yield from ()
+
+    result_events = stream_model_turn(
+        _InterruptAfterEmptyClient([[]]),
+        messages=[{"role": "user", "content": "task"}],
+        tools=[],
+        control_state=lambda: control.state,
+    )
+
+    with pytest.raises(StopIteration) as stopped:
+        while True:
+            next(result_events)
+
+    assert stopped.value.value.control_state is requested
+    assert stopped.value.value.failure is None
 
 
 def test_loop_streams_content_deltas():

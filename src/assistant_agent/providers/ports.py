@@ -15,6 +15,7 @@ ProviderFailureCode = Literal[
     "provider_rate_limited",
     "provider_unavailable",
     "provider_timeout",
+    "provider_empty_response",
     "internal_error",
 ]
 

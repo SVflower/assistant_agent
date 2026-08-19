@@ -7,6 +7,7 @@ Loop 和 Registry 只报告语义事件，例如“模型调用前”或“工�
 from __future__ import annotations
 
 import json
+import time
 from collections.abc import Callable, Sequence
 from copy import deepcopy
 from typing import Any, Literal
@@ -167,10 +168,18 @@ class RunCoordinator(ContinuationStateMixin, DefinitionStateMixin):
         return self.state.run_id
 
     def checkpoint(self) -> None:
+        started = time.monotonic()
         self.state.updated_at = now_iso()
+        self._observability.begin_checkpoint()
         self.state.observability = self._observability.checkpoint_snapshot()
         validated = RunState.model_validate(self.state.model_dump(mode="python"))
-        self.store.save(self.run_id, validated.model_dump(mode="json"))
+        try:
+            payload_bytes = self.store.save(self.run_id, validated.model_dump(mode="json"))
+        except BaseException:
+            self._observability.rollback_checkpoint()
+            raise
+        duration_ms = max(0, round((time.monotonic() - started) * 1000))
+        self._observability.record_checkpoint(duration_ms, payload_bytes)
         self.state = validated
         self._logger.run_checkpoint(
             run_id=self.run_id,
@@ -196,24 +205,24 @@ class RunCoordinator(ContinuationStateMixin, DefinitionStateMixin):
         self._observability.resume(now_iso())
         self.checkpoint()
 
-    def observability_snapshot(self) -> RunObservabilitySnapshot:
-        return self.state.observability
+    def observability_snapshot(self, *, persisted: bool = False) -> RunObservabilitySnapshot:
+        return self.state.observability if persisted else self._observability.current_snapshot()
 
     def observe_context(self, report: dict[str, int]) -> None:
         self._observability.update_estimated_context(report)
-        self.checkpoint()
 
     def observe_content_signal(self) -> None:
-        if self._observability.first_model_signal(now_iso()):
-            self.checkpoint()
+        self._observability.first_model_signal(now_iso())
 
     def observe_usage(self, usage: dict[str, int]) -> None:
-        if self._observability.observe_usage(usage):
-            self.checkpoint()
+        self._observability.observe_usage(usage)
 
     def observe_activity(self, phase: str) -> None:
         self._observability.record_phase(phase, now_iso())
-        self.checkpoint()
+
+    def finish_session_sync(self, duration_ms: int) -> None:
+        self._observability.record_session_sync(duration_ms)
+        self._observability.finish_session_sync(now_iso())
 
     def bind_tool_context(self, ctx: ToolContext) -> None:
         self._tool_context = ctx

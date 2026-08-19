@@ -43,6 +43,17 @@ class TimingSnapshot(_StrictModel):
         return value
 
 
+class OrchestrationTimingSnapshot(_StrictModel):
+    """Agent 自身编排与持久化开销；缺少稳定来源的值保持 ``None``。"""
+
+    context_build_duration_ms: int | None = Field(default=None, ge=0)
+    checkpoint_count: int | None = Field(default=None, ge=0)
+    checkpoint_duration_ms: int | None = Field(default=None, ge=0)
+    checkpoint_bytes: int | None = Field(default=None, ge=0)
+    session_sync_duration_ms: int | None = Field(default=None, ge=0)
+    source: Literal["derived", "unavailable"] = "unavailable"
+
+
 class ContextUsageSnapshot(_StrictModel):
     used_tokens: int | None = Field(default=None, ge=0)
     projected_tokens: int | None = Field(default=None, ge=0)
@@ -148,6 +159,7 @@ class RunObservabilitySnapshot(_StrictModel):
     timing: TimingSnapshot
     context: ContextUsageSnapshot
     model_usage: ModelUsageSnapshot
+    orchestration: OrchestrationTimingSnapshot = Field(default_factory=OrchestrationTimingSnapshot)
     trajectory: tuple[TrajectoryEntry, ...] = Field(max_length=MAX_TRAJECTORY_ENTRIES)
     task_plan: TaskPlanSnapshot | None = None
     truncated: bool = False
@@ -171,6 +183,7 @@ __all__ = [
     "ContextUsageSnapshot",
     "MetricSource",
     "ModelUsageSnapshot",
+    "OrchestrationTimingSnapshot",
     "RunObservabilitySnapshot",
     "TaskPlanItem",
     "TaskPlanSnapshot",

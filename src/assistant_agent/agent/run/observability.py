@@ -58,8 +58,15 @@ class RunObservabilityRecorder:
         self._monotonic = monotonic
         self._last_tick = monotonic()
         self._active: dict[str, tuple[str, float | None]] = {}
+        self._phase_spans: dict[str, tuple[str, float | None]] = {}
         for entry in self._entries:
             if entry.status not in _FINISHED:
+                if entry.category == "run" and entry.result_code in {
+                    "preparing_context",
+                    "syncing_session",
+                }:
+                    self._phase_spans[entry.result_code] = (entry.entry_id, None)
+                    continue
                 self._active[self._key(entry.category, entry.call_id)] = (entry.entry_id, None)
         usage = snapshot.model_usage
         self._model_base_input = usage.input_tokens or 0
@@ -73,6 +80,11 @@ class RunObservabilityRecorder:
         self._model_first_token_mono: float | None = None
         self._model_reported_duration_ms: int | None = None
         self._model_reported_ttft_ms: int | None = None
+        self._checkpoint_bytes_known = (
+            snapshot.orchestration.checkpoint_count in {None, 0}
+            or snapshot.orchestration.checkpoint_bytes is not None
+        )
+        self._last_checkpoint_duration_ms: int | None = None
 
     @property
     def snapshot_value(self) -> RunObservabilitySnapshot:
@@ -284,9 +296,64 @@ class RunObservabilityRecorder:
     def record_phase(self, phase: str, timestamp: str) -> None:
         if phase == "waiting_interaction":
             self.start_interaction("runtime", "Waiting for interaction", timestamp)
-        elif phase in {"preparing_context", "saving_checkpoint", "syncing_session"}:
+        elif phase == "preparing_context":
             self.finish_interactions(timestamp)
-            self._instant("run", phase.replace("_", " ").title(), timestamp, result_code=phase)
+            self._start_phase(phase, "Preparing context", timestamp)
+        elif phase == "calling_model":
+            self._finish_phase("preparing_context", timestamp)
+        elif phase == "syncing_session":
+            self.finish_interactions(timestamp)
+            self._start_phase(phase, "Syncing session", timestamp)
+        elif phase == "saving_checkpoint":
+            self.finish_interactions(timestamp)
+            self._instant(
+                "run",
+                "Saving checkpoint",
+                timestamp,
+                result_code=phase,
+                duration_ms=self._last_checkpoint_duration_ms,
+            )
+
+    def begin_checkpoint(self) -> None:
+        current = self._snapshot.orchestration
+        self._set_orchestration(
+            checkpoint_count=(current.checkpoint_count or 0) + 1,
+            source="derived",
+        )
+
+    def rollback_checkpoint(self) -> None:
+        current = self._snapshot.orchestration
+        count = current.checkpoint_count or 0
+        self._set_orchestration(checkpoint_count=max(0, count - 1) or None)
+
+    def record_checkpoint(self, duration_ms: int, payload_bytes: int | None) -> None:
+        current = self._snapshot.orchestration
+        if payload_bytes is None:
+            self._checkpoint_bytes_known = False
+        total_bytes = (
+            (current.checkpoint_bytes or 0) + payload_bytes
+            if self._checkpoint_bytes_known and payload_bytes is not None
+            else None
+        )
+        self._set_orchestration(
+            checkpoint_duration_ms=(current.checkpoint_duration_ms or 0) + duration_ms,
+            checkpoint_bytes=total_bytes,
+            source="derived",
+        )
+        self._last_checkpoint_duration_ms = duration_ms
+
+    def finish_session_sync(self, timestamp: str) -> None:
+        self._finish_phase("syncing_session", timestamp)
+
+    def record_session_sync(self, duration_ms: int) -> None:
+        current = self._snapshot.orchestration.session_sync_duration_ms
+        self._set_orchestration(
+            session_sync_duration_ms=(current or 0) + duration_ms,
+            source="derived",
+        )
+
+    def current_snapshot(self) -> RunObservabilitySnapshot:
+        return self._snapshot.model_copy(update={"trajectory": tuple(self._entries)})
 
     def update_estimated_context(self, report: Mapping[str, int]) -> None:
         projected = _nonnegative(report.get("used"))
@@ -346,6 +413,37 @@ class RunObservabilityRecorder:
         )
         return self._snapshot
 
+    def _start_phase(self, phase: str, title: str, timestamp: str) -> None:
+        if phase in self._phase_spans:
+            return
+        sequence = self._next_sequence()
+        entry = TrajectoryEntry(
+            entry_id=_entry_id(self.run_id, sequence),
+            sequence=sequence,
+            category="run",
+            status="started",
+            title=title,
+            started_at=timestamp,
+            result_code=phase,
+        )
+        self._append(entry)
+        self._phase_spans[phase] = (entry.entry_id, self._monotonic())
+
+    def _finish_phase(self, phase: str, timestamp: str) -> None:
+        active = self._phase_spans.pop(phase, None)
+        if active is None:
+            return
+        duration = _elapsed_ms(active[1], self._monotonic()) if active[1] is not None else None
+        self._replace_entry(
+            active[0], status="completed", completed_at=timestamp, duration_ms=duration
+        )
+        if phase == "preparing_context" and duration is not None:
+            current = self._snapshot.orchestration.context_build_duration_ms
+            self._set_orchestration(
+                context_build_duration_ms=(current or 0) + duration,
+                source="derived",
+            )
+
     def _start(
         self,
         category: TrajectoryCategory,
@@ -382,6 +480,7 @@ class RunObservabilityRecorder:
         call_id: str | None = None,
         result_code: str | None = None,
         status: TrajectoryStatus = "completed",
+        duration_ms: int | None = 0,
     ) -> None:
         sequence = self._next_sequence()
         self._append(
@@ -393,7 +492,7 @@ class RunObservabilityRecorder:
                 title=title[:160],
                 started_at=timestamp,
                 completed_at=timestamp,
-                duration_ms=0,
+                duration_ms=duration_ms,
                 call_id=call_id,
                 result_code=result_code,
             )
@@ -443,6 +542,16 @@ class RunObservabilityRecorder:
                 )
         for key in list(self._active):
             self._finish(key, status, timestamp)
+        for phase, (entry_id, started) in list(self._phase_spans.items()):
+            self._replace_entry(
+                entry_id,
+                status=status,
+                completed_at=timestamp,
+                duration_ms=(
+                    _elapsed_ms(started, self._monotonic()) if started is not None else None
+                ),
+            )
+            self._phase_spans.pop(phase, None)
 
     def _append(self, entry: TrajectoryEntry) -> None:
         self._entries.append(entry)
@@ -469,6 +578,10 @@ class RunObservabilityRecorder:
         self._snapshot = self._snapshot.model_copy(
             update={"timing": self._snapshot.timing.model_copy(update=changes)}
         )
+
+    def _set_orchestration(self, **changes: object) -> None:
+        value = self._snapshot.orchestration.model_copy(update=changes)
+        self._snapshot = self._snapshot.model_copy(update={"orchestration": value})
 
 
 def _entry_id(run_id: str, sequence: int) -> str:

@@ -31,6 +31,10 @@ Service v5、Session v5、RunState v11、Observability v1、Event v1；能力受
 X/Y 轴标题，时间、类别和数值轴语义受控；模型提示要求单位与 SPC 子图语义完整。所有公共版本不变，
 Web 按 `docs/archive/phase27/m36-chart-axis-api-handoff.md` 实现尺寸感知布局。
 
+**Performance Foundation P0 当前状态**：Observability v1 additive 增加 context build、checkpoint 与
+Session sync 分段；纯 telemetry 不再单独 fsync。确定性 checkpoint 回归为 4/9/14，真实两轮工具基线
+约 29 次降至 9 次。Chart 草稿补齐无歧义单系列 line/area/bar。所有公共版本不变，未修改 Loop。
+
 **已具备能力**：
 - **模型**：后端可切换（云端 OpenAI 兼容 / Anthropic / 本地 LM Studio·Ollama·vLLM），config/`--provider`/对话内 `/model` 三种切法，切换保留上下文。
 - **交互**：15 FPS 流式 Markdown + 语义工具摘要 + normal/verbose/quiet + `/display`/`run --quiet`；normal 过程文本只在活动区显示、最终回答才落屏；Write/Edit 权限前有界代码预览/结构化 diff，代码底板与增删行背景明确分区；全宽输入边界与会话启停 ID；思考状态、耗时/token、上下文占用与 Ctrl+C 中断。
@@ -493,6 +497,7 @@ D14，M9c 已还清 D9，M10a 已还清 D16，M10b 已还清 D8，M11a 已还清
 | 里程碑 | 主题 | 状态 |
 |--------|------|------|
 | M36 Agent | 图表轴语义与自适应布局契约 | ✅ Agent · [API/Web 交接](docs/archive/phase27/m36-chart-axis-api-handoff.md) |
+| Performance P0 | 编排归因、checkpoint 收敛、单系列图表草稿 | ✅ Agent |
 
 > **M36 Agent 已完成**：沿用 ChartSpecV2 的 `AxisSpecV1.title`、`DatasetColumnV1.unit` 和受控 scale，
 > 不新增 renderer 字段。紧凑草稿归一化现在为普通图、多轴、多面板、histogram、boxplot、percent stack

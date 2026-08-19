@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from assistant_agent.agent.run.observability import RunObservabilityRecorder, new_observability
+from assistant_agent.contracts.observability import RunObservabilitySnapshot
 
 
 class _Clock:
@@ -121,3 +122,71 @@ def test_trajectory_is_bounded_and_marks_truncation() -> None:
     assert snapshot.truncated is True
     assert snapshot.trajectory[0].sequence == 1
     assert snapshot.trajectory[-1].sequence == 301
+
+
+def test_orchestration_spans_and_checkpoint_metrics_are_deterministic() -> None:
+    clock = _Clock()
+    recorder = RunObservabilityRecorder(
+        "run-perf", new_observability("run-perf", "2026-08-17T00:00:00Z"), monotonic=clock
+    )
+    recorder.record_phase("preparing_context", "2026-08-17T00:00:01Z")
+    clock.advance(0.25)
+    recorder.record_phase("calling_model", "2026-08-17T00:00:01.250Z")
+    recorder.begin_checkpoint()
+    recorder.record_checkpoint(12, 1000)
+    recorder.begin_checkpoint()
+    recorder.record_checkpoint(8, 1200)
+    recorder.record_session_sync(7)
+    snapshot = recorder.current_snapshot()
+
+    assert snapshot.orchestration.model_dump() == {
+        "context_build_duration_ms": 250,
+        "checkpoint_count": 2,
+        "checkpoint_duration_ms": 20,
+        "checkpoint_bytes": 2200,
+        "session_sync_duration_ms": 7,
+        "source": "derived",
+    }
+    context_entry = snapshot.trajectory[-1]
+    assert context_entry.result_code == "preparing_context"
+    assert context_entry.duration_ms == 250
+
+
+def test_checkpoint_failure_rolls_back_count() -> None:
+    recorder = RunObservabilityRecorder(
+        "run-rollback", new_observability("run-rollback", "2026-08-17T00:00:00Z")
+    )
+    recorder.begin_checkpoint()
+    recorder.rollback_checkpoint()
+
+    assert recorder.current_snapshot().orchestration.checkpoint_count is None
+
+
+def test_additive_orchestration_defaults_for_existing_v1_snapshot() -> None:
+    payload = new_observability("run-old", "2026-08-17T00:00:00Z").model_dump(mode="json")
+    payload.pop("orchestration")
+
+    restored = RunObservabilitySnapshot.model_validate(payload)
+
+    assert restored.schema_version == 1
+    assert restored.orchestration.checkpoint_count is None
+    assert restored.orchestration.source == "unavailable"
+
+
+def test_recovered_orchestration_span_closes_without_fabricated_duration() -> None:
+    first = RunObservabilityRecorder(
+        "run-phase", new_observability("run-phase", "2026-08-17T00:00:00Z")
+    )
+    first.record_phase("preparing_context", "2026-08-17T00:00:01Z")
+    persisted = first.checkpoint_snapshot()
+
+    recovered = RunObservabilityRecorder("run-phase", persisted)
+    recovered.resume("2026-08-17T01:00:00Z")
+    phase = next(
+        entry
+        for entry in recovered.current_snapshot().trajectory
+        if entry.result_code == "preparing_context"
+    )
+
+    assert phase.status == "paused"
+    assert phase.duration_ms is None

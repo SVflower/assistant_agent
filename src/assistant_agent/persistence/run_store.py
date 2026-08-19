@@ -370,13 +370,13 @@ class RunStore:
         )
         return text.encode("utf-8", errors="strict")
 
-    def save(self, run_id: str, document: dict[str, Any]) -> None:
+    def save(self, run_id: str, document: dict[str, Any]) -> int:
         """首次保存创建 Run；后续保存轮转槽位；tombstone 后永久拒写同 ID。"""
         payload = self._encode(run_id, document)
         session_id = document.get("session_id")
         if session_id is None:
             self._save_with_run_lock(run_id, payload)
-            return
+            return len(payload)
         if not isinstance(session_id, str):
             raise ValueError("Run checkpoint session_id 必须是字符串或 null")
         with self._lifecycle.lock(session_id):
@@ -396,6 +396,7 @@ class RunStore:
                 self._write_manifest_locked(generation, sessions)
                 self._save_with_run_lock(run_id, payload)
                 self._mark_index_epoch_verified_locked()
+        return len(payload)
 
     def _save_with_run_lock(self, run_id: str, payload: bytes) -> None:
         with self._run_lifecycle.lock(run_id):

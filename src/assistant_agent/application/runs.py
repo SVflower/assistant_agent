@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import re
 import threading
+import time
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from typing import Literal, cast
@@ -306,7 +307,10 @@ def sync_terminal_session(
                 outputs=tuple(state.outputs),
             )
         )
+    sync_started = time.monotonic()
     store.save(session, state.messages, must_exist=True)
+    sync_duration_ms = max(0, round((time.monotonic() - sync_started) * 1000))
+    coordinator.finish_session_sync(sync_duration_ms)
     coordinator.mark_session_synced()
     return session
 
@@ -1237,7 +1241,9 @@ class SessionRuntime:
                 pass
 
         if event.kind not in {"reasoning", "content_delta"}:
-            event.observability = coordinator.observability_snapshot()
+            event.observability = coordinator.observability_snapshot(
+                persisted=event.kind == "run_terminal"
+            )
             trajectory = event.observability.trajectory
             event.trajectory_entry = trajectory[-1] if trajectory else None
 

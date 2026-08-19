@@ -18,6 +18,7 @@ def test_public_exports_and_versions_are_additive() -> None:
     assert contracts.AGENT_SERVICE_CONTRACT_VERSION == service.AGENT_SERVICE_CONTRACT_VERSION == 5
     assert contracts.EVENT_CONTRACT_VERSION == service.EVENT_CONTRACT_VERSION == 1
     assert contracts.RunObservabilitySnapshot is service.RunObservabilitySnapshot
+    assert contracts.OrchestrationTimingSnapshot is service.OrchestrationTimingSnapshot
     assert contracts.TrajectoryEntry is service.TrajectoryEntry
 
 

@@ -69,6 +69,7 @@ def test_service_public_exports_baseline():
         "ContextUsageSnapshot",
         "MetricSource",
         "ModelUsageSnapshot",
+        "OrchestrationTimingSnapshot",
         "MessageContentV1",
         "OutputArtifactV1",
         "OutputConflictError",

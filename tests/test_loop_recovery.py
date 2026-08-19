@@ -37,15 +37,16 @@ class CrashStore(RunStore):
         self.before_save = before_save
         self.crashed = False
 
-    def save(self, run_id: str, document: dict[str, Any]) -> None:
+    def save(self, run_id: str, document: dict[str, Any]) -> int:
         should_crash = not self.crashed and self.predicate(document)
         if should_crash and self.before_save:
             self.crashed = True
             raise SimulatedCrash()
-        super().save(run_id, document)
+        payload_bytes = super().save(run_id, document)
         if should_crash:
             self.crashed = True
             raise SimulatedCrash()
+        return payload_bytes
 
 
 class ScriptedClient:

@@ -56,7 +56,7 @@ Agent 状态机。版本保持 Service v5、Session v5、RunState v11、Observab
 
 `RunSnapshot.observability` 是重启、事件缺口和断线恢复后的权威运行观测入口。公共根新增导出
 `OBSERVABILITY_CONTRACT_VERSION == 1`、`RunObservabilitySnapshot`、`TimingSnapshot`、
-`ContextUsageSnapshot`、`ModelUsageSnapshot`、`TrajectoryEntry`、`TaskPlanSnapshot` 和
+`ContextUsageSnapshot`、`ModelUsageSnapshot`、`OrchestrationTimingSnapshot`、`TrajectoryEntry`、`TaskPlanSnapshot` 和
 `TaskPlanItem`。Event v1 与 Service v5 保持不变；Run checkpoint current-only 升为 v11。
 
 `StepEvent` additive 增加 `observability: RunObservabilitySnapshot | None` 与
@@ -69,9 +69,17 @@ Agent 状态机。版本保持 Service v5、Session v5、RunState v11、Observab
 - `timing`：Run/模型/工具/Interaction 累计耗时、TTFT、吞吐及来源；
 - `context`：prompt 侧 used/projected/limit/percent 及 `provider|estimated|unavailable` 来源；
 - `model_usage`：input/output/cache read/cache write/cache hit 与来源；
+- `orchestration`：context build、checkpoint 次数/累计耗时/实际编码字节、Session sync 耗时；
 - `trajectory`：最多 256 条安全阶段事实，超限时 `truncated=true`；
 - `task_plan`：M34 首批始终为 `null`，因为尚无显式整表写入工具；
 - `schema_version=1`。
+
+Performance Foundation P0 对 Observability v1 做向后兼容扩展。旧快照缺少 `orchestration` 时读取为
+`source="unavailable"` 且所有 checkpoint 指标为 null。指标只使用 monotonic 和实际 Store 返回字节数，
+不包含路径、消息、异常文本或模型载荷。`checkpoint_count` 包含承载当前快照的 checkpoint；duration/
+bytes 只能统计编码前已经完成的写入，因此最后一次 checkpoint 的自测量会留在内存而不通过额外 fsync
+追写。纯 telemetry 不再触发 checkpoint，而在模型、工具、Interaction、Artifact/Output、暂停/取消和
+terminal 等既有语义持久化边界搭载。API/Web 无必改项；严格 DTO 消费方必须允许这个可选对象。
 
 Provider 未报告的 cache、TTFT 或 Token 值必须保持 `null`，不得填 0。trajectory 不含 hidden
 reasoning、原始 prompt/provider payload、密钥、环境变量、服务器路径、PID、完整工具参数、完整输出或

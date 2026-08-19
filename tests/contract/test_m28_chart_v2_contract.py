@@ -85,6 +85,35 @@ def test_all_frozen_chart_types_normalize_to_v2(chart_type, updates):
     assert len(spec.panels[0].series) >= 1
 
 
+@pytest.mark.parametrize("chart_type", ["line", "area", "bar"])
+def test_single_series_cartesian_draft_accepts_x_and_y_keys(chart_type):
+    draft = _draft(chart_type, y_key="a", series=[])
+    spec = normalize_chart_v2_input(draft)
+    series = spec.panels[0].series
+
+    assert len(series) == 1
+    assert series[0].label == "A"
+    assert series[0].mark == chart_type
+    assert series[0].x_key == "x"
+    assert series[0].y_key == "a"
+    assert series[0].y_axis_id == "axis_y"
+
+
+@pytest.mark.parametrize(
+    "chart_type", ["grouped_bar", "stacked_bar", "combo_bar_line", "dual_axis"]
+)
+def test_multi_series_cartesian_draft_still_requires_explicit_series(chart_type):
+    with pytest.raises(ChartInputError, match="至少需要 2 个 series"):
+        normalize_chart_v2_input(_draft(chart_type, y_key="a", series=[]))
+
+
+def test_explicit_single_series_canonical_output_is_unchanged():
+    explicit = normalize_chart_v2_input(_draft("line"))
+    implicit = normalize_chart_v2_input(_draft("line", y_key="a", series=[]))
+
+    assert implicit == explicit
+
+
 def test_model_friendly_draft_normalizes_non_ascii_column_keys_and_references():
     spec = normalize_chart_v2_input(
         {

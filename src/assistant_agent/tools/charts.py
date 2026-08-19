@@ -19,6 +19,7 @@ class PresentChartTool(Tool):
     name = "present_chart"
     description = (
         "受控交互图表；支持常用统计图、多轴和多面板，data_type 可省略。"
+        "单系列 line/area/bar 可传 x_key+y_key 并省略 series；多系列图必须显式传 series。"
         "列有明确单位时必须填写 unit；ISO 时间列用 datetime，批次/子组/预格式化区间用 string。"
         "多面板分别提供准确 label/unit；控制线 label 不是单位。"
         "例：histogram 传原始 rows、value_key 和可选 bin_count。"

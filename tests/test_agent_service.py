@@ -151,9 +151,8 @@ def test_public_facade_runs_and_syncs_terminal_session(tmp_path, monkeypatch):
     session_runtime = service.create_session(interaction=SafeDefaultInteractionPort())
     try:
         assert "present_chart" not in session_runtime.capabilities.tools
-        assert any(
-            item.code == "chart_presentation_omitted_context_limit"
-            for item in session_runtime.runtime.notices
+        assert not any(
+            item.code.startswith("chart_presentation_") for item in session_runtime.runtime.notices
         )
         execution = session_runtime.start_run("task")
         events = list(execution.events)
@@ -693,7 +692,13 @@ def test_retry_rebuilds_original_session_baseline_without_duplicate_user_message
         assert list(failed.events)[-1].terminal_status == "failed"
         original = session_runtime.runtime.run_store.load(failed.run_id).document
         assert original["baseline_messages"] == [
-            {"role": "user", "content": "seed"},
+            {
+                "role": "user",
+                "content": {
+                    "schema_version": 1,
+                    "parts": [{"type": "text", "text": "seed"}],
+                },
+            },
             {"role": "assistant", "content": "seed-answer"},
         ]
 
@@ -702,11 +707,16 @@ def test_retry_rebuilds_original_session_baseline_without_duplicate_user_message
         client = session_runtime.runtime.loop._client  # noqa: SLF001
         assert isinstance(client, _RetryBaselineClient)
         assert client.messages[2] == client.messages[1]
-        assert [
-            message
-            for message in client.messages[2]
-            if message == {"role": "user", "content": "analyze"}
-        ] == [{"role": "user", "content": "analyze"}]
+        typed_analyze = {
+            "role": "user",
+            "content": {
+                "schema_version": 1,
+                "parts": [{"type": "text", "text": "analyze"}],
+            },
+        }
+        assert [message for message in client.messages[2] if message == typed_analyze] == [
+            typed_analyze
+        ]
     finally:
         session_runtime.close()
 
@@ -944,15 +954,86 @@ class _InvalidChartTwiceClient:
         yield StreamEvent(kind="content", text="图表未创建，文字结论仍然完整。")
 
 
+@pytest.mark.parametrize(
+    ("client", "task", "expected_checkpoints", "expected_tool_results"),
+    [
+        (_FakeClient, "one turn", 4, 0),
+        (_ChartClient, "two turns with one tool", 9, 1),
+        (_InvalidChartTwiceClient, "three turns with chart correction", 14, 2),
+    ],
+)
+def test_semantic_checkpoint_budget(
+    client,
+    task,
+    expected_checkpoints,
+    expected_tool_results,
+    tmp_path,
+    monkeypatch,
+):
+    config = _config(tmp_path, monkeypatch)
+    config.write_text(
+        "active: fake\nproviders:\n  fake:\n    model: openai/fake\n"
+        "agent:\n  max_context_tokens: 65536\n  recovery:\n    enabled: true\n"
+        "sandbox:\n  mode: workspace\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(runtime_module, "LLMClient", client)
+    session_runtime = AgentService(
+        config_path=config,
+        workspace_root=tmp_path,
+        runtime_policy=RuntimePolicy.web(),
+    ).create_session()
+    store = session_runtime.runtime.run_store
+    original_save = store.save
+    save_count = 0
+
+    def counting_save(run_id, document):
+        nonlocal save_count
+        save_count += 1
+        return original_save(run_id, document)
+
+    monkeypatch.setattr(store, "save", counting_save)
+    try:
+        execution = session_runtime.start_run(task)
+        events = list(execution.events)
+        terminal = events[-1]
+        persisted = store.load(execution.run_id).document["observability"]["orchestration"]
+
+        assert terminal.kind == "run_terminal"
+        assert (
+            len([event for event in events if event.kind == "tool_result"]) == expected_tool_results
+        )
+        if client is _ChartClient:
+            assert any(event.chart is not None for event in events)
+        if client is _InvalidChartTwiceClient:
+            assert [event.result_code for event in events if event.kind == "tool_result"] == [
+                "artifact_rejected",
+                "artifact_rejected",
+            ]
+        assert save_count == expected_checkpoints
+        assert terminal.observability is not None
+        assert terminal.observability.orchestration.checkpoint_count == save_count
+        assert terminal.observability.orchestration.checkpoint_bytes is not None
+        assert terminal.observability.orchestration.session_sync_duration_ms is not None
+        assert persisted["checkpoint_count"] == save_count
+    finally:
+        session_runtime.close()
+
+
 def test_chart_event_history_snapshot_and_cascade_delete(tmp_path, monkeypatch):
     config = _config(tmp_path, monkeypatch)
     config.write_text(
         "active: fake\nproviders:\n  fake:\n    model: openai/fake\n"
-        "agent:\n  max_context_tokens: 16000\n",
+        "agent:\n  max_context_tokens: 16000\n  recovery:\n    enabled: true\n"
+        "sandbox:\n  mode: workspace\n",
         encoding="utf-8",
     )
     monkeypatch.setattr(runtime_module, "LLMClient", _ChartClient)
-    service = AgentService(config_path=config, workspace_root=tmp_path)
+    service = AgentService(
+        config_path=config,
+        workspace_root=tmp_path,
+        runtime_policy=RuntimePolicy.web(),
+    )
     session_runtime = service.create_session()
     session_id = session_runtime.session.id
     execution = session_runtime.start_run("画图")
@@ -982,11 +1063,16 @@ def test_repeated_invalid_chart_keeps_single_completed_terminal(tmp_path, monkey
     config = _config(tmp_path, monkeypatch)
     config.write_text(
         "active: fake\nproviders:\n  fake:\n    model: openai/fake\n"
-        "agent:\n  max_context_tokens: 16000\n",
+        "agent:\n  max_context_tokens: 16000\n  recovery:\n    enabled: true\n"
+        "sandbox:\n  mode: workspace\n",
         encoding="utf-8",
     )
     monkeypatch.setattr(runtime_module, "LLMClient", _InvalidChartTwiceClient)
-    service = AgentService(config_path=config, workspace_root=tmp_path)
+    service = AgentService(
+        config_path=config,
+        workspace_root=tmp_path,
+        runtime_policy=RuntimePolicy.web(),
+    )
     session_runtime = service.create_session()
     try:
         events = list(session_runtime.start_run("画图").events)
@@ -1010,11 +1096,16 @@ def test_failed_run_keeps_chart_bound_to_authoritative_assistant_message(tmp_pat
     config = _config(tmp_path, monkeypatch)
     config.write_text(
         "active: fake\nproviders:\n  fake:\n    model: openai/fake\n"
-        "agent:\n  max_context_tokens: 16000\n",
+        "agent:\n  max_context_tokens: 16000\n  recovery:\n    enabled: true\n"
+        "sandbox:\n  mode: workspace\n",
         encoding="utf-8",
     )
     monkeypatch.setattr(runtime_module, "LLMClient", _ChartThenFailClient)
-    service = AgentService(config_path=config, workspace_root=tmp_path)
+    service = AgentService(
+        config_path=config,
+        workspace_root=tmp_path,
+        runtime_policy=RuntimePolicy.web(),
+    )
     session_runtime = service.create_session()
     try:
         events = list(session_runtime.start_run("画图后失败").events)
@@ -1214,13 +1305,30 @@ class _SkipRecoveryPort(SafeDefaultInteractionPort):
         self.request = request
         return RecoveryDecision(request.request_id, "skip")
 
+    def confirm_definition_change(self, request):
+        return DefinitionChangeDecision(request.request_id, accepted=True)
+
 
 def test_uncertain_tool_recovery_uses_interaction_port(tmp_path, monkeypatch):
-    service = AgentService(config_path=_config(tmp_path, monkeypatch), workspace_root=tmp_path)
+    config = _config(tmp_path, monkeypatch)
+    config.write_text(
+        "active: fake\nproviders:\n  fake:\n    model: openai/fake\n"
+        "agent:\n  recovery:\n    enabled: true\n",
+        encoding="utf-8",
+    )
+    service = AgentService(config_path=config, workspace_root=tmp_path)
     first = service.create_session()
     coordinator = first.runtime.new_run("task", first.session.id)
     assert coordinator is not None
-    messages = [{"role": "user", "content": "task"}]
+    messages = [
+        {
+            "role": "user",
+            "content": {
+                "schema_version": 1,
+                "parts": [{"type": "text", "text": "task"}],
+            },
+        }
+    ]
     coordinator.initialize(messages, None, ToolBudget(max_calls=10))
     call = ToolCall(
         "call-1",

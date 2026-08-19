@@ -169,6 +169,8 @@ python -m assistant_agent
 - M36 Agent 侧已完成：沿用 ChartSpecV2 现有 axis title、column unit 与 scale，确定性生成普通/多轴/
   多面板和派生图表的轴标题；模型提示强化单位、时间/类别与 SPC 语义，Web 负责尺寸感知布局。所有
   公共版本保持不变，未修改 Loop。
+- Performance Foundation P0 已完成：Observability v1 additive 增加 context/checkpoint/Session sync
+  分段，纯 telemetry 搭载既有恢复边界；单系列 line/area/bar 草稿确定性补全。公共版本不变，未修改 Loop。
 - 859 个测试通过（10 个平台能力测试跳过），覆盖率 84%，ruff/mypy、12/12 import-linter、
   scripted 23/23、recovery 4/4 全绿；19,753 行/138 文件生产 Python + 1,411 行 eval 基础设施；
   剩余 8 项技术债（5 中/3 低，无高优先级）。

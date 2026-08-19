@@ -406,6 +406,17 @@ def _cartesian_series(
 ) -> list[SeriesSpecV1]:
     x_key = _required_key(draft, "x_key")
     raw = draft.get("series") or []
+    if not raw and chart_type in {"line", "area", "bar"}:
+        y_key = _required_key(draft, "y_key")
+        column = _column(source, y_key)
+        raw = [
+            {
+                "key": y_key,
+                "label": column.label if column is not None else y_key,
+                "mark": chart_type,
+                "axis": "left",
+            }
+        ]
     keys = _series_keys(raw)
     minimum = (
         2 if chart_type in {"grouped_bar", "stacked_bar", "combo_bar_line", "dual_axis"} else 1

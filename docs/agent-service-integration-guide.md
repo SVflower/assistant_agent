@@ -1114,6 +1114,15 @@ correction_remaining: 0 | 1
 额度从既有 checkpoint 消息账本重建，不增加 checkpoint 字段。`artifact_rejected` 仍只表示图表局部
 失败，不能改变文字回答、`final` 或唯一 `run_terminal`。
 
+M36 不改变 ChartSpecV2 字段或任何公共版本。Agent 在紧凑草稿归一化时，确定性地把数据列
+`label` 与可选 `unit` 投影为 canonical `panels[].x_axis.title` / `y_axes[].title`，并保持
+`datetime -> time`、普通类别（包括数值子组号）`-> category`、散点/气泡数值 X `-> linear`。
+Histogram/boxplot/percent-stack/heatmap 使用各自受控语义标题；UCL/LCL/CL 等 reference label 不参与
+单位推断。API 必须逐字透传这些 canonical 字段。Web 应根据容器实宽、轴 scale、标签数量与最大标签
+测量值、面板数量以及 reference label 占位动态计算 tick interval、rotation 和 grid 边距；不得使用固定
+大留白，也不得让模型或 Artifact 注入 ECharts `grid`、`formatter`、JS、HTML 或任意 style。
+reference label 应参与左右边距测量，空间不足时采用受控 inside/clip/省略策略，不能裁切整个工作台。
+
 ### 12.1 M31-M34 current-only 覆盖规则
 
 M31 的 hard cut 覆盖本节此前的兼容读取说明：

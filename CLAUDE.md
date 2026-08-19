@@ -89,7 +89,7 @@ python -m assistant_agent
 
 ## 当前状态
 
-**第一至第二十二阶段已完成；M31-M35-R1 Agent 侧已完成**。里程碑详情见 ROADMAP.md。
+**第一至第二十二阶段已完成；M31-M36 Agent 侧已完成**。里程碑详情见 ROADMAP.md。
 - 第一阶段：配置/模型抽象/工具/ReAct 循环/CLI，加流式输出、会话持久化、工具集扩展（edit/multi_edit/code_search/git 只读）、模型切换、循环工程与写入安全、slash 命令、init 向导，全部落地。
 - **第二阶段 M6/M6.5/M7a/M7b/M7c/M8a/M8b 已完成**：结构化日志与工具审计；任务级工具调用/累计输出预算与批次协议完整终止；Agent Skills 系统（SKILL.md 发现 + 渐进披露 + load_skill）；MCP client（stdio + HTTP 两种 transport）——外部 server 工具接入 + 同步桥 + 命名空间 + 每工具确认 + 过滤/上限 + HTTP 委托 SDK 管 session/重连不重放 + cli/setup.py Runtime，还清 D7；上下文进化——M8a 预算口径计入 tools schema + reserved（还 D10），M8b 摘要压缩替代硬截断（双历史 + checkpoint 持久化 + 按轮分组 + 降级兜底，默认关闭时逐字节等于现状）。
 - 双后端实测通过：云端 DeepSeek + 本地 LM Studio，切换只改 `config.yaml`，业务代码零改动。
@@ -166,6 +166,9 @@ python -m assistant_agent
 - M35-R1 Agent 侧已完成：公开 user/assistant 消息以 nullable `run_id` 权威关联原 Run；RunSnapshot
   additive 暴露创建时间和严格 provider/model 身份，旧消息不猜测、fork 清空关联。所有版本保持不变，
   默认只保证全局 100 个 terminal Run 保留期内查询，未修改 Loop。
+- M36 Agent 侧已完成：沿用 ChartSpecV2 现有 axis title、column unit 与 scale，确定性生成普通/多轴/
+  多面板和派生图表的轴标题；模型提示强化单位、时间/类别与 SPC 语义，Web 负责尺寸感知布局。所有
+  公共版本保持不变，未修改 Loop。
 - 859 个测试通过（10 个平台能力测试跳过），覆盖率 84%，ruff/mypy、12/12 import-linter、
   scripted 23/23、recovery 4/4 全绿；19,753 行/138 文件生产 Python + 1,411 行 eval 基础设施；
   剩余 8 项技术债（5 中/3 低，无高优先级）。
@@ -182,4 +185,5 @@ D8/D9/D13/D14/D15/D16/D17。剩余工作按技术债和真实触发信号立项�
 `docs/archive/phase19/`，M28 高频普通图表归档于 `docs/archive/phase20/`，M30 Heatmap 契约与纠错归档于
 `docs/archive/phase21/`，M31 current-schema hard cut 归档于 `docs/archive/phase22/`。
 M32 Attachment 归档于 `docs/archive/phase23/`，M34 Run observability 归档于
-`docs/archive/phase24/`，M35-R1 历史运行关联归档于 `docs/archive/phase25/`。
+`docs/archive/phase24/`，M35-R1 历史运行关联归档于 `docs/archive/phase25/`，M36 图表轴语义归档于
+`docs/archive/phase27/`。

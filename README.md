@@ -309,6 +309,9 @@ M34 新增 Observability v1：RunSnapshot 与非高频 StepEvent 提供受控 ti
 M35-R1 进一步让公开 user/assistant 消息以 nullable `run_id` 权威关联原 Run，并由 RunSnapshot 暴露
 安全创建时间和 provider/model；旧消息不猜测、fork 清空关联。该能力受默认全局 100 个 terminal Run
 与每 Run 256 条 trajectory 保留限制，不是完整长期 TraceStore。
+M36 沿用 ChartSpecV2 现有 axis title、column unit 和 scale：Agent 确定性生成带单位的 X/Y 轴标题，
+保持 datetime/category/linear 语义，并强化 SPC 多面板生成规则；Web 负责按真实标签密度和容器尺寸
+自适应旋转、抽样与边距，不向模型开放 ECharts grid/formatter/style。
 当前 859 个测试通过（10 个平台能力测试跳过）、覆盖率 84%、19,753 行/138 文件生产 Python 源码 + 1,411 行 eval
 基础设施；scripted 23/23、
 recovery 4/4；剩余 8 项技术债（5 中/3 低，无高优先级）。详见

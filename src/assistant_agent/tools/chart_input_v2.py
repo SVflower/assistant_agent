@@ -385,7 +385,7 @@ def _build_panel(
         ]
     else:
         series = _cartesian_series(chart_type, draft, source, index)
-    x_axis, y_axes = _axes(chart_type, dataset, x_key, series)
+    x_axis, y_axes = _axes(chart_type, dataset, source, draft, x_key, series)
     panel = ChartPanelV1(
         panel_id=panel_id,
         title=draft.get("panel_title"),
@@ -472,14 +472,33 @@ def _series(
 
 
 def _axes(
-    chart_type: str, dataset: TabularDatasetV1, x_key: str | None, series: list[SeriesSpecV1]
+    chart_type: str,
+    dataset: TabularDatasetV1,
+    source: TabularDatasetV1,
+    draft: dict[str, Any],
+    x_key: str | None,
+    series: list[SeriesSpecV1],
 ) -> tuple[AxisSpecV1 | None, tuple[AxisSpecV1, ...]]:
     if chart_type in {"pie", "donut"}:
         return None, ()
     if chart_type == "heatmap":
         return (
-            AxisSpecV1(axis_id="axis_x", dimension="x", scale="category", position="bottom"),
-            (AxisSpecV1(axis_id="axis_y", dimension="y", scale="category", position="left"),),
+            AxisSpecV1(
+                axis_id="axis_x",
+                dimension="x",
+                scale="category",
+                position="bottom",
+                title=_column_axis_title(source, x_key),
+            ),
+            (
+                AxisSpecV1(
+                    axis_id="axis_y",
+                    dimension="y",
+                    scale="category",
+                    position="left",
+                    title=_column_axis_title(source, _optional_key(draft, "y_key")),
+                ),
+            ),
         )
     x_type = dataset.column_type(x_key) if x_key else "string"
     x_scale = (
@@ -492,13 +511,105 @@ def _axes(
         dimension="x",
         scale=cast(Literal["category", "linear", "time"], x_scale),
         position="bottom",
+        title=_x_axis_title(chart_type, source, dataset, draft, x_key),
     )
-    y_axes = [AxisSpecV1(axis_id="axis_y", dimension="y", scale="linear", position="left")]
+    y_axes = [
+        AxisSpecV1(
+            axis_id="axis_y",
+            dimension="y",
+            scale="linear",
+            position="left",
+            title=_y_axis_title(chart_type, source, dataset, draft, series, "axis_y"),
+        )
+    ]
     if any(item.y_axis_id == "axis_y2" for item in series):
         y_axes.append(
-            AxisSpecV1(axis_id="axis_y2", dimension="y", scale="linear", position="right")
+            AxisSpecV1(
+                axis_id="axis_y2",
+                dimension="y",
+                scale="linear",
+                position="right",
+                title=_y_axis_title(chart_type, source, dataset, draft, series, "axis_y2"),
+            )
         )
     return x_axis, tuple(y_axes)
+
+
+def _x_axis_title(
+    chart_type: str,
+    source: TabularDatasetV1,
+    dataset: TabularDatasetV1,
+    draft: dict[str, Any],
+    x_key: str | None,
+) -> str | None:
+    if chart_type == "histogram":
+        return _column_axis_title(source, _optional_key(draft, "value_key"))
+    if chart_type == "boxplot":
+        group_key = _optional_key(draft, "group_key")
+        return _column_axis_title(source, group_key) if group_key else "分组"
+    return _column_axis_title(source, x_key) or _column_axis_title(dataset, x_key)
+
+
+def _y_axis_title(
+    chart_type: str,
+    source: TabularDatasetV1,
+    dataset: TabularDatasetV1,
+    draft: dict[str, Any],
+    series: list[SeriesSpecV1],
+    axis_id: str,
+) -> str | None:
+    if chart_type == "histogram":
+        return "频数"
+    if chart_type == "boxplot":
+        return _column_axis_title(source, _optional_key(draft, "value_key"))
+    if chart_type == "percent_stacked_bar":
+        return "占比（%）"
+    columns: list[DatasetColumnV1] = []
+    for item in series:
+        if item.y_axis_id != axis_id or item.y_key is None:
+            continue
+        column = _column(source, item.y_key) or _column(dataset, item.y_key)
+        if column is not None and column not in columns:
+            columns.append(column)
+    return _columns_axis_title(columns)
+
+
+def _column(dataset: TabularDatasetV1, key: str | None) -> DatasetColumnV1 | None:
+    if key is None:
+        return None
+    return next((item for item in dataset.columns if item.key == key), None)
+
+
+def _column_axis_title(dataset: TabularDatasetV1, key: str | None) -> str | None:
+    column = _column(dataset, key)
+    return _format_axis_title(column.label, column.unit) if column is not None else None
+
+
+def _columns_axis_title(columns: list[DatasetColumnV1]) -> str | None:
+    if not columns:
+        return None
+    units = {item.unit.strip() for item in columns if item.unit and item.unit.strip()}
+    labels = list(dict.fromkeys(item.label.strip() for item in columns if item.label.strip()))
+    if len(units) <= 1:
+        return _format_axis_title(" / ".join(labels), next(iter(units), None))
+    return _truncate_axis_title(
+        " / ".join(_format_axis_title(item.label, item.unit) for item in columns)
+    )
+
+
+def _format_axis_title(label: str, unit: str | None) -> str:
+    clean_label = label.strip()
+    clean_unit = unit.strip() if unit else ""
+    if not clean_unit:
+        return _truncate_axis_title(clean_label)
+    suffix = f"（{clean_unit}）"
+    if len(suffix) >= 128:
+        return suffix[:127] + "）"
+    return f"{clean_label[: 128 - len(suffix)]}{suffix}"
+
+
+def _truncate_axis_title(value: str) -> str:
+    return value[:128]
 
 
 def _reference_lines(draft: dict[str, Any]) -> list[ReferenceLineSpecV1]:

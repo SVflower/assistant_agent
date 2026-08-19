@@ -24,6 +24,20 @@ def test_chart_prompt_directs_one_semantic_correction_without_guessing_aggregate
     assert "聚合语义不猜" in prompt
 
 
+def test_chart_prompt_preserves_axis_semantics_and_units():
+    prompt = build_system_prompt(chart_presentation=True)
+    assert "columns[].unit" in prompt
+    assert "ISO 时间列用 datetime" in prompt
+    assert "批次/子组/" in prompt
+    assert "预格式化区间用 string" in prompt
+    assert "UCL/LCL/CL" in prompt
+    assert "轴单位" in prompt
+
+    disabled = build_system_prompt(chart_presentation=False)
+    assert "columns[].unit" not in disabled
+    assert "UCL/LCL/CL" not in disabled
+
+
 def test_system_prompt_names_all_tools():
     # 显式列出真实工具名，帮小模型对齐 function-calling schema
     for tool_name in ("read_file", "write_file", "list_dir", "run_shell"):

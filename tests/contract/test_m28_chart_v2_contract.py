@@ -139,9 +139,125 @@ def test_heatmap_normalizes_canonical_axes_as_two_categories():
             "dimension": "y",
             "scale": "category",
             "position": "left",
-            "title": None,
+            "title": "Group",
         }
     ]
+
+
+def test_axes_project_column_labels_units_and_time_semantics():
+    draft = _draft("line")
+    draft["columns"][0].update(label="采集时间", data_type="datetime")
+    draft["columns"][3].update(label="温度", unit="degC")
+    draft["rows"] = [
+        ["2026-08-19T08:00:00+08:00", "G1", 1, 2, 8, 3, 1, 3],
+        ["2026-08-19T09:00:00+08:00", "G1", 2, 4, 6, 4, 3, 5],
+    ]
+
+    panel = normalize_chart_v2_input(draft).panels[0]
+
+    assert panel.x_axis is not None
+    assert (panel.x_axis.scale, panel.x_axis.title) == ("time", "采集时间")
+    assert panel.y_axes[0].title == "温度（degC）"
+
+
+def test_numeric_subgroup_remains_category_and_reference_label_is_not_axis_unit():
+    draft = _draft(
+        "line",
+        x_key="nx",
+        series=[{"key": "a", "label": "测量值"}],
+        reference_lines=[{"axis": "left", "value": 5, "label": "UCL 5 mm"}],
+    )
+    draft["columns"][2].update(label="子组号")
+    draft["columns"][3].update(label="厚度", unit="mm")
+
+    panel = normalize_chart_v2_input(draft).panels[0]
+
+    assert panel.x_axis is not None
+    assert (panel.x_axis.scale, panel.x_axis.title) == ("category", "子组号")
+    assert panel.y_axes[0].title == "厚度（mm）"
+    assert "UCL" not in panel.y_axes[0].title
+
+
+def test_dual_axes_and_spc_panels_keep_independent_units():
+    draft = _draft(
+        "line",
+        columns=[
+            {"key": "x", "label": "子组", "data_type": "string"},
+            {"key": "a", "label": "均值", "data_type": "number", "unit": "mm"},
+            {"key": "b", "label": "极差", "data_type": "number", "unit": "um"},
+        ],
+        rows=[["1", 2.1, 4.0], ["2", 2.2, 3.0]],
+        panels=[
+            {
+                "chart_type": "dual_axis",
+                "x_key": "x",
+                "series": [
+                    {"key": "a", "label": "均值", "axis": "left"},
+                    {"key": "b", "label": "极差", "axis": "right"},
+                ],
+            },
+            {
+                "chart_type": "line",
+                "x_key": "x",
+                "series": [{"key": "b", "label": "极差"}],
+            },
+        ],
+    )
+
+    panels = normalize_chart_v2_input(draft).panels
+
+    assert [axis.title for axis in panels[0].y_axes] == ["均值（mm）", "极差（um）"]
+    assert panels[1].y_axes[0].title == "极差（um）"
+
+
+@pytest.mark.parametrize(
+    ("chart_type", "updates", "x_title", "y_title"),
+    [
+        ("histogram", {"value_key": "a", "series": []}, "测量值（mm）", "频数"),
+        (
+            "boxplot",
+            {"value_key": "a", "group_key": "group", "series": []},
+            "Group",
+            "测量值（mm）",
+        ),
+        (
+            "percent_stacked_bar",
+            {"series": [{"key": "a", "label": "A"}, {"key": "b", "label": "B"}]},
+            "X",
+            "占比（%）",
+        ),
+        (
+            "heatmap",
+            {"x_key": "x", "y_key": "group", "value_key": "a", "series": []},
+            "X",
+            "Group",
+        ),
+    ],
+)
+def test_derived_chart_axes_have_deterministic_titles(chart_type, updates, x_title, y_title):
+    draft = _draft(chart_type, **updates)
+    draft["columns"][3].update(label="测量值", unit="mm")
+
+    panel = normalize_chart_v2_input(draft).panels[0]
+
+    assert panel.x_axis is not None
+    assert panel.x_axis.title == x_title
+    assert panel.y_axes[0].title == y_title
+
+
+def test_axis_title_limit_preserves_explicit_unit_and_schema_surface():
+    draft = _draft("line")
+    draft["columns"][3].update(label="测" * 128, unit="毫米")
+    spec = normalize_chart_v2_input(draft)
+    title = spec.panels[0].y_axes[0].title
+
+    assert title is not None and len(title) == 128
+    assert title.endswith("（毫米）")
+    assert spec.schema_version == 2
+    schema = PresentChartTool().parameters
+    encoded = json.dumps(schema, ensure_ascii=False, sort_keys=True)
+    for renderer_field in ("grid", "formatter", "rotation", "style"):
+        assert renderer_field not in encoded
 
 
 @pytest.mark.parametrize(

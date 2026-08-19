@@ -27,6 +27,10 @@ Session v5 保持不变。TaskPlan 首批为 `null`，不从自然语言猜测�
 Service v5、Session v5、RunState v11、Observability v1、Event v1；能力受全局默认 100 个 terminal Run
 保留和每 Run 256 条 trajectory 限制，不宣称完整长期 TraceStore。
 
+**M36 当前状态**：Agent 侧已完成 ChartSpecV2 轴语义投影。列 `label/unit` 确定性进入 canonical
+X/Y 轴标题，时间、类别和数值轴语义受控；模型提示要求单位与 SPC 子图语义完整。所有公共版本不变，
+Web 按 `docs/archive/phase27/m36-chart-axis-api-handoff.md` 实现尺寸感知布局。
+
 **已具备能力**：
 - **模型**：后端可切换（云端 OpenAI 兼容 / Anthropic / 本地 LM Studio·Ollama·vLLM），config/`--provider`/对话内 `/model` 三种切法，切换保留上下文。
 - **交互**：15 FPS 流式 Markdown + 语义工具摘要 + normal/verbose/quiet + `/display`/`run --quiet`；normal 过程文本只在活动区显示、最终回答才落屏；Write/Edit 权限前有界代码预览/结构化 diff，代码底板与增删行背景明确分区；全宽输入边界与会话启停 ID；思考状态、耗时/token、上下文占用与 Ctrl+C 中断。
@@ -80,6 +84,8 @@ Service v5、Session v5、RunState v11、Observability v1、Event v1；能力受
   不改变权限、恢复或终态语义。
 - **M35-R1 历史关联**：公开消息以 nullable `run_id` 关联原 Run；重启后可从权威 RunSnapshot 恢复
   创建时间、执行模型和既有观测详情，fork 不继承源 Run ownership。
+- **M36 图表轴语义**：ChartSpecV2 不升版；Agent 从列 label/unit 生成 X/Y 轴标题并保持 time/category/
+  linear 语义，Web 基于标签密度、面板尺寸和 reference label 动态布局，不开放 renderer 注入字段。
 - **工具**：读/写/局部编辑/列目录/shell/代码检索/git 只读/用户澄清，以及带来源的
   `web_search`/`fetch_url`；搜索 backend 可替换，抓取含 SSRF、重定向和响应上限防护。
 - **命令层**：slash 命令系统本地拦截不花 token；`/skills` 与 `/mcp` 支持列出、安装、诊断、
@@ -481,6 +487,17 @@ D14，M9c 已还清 D9，M10a 已还清 D16，M10b 已还清 D8，M11a 已还清
 > `RunSnapshot.created_at/execution_model` 从既有 v11 checkpoint 安全投影，重启可恢复。旧消息保持 null，
 > fork 强制清空，Service/Session/RunState/Event 版本均不提升，未修改 Loop。R1 不增加 TraceStore、
 > Session trajectory 分页或敏感工具载荷持久化。
+
+### 第二十七阶段（Agent 侧已完成）
+
+| 里程碑 | 主题 | 状态 |
+|--------|------|------|
+| M36 Agent | 图表轴语义与自适应布局契约 | ✅ Agent · [API/Web 交接](docs/archive/phase27/m36-chart-axis-api-handoff.md) |
+
+> **M36 Agent 已完成**：沿用 ChartSpecV2 的 `AxisSpecV1.title`、`DatasetColumnV1.unit` 和受控 scale，
+> 不新增 renderer 字段。紧凑草稿归一化现在为普通图、多轴、多面板、histogram、boxplot、percent stack
+> 与 heatmap 生成稳定轴标题；显式单位优先保留，reference line label 不污染单位。提示词要求时间、
+> 类别、单位和 SPC 子图语义完整。Service v5、Session v5、RunState v11、Event v1 均不变，未修改 Loop。
 
 ## 未来方向（P3，信号驱动，暂不做）
 

@@ -51,6 +51,7 @@ _ROOT_KEYS = {
     "title",
     "description",
     "source_label",
+    "demo_data",
     "columns",
     "rows",
     "x_key",
@@ -98,6 +99,7 @@ def normalize_chart_v2_input(args: dict[str, Any]) -> ChartSpecV2:
     draft["schema_version"] = 2
     _reject_forbidden_keys(draft)
     _reject_unknown_draft_keys(draft)
+    _expand_demo_data(draft)
     _normalize_dataset_keys(draft)
     try:
         source = _source_dataset(draft)
@@ -147,6 +149,71 @@ def normalize_chart_v2_input(args: dict[str, Any]) -> ChartSpecV2:
         raise
     except (TypeError, ValueError) as exc:
         raise ChartInputError(_safe_error(exc)) from None
+
+
+def _expand_demo_data(draft: dict[str, Any]) -> None:
+    demo = draft.pop("demo_data", None)
+    if demo is None:
+        return
+    if not isinstance(demo, dict):
+        raise ChartInputError("demo_data 必须是对象")
+    if "columns" in draft or "rows" in draft:
+        raise ChartInputError("demo_data 与 columns/rows 不能同时提供")
+    if draft.get("panels"):
+        raise ChartInputError("demo_data 仅支持单面板演示图表")
+    chart_type = draft.get("chart_type")
+    if chart_type not in {"line", "area", "scatter"}:
+        raise ChartInputError("demo_data 仅支持 line/area/scatter")
+
+    row_count = demo.get("row_count")
+    pattern = demo.get("pattern")
+    if isinstance(row_count, bool) or not isinstance(row_count, int) or not 1 <= row_count <= 5000:
+        raise ChartInputError("demo_data.row_count 必须是 1..5000 的整数")
+    if pattern not in {"sine", "trend", "seasonal", "sawtooth"}:
+        raise ChartInputError("demo_data.pattern 不受支持")
+
+    x_label = _demo_text(demo, "x_label", "样本序号")
+    y_label = _demo_text(demo, "y_label", "演示值")
+    y_unit = demo.get("y_unit")
+    if y_unit is not None and (not isinstance(y_unit, str) or len(y_unit) > 128):
+        raise ChartInputError("demo_data.y_unit 必须是最长 128 字符的字符串或 null")
+
+    draft["columns"] = [
+        {"key": "sample_index", "label": x_label, "data_type": "number"},
+        {"key": "demo_value", "label": y_label, "data_type": "number", "unit": y_unit},
+    ]
+    draft["rows"] = [
+        [index, _demo_value(index, row_count, pattern)] for index in range(1, row_count + 1)
+    ]
+    draft["x_key"] = "sample_index"
+    draft["y_key"] = "demo_value"
+    draft["series"] = []
+    draft["source_label"] = "示例数据（Agent 确定性生成，非真实查询结果）"
+    draft.setdefault(
+        "description",
+        f"{row_count} 行 {pattern} 演示数据；用于验证图表容量，不代表真实业务数据。",
+    )
+
+
+def _demo_text(demo: dict[str, Any], key: str, default: str) -> str:
+    value = demo.get(key, default)
+    if not isinstance(value, str) or not value or len(value) > 128:
+        raise ChartInputError(f"demo_data.{key} 必须是 1..128 字符的字符串")
+    return value
+
+
+def _demo_value(index: int, row_count: int, pattern: str) -> float:
+    progress = (index - 1) / max(row_count - 1, 1)
+    angle = progress * math.tau * 10
+    if pattern == "sine":
+        value = 50 + 20 * math.sin(angle)
+    elif pattern == "trend":
+        value = 25 + 50 * progress + 3 * math.sin(angle)
+    elif pattern == "seasonal":
+        value = 40 + 20 * progress + 12 * math.sin(angle) + 4 * math.sin(angle * 3)
+    else:
+        value = 25 + 50 * ((progress * 10) % 1)
+    return round(value, 6)
 
 
 def _normalize_dataset_keys(draft: dict[str, Any]) -> None:
@@ -713,6 +780,15 @@ def _reject_forbidden_keys(value: Any) -> None:
 
 def _reject_unknown_draft_keys(draft: dict[str, Any]) -> None:
     _require_keys(draft, _ROOT_KEYS, "$")
+    demo_data = draft.get("demo_data")
+    if demo_data is not None:
+        if not isinstance(demo_data, dict):
+            raise ChartInputError("demo_data 必须是对象")
+        _require_keys(
+            demo_data,
+            {"row_count", "pattern", "x_label", "y_label", "y_unit"},
+            "demo_data",
+        )
     _require_object_list(draft.get("columns"), {"key", "label", "data_type", "unit"}, "columns")
     _require_object_list(draft.get("series"), {"key", "label", "mark", "axis"}, "series")
     _validate_panel_children(draft, "$")

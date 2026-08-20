@@ -32,10 +32,15 @@ def test_chart_prompt_preserves_axis_semantics_and_units():
     assert "预格式化区间用 string" in prompt
     assert "UCL/LCL/CL" in prompt
     assert "轴单位" in prompt
+    assert "demo_data" in prompt
+    assert "20000 cells" in prompt
+    assert "5000 行乘 12 列" in prompt
 
     disabled = build_system_prompt(chart_presentation=False)
     assert "columns[].unit" not in disabled
     assert "UCL/LCL/CL" not in disabled
+    assert "demo_data" not in disabled
+    assert "20000 cells" not in disabled
 
 
 def test_system_prompt_names_all_tools():

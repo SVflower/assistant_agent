@@ -40,6 +40,21 @@ def _draft(rows=None):
     return args
 
 
+def _demo_args(row_count=5000, pattern="sine"):
+    return {
+        "schema_version": 2,
+        "chart_type": "line",
+        "title": "容量演示",
+        "demo_data": {
+            "row_count": row_count,
+            "pattern": pattern,
+            "x_label": "样本序号",
+            "y_label": "测量值",
+            "y_unit": "unit",
+        },
+    }
+
+
 def _coordinator(tmp_path):
     return RunCoordinator.create(
         RunStore(tmp_path / "runs"),
@@ -121,6 +136,66 @@ def test_missing_column_types_are_inferred_for_local_model_style(tmp_path):
         "string",
         "number",
     ]
+
+
+def test_model_schema_distinguishes_storage_capacity_from_generation_capacity():
+    tool = PresentChartTool()
+    parameters = tool.parameters
+
+    assert parameters["required"] == ["chart_type", "title"]
+    assert parameters["properties"]["demo_data"]["properties"]["row_count"]["maximum"] == 5000
+    assert "20000 cells" in parameters["properties"]["rows"]["description"]
+    assert "存储校验上限" in tool.description
+    assert "5000 行乘 12 列" in tool.description
+
+
+@pytest.mark.parametrize("pattern", ["sine", "trend", "seasonal", "sawtooth"])
+def test_demo_data_is_expanded_deterministically_without_model_generated_rows(tmp_path, pattern):
+    ctx = ToolContextFixture(
+        workspace_root=tmp_path,
+        current_call_id="c",
+        current_run_id="r",
+        current_session_id="s",
+    )
+    tool = PresentChartTool()
+    first = tool.run(_demo_args(pattern=pattern), ctx)
+    second = tool.run(_demo_args(pattern=pattern), ctx)
+
+    assert not first.is_error
+    assert first.chart.content_hash == second.chart.content_hash
+    assert first.chart.size_bytes < 512 * 1024
+    dataset = first.chart.spec.datasets[0]
+    assert len(dataset.rows) == 5000
+    assert len(dataset.columns) == 2
+    assert dataset.rows[0][0] == 1
+    assert dataset.rows[-1][0] == 5000
+    assert first.chart.spec.source_label == "示例数据（Agent 确定性生成，非真实查询结果）"
+
+
+@pytest.mark.parametrize(
+    ("updates", "message"),
+    [
+        ({"columns": [], "rows": []}, "不能同时提供"),
+        ({"chart_type": "bar"}, "仅支持 line/area/scatter"),
+        ({"demo_data": {"row_count": 5001, "pattern": "sine"}}, "1..5000"),
+        ({"demo_data": {"row_count": 10, "pattern": "unknown"}}, "不受支持"),
+    ],
+)
+def test_demo_data_rejects_ambiguous_or_unsupported_inputs(tmp_path, updates, message):
+    args = _demo_args(row_count=10)
+    args.update(updates)
+    ctx = ToolContextFixture(
+        workspace_root=tmp_path,
+        current_call_id="c",
+        current_run_id="r",
+        current_session_id="s",
+    )
+
+    result = PresentChartTool().run(args, ctx)
+
+    assert result.code == "artifact_rejected"
+    assert result.chart is None
+    assert message in result.output
 
 
 @pytest.mark.parametrize(

@@ -19,6 +19,9 @@ class PresentChartTool(Tool):
     name = "present_chart"
     description = (
         "受控交互图表；支持常用统计图、多轴和多面板，data_type 可省略。"
+        "5000 行是 Artifact 存储校验上限，不是模型逐行生成能力；全部数据还受 20000 cells "
+        "和 512 KiB 限制，不能声称支持 5000 行乘 12 列。"
+        "模型不得逐行合成超过 200 行的演示 rows；大规模演示使用 demo_data 让 Agent 确定性生成。"
         "单系列 line/area/bar 可传 x_key+y_key 并省略 series；多系列图必须显式传 series。"
         "列有明确单位时必须填写 unit；ISO 时间列用 datetime，批次/子组/预格式化区间用 string。"
         "多面板分别提供准确 label/unit；控制线 label 不是单位。"
@@ -92,6 +95,21 @@ class PresentChartTool(Tool):
             },
             "required": ["text"],
         }
+        demo_data = {
+            "type": "object",
+            "additionalProperties": False,
+            "description": (
+                "仅用于明确标注的演示数据；Agent 本地确定性生成，不消耗模型输出逐行书写。"
+            ),
+            "properties": {
+                "row_count": {"type": "integer", "minimum": 1, "maximum": 5000},
+                "pattern": {"enum": ["sine", "trend", "seasonal", "sawtooth"]},
+                "x_label": {"type": "string", "minLength": 1, "maxLength": 128},
+                "y_label": {"type": "string", "minLength": 1, "maxLength": 128},
+                "y_unit": {"type": ["string", "null"], "maxLength": 128},
+            },
+            "required": ["row_count", "pattern"],
+        }
         chart_types = [
             "line",
             "area",
@@ -140,16 +158,27 @@ class PresentChartTool(Tool):
                 "title": {"type": "string", "minLength": 1, "maxLength": 200},
                 "description": {"type": ["string", "null"], "maxLength": 500},
                 "source_label": {"type": ["string", "null"], "maxLength": 500},
-                "columns": {"type": "array", "minItems": 1, "maxItems": 12, "items": column},
+                "columns": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 12,
+                    "description": "内联真实数据列；与 demo_data 互斥。",
+                    "items": column,
+                },
                 "rows": {
                     "type": "array",
                     "maxItems": 5000,
+                    "description": (
+                        "Artifact 最多接收 5000 行，但模型不要逐行合成超过 200 行；"
+                        "全部 dataset 合计最多 20000 cells 且 Artifact 最多 512 KiB。"
+                    ),
                     "items": {
                         "type": "array",
                         "maxItems": 12,
                         "items": {"type": ["string", "number", "null"]},
                     },
                 },
+                "demo_data": demo_data,
                 "x_key": nullable_key,
                 "y_key": nullable_key,
                 "series": {"type": "array", "maxItems": 8, "items": series},
@@ -173,7 +202,7 @@ class PresentChartTool(Tool):
                     },
                 },
             },
-            "required": ["chart_type", "title", "columns", "rows"],
+            "required": ["chart_type", "title"],
         }
 
     def permission_requests(

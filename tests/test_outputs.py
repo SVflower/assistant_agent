@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from assistant_agent.agent.artifact_capture import ArtifactCaptureWriter
+from assistant_agent.agent.output_validation import OutputValidationError, validate_output_content
 from assistant_agent.agent.run.state import PendingOutputCaptureState
 from assistant_agent.application.sessions import AgentService
 from assistant_agent.config.schema import OutputConfig
@@ -225,6 +226,21 @@ def test_artifact_writer_streams_utf8_and_publishes_only_on_finalize(tmp_path: P
     resumed.write("<h1>恢复成功</h1>")
     artifact = resumed.finalize()
     assert store.get_payload("session-1", artifact.output_id).content == "<h1>恢复成功</h1>"
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        '<｜｜DSML｜｜tool_calls>\n<｜｜DSML｜｜invoke name="create_output">',
+        '<|DSML|tool_calls>\n<|DSML|invoke name="create_output">',
+        '<tool_calls><invoke name="create_output"></invoke></tool_calls>',
+        "<｜tool▁calls▁begin｜><｜tool▁call▁begin｜>",
+    ],
+)
+def test_output_validation_rejects_provider_tool_protocol(content: str) -> None:
+    with pytest.raises(OutputValidationError) as caught:
+        validate_output_content("text/html", content)
+    assert caught.value.reason_code == "output_tool_protocol_detected"
 
 
 def test_discard_run_drafts_is_isolated(tmp_path: Path) -> None:

@@ -5,6 +5,7 @@ from __future__ import annotations
 import csv
 import io
 import json
+import re
 from dataclasses import dataclass
 from html.parser import HTMLParser
 from typing import Any
@@ -31,6 +32,13 @@ _VOID_HTML_ELEMENTS = frozenset(
 )
 _MAX_CSV_COLUMNS = 512
 _MAX_CSV_ROWS = 200_000
+_TOOL_PROTOCOL_ENVELOPE = re.compile(
+    r"^\s*(?:"
+    r"<\s*(?:\|{1,2}|｜{1,2})\s*dsml(?:\s*(?:\|{1,2}|｜{1,2}))?"
+    r"|<\s*(?:\||｜)?\s*tool[ _▁]?calls(?=[\s>｜|_▁])"
+    r")",
+    re.IGNORECASE,
+)
 
 
 class OutputValidationError(OutputInvalidError):
@@ -83,6 +91,11 @@ def validate_output_content(media_type: str, content: str) -> OutputValidationRe
         raise OutputValidationError("output_empty", "输出正文为空")
     if "\x00" in content:
         raise OutputValidationError("output_control_character", "输出正文包含 NUL 字符")
+    if _TOOL_PROTOCOL_ENVELOPE.search(content[:4096]):
+        raise OutputValidationError(
+            "output_tool_protocol_detected",
+            "输出正文包含模型工具调用协议",
+        )
     if media_type != "text/markdown" and _is_fenced_document(content):
         raise OutputValidationError("output_wrapped_in_code_fence", "文件正文被代码围栏包裹")
 

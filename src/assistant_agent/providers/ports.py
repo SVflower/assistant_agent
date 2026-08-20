@@ -16,6 +16,7 @@ ProviderFailureCode = Literal[
     "provider_unavailable",
     "provider_timeout",
     "provider_empty_response",
+    "provider_output_truncated",
     "internal_error",
 ]
 
@@ -34,7 +35,7 @@ class ToolCall:
     arguments: dict[str, Any]
 
 
-StreamEventKind = Literal["reasoning", "content", "tool_calls", "usage", "error"]
+StreamEventKind = Literal["reasoning", "content", "tool_calls", "usage", "finish", "error"]
 
 
 @dataclass
@@ -43,6 +44,7 @@ class StreamEvent:
     text: str = ""
     tool_calls: list[ToolCall] = field(default_factory=list)
     usage: dict[str, int] = field(default_factory=dict)
+    finish_reason: str | None = None
     failure: ProviderFailure | None = None
 
 

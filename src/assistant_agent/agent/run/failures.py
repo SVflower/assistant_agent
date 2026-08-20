@@ -72,6 +72,7 @@ def provider_failure(code: str, safe_message: str, retryable: bool) -> RunFailur
         "provider_unavailable": "provider_unavailable",
         "provider_timeout": "provider_timeout",
         "provider_empty_response": "provider_empty_response",
+        "provider_output_truncated": "provider_output_truncated",
     }
     public_code = provider_codes.get(code, "internal_error")
     return RunFailure(

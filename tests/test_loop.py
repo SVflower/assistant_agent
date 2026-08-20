@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import threading
+import time
 from collections.abc import Iterator
 
 import pytest
@@ -199,6 +201,37 @@ def test_empty_response_does_not_retry_after_pause_or_cancel(requested):
     assert stopped.value.value.failure is None
 
 
+def test_model_turn_cancel_does_not_wait_for_provider_next_chunk():
+    control = RunControl()
+    release = threading.Event()
+
+    class BlockingClient:
+        def complete_stream(self, messages, tools=None):
+            del messages, tools
+            release.wait(2)
+            yield StreamEvent(kind="content", text="too late")
+
+    timer = threading.Timer(0.05, control.request_cancel)
+    timer.start()
+    started = time.monotonic()
+    try:
+        result_events = stream_model_turn(
+            BlockingClient(),
+            messages=[{"role": "user", "content": "task"}],
+            tools=[],
+            control_state=lambda: control.state,
+        )
+        with pytest.raises(StopIteration) as stopped:
+            while True:
+                next(result_events)
+    finally:
+        release.set()
+        timer.cancel()
+
+    assert time.monotonic() - started < 0.5
+    assert stopped.value.value.control_state is ControlState.CANCEL_REQUESTED
+
+
 def test_loop_streams_content_deltas():
     """正文以 content_delta 增量事件流出，最终 final 是完整拼接。"""
     client = FakeStreamClient([_text_round("你好世界")])
@@ -207,6 +240,33 @@ def test_loop_streams_content_deltas():
     assert "".join(deltas) == "你好世界"
     assert events[-1].kind == "final"
     assert events[-1].text == "你好世界"
+
+
+def test_model_turn_fails_when_provider_reports_length_truncation():
+    client = FakeStreamClient(
+        [
+            [
+                StreamEvent(kind="content", text="<html><body>"),
+                StreamEvent(kind="finish", finish_reason="length"),
+            ]
+        ]
+    )
+    result_events = stream_model_turn(
+        client,
+        messages=[{"role": "user", "content": "生成 HTML"}],
+        tools=[],
+        control_state=lambda: ControlState.RUNNING,
+        emit_content=False,
+    )
+
+    with pytest.raises(StopIteration) as stopped:
+        while True:
+            next(result_events)
+
+    result = stopped.value.value
+    assert result.failure is not None
+    assert result.failure.code == "provider_output_truncated"
+    assert result.failure.retryable is True
 
 
 def test_loop_executes_tool_then_finishes(tmp_path):

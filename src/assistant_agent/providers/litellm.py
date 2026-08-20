@@ -202,6 +202,7 @@ class LLMClient:
 
         # tool_call 碎片缓冲：index -> {"id","name","args"}
         buffers: dict[int, dict[str, str]] = {}
+        finish_reason: str | None = None
 
         try:
             stream = litellm.completion(**kwargs)
@@ -209,6 +210,9 @@ class LLMClient:
                 choices = getattr(chunk, "choices", None)
                 choice = choices[0] if choices else None
                 delta = getattr(choice, "delta", None) if choice else None
+                raw_finish_reason = getattr(choice, "finish_reason", None) if choice else None
+                if isinstance(raw_finish_reason, str) and raw_finish_reason:
+                    finish_reason = raw_finish_reason
 
                 if delta is not None:
                     reasoning = getattr(delta, "reasoning_content", None)
@@ -245,6 +249,8 @@ class LLMClient:
         tool_calls = _finalize_tool_calls(buffers)
         if tool_calls:
             yield StreamEvent(kind="tool_calls", tool_calls=tool_calls)
+        if finish_reason is not None:
+            yield StreamEvent(kind="finish", finish_reason=finish_reason)
 
     @staticmethod
     def _accumulate_tool_call(buffers: dict[int, dict[str, str]], frag: Any) -> None:

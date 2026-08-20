@@ -16,6 +16,7 @@ FailureCode: TypeAlias = Literal[
     "provider_unavailable",
     "provider_timeout",
     "provider_empty_response",
+    "provider_output_truncated",
     "tool_failed",
     "permission_denied",
     "dependency_unavailable",

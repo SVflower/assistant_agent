@@ -4,13 +4,15 @@ from __future__ import annotations
 
 from collections.abc import Callable, Generator
 from dataclasses import dataclass, field
+from queue import Empty, SimpleQueue
+from threading import Event, Thread
 from typing import Any
 
 from assistant_agent.agent.run.failures import provider_failure
 from assistant_agent.agent.run.ports import ControlState
 from assistant_agent.contracts.events import StepEvent
 from assistant_agent.contracts.failures import RunFailure
-from assistant_agent.providers.ports import ModelProviderPort, ToolCall
+from assistant_agent.providers.ports import ModelProviderPort, StreamEvent, ToolCall
 
 _EMPTY_RESPONSE_RETRY_PROMPT = (
     "上一响应为空。请继续当前任务：返回有效文本，或调用一个可用工具。不要重复已经完成的工具调用。"
@@ -23,6 +25,64 @@ class ModelTurnResult:
     tool_calls: list[ToolCall] = field(default_factory=list)
     failure: RunFailure | None = None
     control_state: ControlState = ControlState.RUNNING
+
+
+@dataclass(frozen=True)
+class _StreamRaised:
+    error: BaseException
+
+
+_STREAM_DONE = object()
+
+
+def _interruptible_stream(
+    client: ModelProviderPort,
+    *,
+    messages: list[dict[str, Any]],
+    tools: list[dict[str, Any]],
+    control_state: Callable[[], ControlState],
+) -> Generator[StreamEvent, None, ControlState]:
+    """在独立 daemon 线程消费同步 Provider，使无 chunk 阶段仍可响应控制信号。"""
+    queue: SimpleQueue[StreamEvent | _StreamRaised | object] = SimpleQueue()
+    abandoned = Event()
+
+    def produce() -> None:
+        try:
+            for event in client.complete_stream(messages=messages, tools=tools):
+                if abandoned.is_set():
+                    return
+                queue.put(event)
+        except BaseException as exc:
+            if not abandoned.is_set():
+                queue.put(_StreamRaised(exc))
+        finally:
+            if not abandoned.is_set():
+                queue.put(_STREAM_DONE)
+
+    Thread(target=produce, name="assistant-agent-model-stream", daemon=True).start()
+    first_poll = True
+    while True:
+        if not first_poll:
+            interrupted = control_state()
+            if interrupted is not ControlState.RUNNING:
+                abandoned.set()
+                return interrupted
+        first_poll = False
+        try:
+            item = queue.get(timeout=0.1)
+        except Empty:
+            interrupted = control_state()
+            if interrupted is ControlState.RUNNING:
+                continue
+            abandoned.set()
+            return interrupted
+        if item is _STREAM_DONE:
+            return ControlState.RUNNING
+        if isinstance(item, _StreamRaised):
+            raise item.error
+        if not isinstance(item, StreamEvent):
+            raise RuntimeError("模型流桥接收到未知事件")
+        yield item
 
 
 def stream_model_turn(
@@ -44,7 +104,18 @@ def stream_model_turn(
         interrupted = ControlState.RUNNING
         saw_content = False
 
-        for event in client.complete_stream(messages=request_messages, tools=tools):
+        provider_stream = _interruptible_stream(
+            client,
+            messages=request_messages,
+            tools=tools,
+            control_state=control_state,
+        )
+        while True:
+            try:
+                event = next(provider_stream)
+            except StopIteration as stopped:
+                interrupted = stopped.value
+                break
             if event.kind == "reasoning":
                 yield StepEvent(kind="reasoning", text=event.text)
             elif event.kind == "content":
@@ -59,6 +130,12 @@ def stream_model_turn(
                 tool_calls = event.tool_calls
             elif event.kind == "usage":
                 yield StepEvent(kind="usage", usage=event.usage)
+            elif event.kind == "finish" and event.finish_reason == "length":
+                failure = provider_failure(
+                    "provider_output_truncated",
+                    "模型输出达到长度上限，未生成完整结果。",
+                    True,
+                )
             elif event.kind == "error":
                 if event.failure is not None:
                     failure = provider_failure(
@@ -74,9 +151,6 @@ def stream_model_turn(
                         phase="calling_model",
                         terminal_status="failed",
                     )
-            interrupted = control_state()
-            if interrupted is not ControlState.RUNNING:
-                break
 
         # 空 stream 没有事件可触发上面的检查；重试前必须重新观察 pause/cancel。
         interrupted = control_state()

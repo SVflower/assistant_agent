@@ -757,6 +757,7 @@ terminal_status, phase, unknown_side_effect
 tool_output_budget_exhausted | tool_call_budget_exhausted |
 iteration_limit_reached | context_limit_exceeded |
 provider_rate_limited | provider_unavailable | provider_timeout | provider_empty_response |
+provider_output_truncated |
 tool_failed | permission_denied | dependency_unavailable | internal_error
 ```
 

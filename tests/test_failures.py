@@ -46,6 +46,18 @@ def test_empty_provider_response_is_a_stable_retryable_failure() -> None:
     assert failure.allowed_actions == ("retry_run", "stop")
 
 
+def test_truncated_provider_output_is_a_stable_retryable_failure() -> None:
+    failure = provider_failure(
+        "provider_output_truncated",
+        "模型输出达到长度上限，未生成完整结果。",
+        retryable=True,
+    )
+
+    assert failure.code == "provider_output_truncated"
+    assert failure.phase == "calling_model"
+    assert failure.allowed_actions == ("retry_run", "stop")
+
+
 def test_failure_model_rejects_extra_sensitive_fields() -> None:
     payload = {
         "code": "internal_error",

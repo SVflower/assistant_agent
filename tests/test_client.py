@@ -141,6 +141,26 @@ def test_stream_usage_includes_monotonic_ttft_for_tool_fragment(monkeypatch):
     assert observed["model_duration_ms"] == 1000
 
 
+def test_stream_exposes_provider_finish_reason(monkeypatch):
+    import litellm
+
+    chunk = SimpleNamespace(
+        choices=[
+            SimpleNamespace(
+                delta=SimpleNamespace(content="partial", tool_calls=[]),
+                finish_reason="length",
+            )
+        ],
+        usage=None,
+    )
+    monkeypatch.setattr(litellm, "completion", lambda **_kwargs: iter((chunk,)))
+
+    events = list(LLMClient(ProviderConfig(model="openai/fake")).complete_stream([]))
+
+    assert events[-1].kind == "finish"
+    assert events[-1].finish_reason == "length"
+
+
 def test_bypass_proxy_adds_local_host(monkeypatch):
     monkeypatch.delenv("NO_PROXY", raising=False)
     monkeypatch.delenv("no_proxy", raising=False)

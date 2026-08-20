@@ -108,6 +108,49 @@ class _NativeOutputClient:
             yield StreamEvent(kind="content", text="后台页面文件已生成。")
 
 
+class _PlanAndOutputClient(_NativeOutputClient):
+    def complete_stream(self, messages, tools=None) -> Iterator[StreamEvent]:
+        self.tools.append(list(tools or []))
+        self.calls += 1
+        if self.calls == 1:
+            yield StreamEvent(
+                kind="tool_calls",
+                tool_calls=[
+                    ToolCall(
+                        id="plan-1",
+                        name="update_task_plan",
+                        arguments={
+                            "items": [
+                                {
+                                    "item_id": "build",
+                                    "content": "生成页面",
+                                    "status": "completed",
+                                }
+                            ]
+                        },
+                    ),
+                    ToolCall(
+                        id="create-html-mixed",
+                        name="create_output",
+                        arguments={"filename": "mixed.html", "media_type": "text/html"},
+                    ),
+                ],
+            )
+        elif self.calls == 2:
+            yield StreamEvent(
+                kind="tool_calls",
+                tool_calls=[
+                    ToolCall(
+                        id="create-html-retry",
+                        name="create_output",
+                        arguments={"filename": "mixed.html", "media_type": "text/html"},
+                    )
+                ],
+            )
+        else:
+            yield StreamEvent(kind="content", text="<html><body>mixed</body></html>")
+
+
 class _OutputThenProviderFailureClient(_NativeOutputClient):
     def complete_stream(self, messages, tools=None) -> Iterator[StreamEvent]:
         self.tools.append(list(tools or []))
@@ -360,6 +403,38 @@ def test_native_artifact_writer_captures_stream_without_assistant_delta(tmp_path
         assert all("<!DOCTYPE" not in str(message.content) for message in session.messages)
         saved = session_runtime.runtime.session_store.load(session_runtime.session.id)
         assert all("<!DOCTYPE" not in str(message.content) for message in saved.message_ledger)
+    finally:
+        session_runtime.close()
+
+
+def test_task_plan_and_output_same_round_defers_output_instead_of_failing(tmp_path, monkeypatch):
+    config_path = _config(tmp_path, monkeypatch)
+    config_path.write_text(
+        "active: fake\nproviders:\n  fake:\n    model: openai/fake\nsandbox:\n  mode: workspace\n",
+        encoding="utf-8",
+    )
+    _PlanAndOutputClient.instances.clear()
+    monkeypatch.setattr(runtime_module, "LLMClient", _PlanAndOutputClient)
+    service = AgentService(
+        config_path=config_path,
+        workspace_root=tmp_path,
+        runtime_policy=RuntimePolicy.web(),
+    )
+    session_runtime = service.create_session(interaction=SafeDefaultInteractionPort())
+    try:
+        execution = session_runtime.start_run("分步骤创建页面")
+        events = list(execution.events)
+
+        assert any(event.result_code == "output_call_deferred" for event in events)
+        assert not any(event.kind == "error" for event in events)
+        created = [event for event in events if event.output is not None]
+        assert len(created) == 1, [
+            (event.kind, event.tool_name, event.result_code, event.text) for event in events
+        ]
+        assert created[0].output is not None
+        assert created[0].output.filename == "mixed.html"
+        assert events[-1].terminal_status == "completed"
+        assert _PlanAndOutputClient.instances[-1].calls == 3
     finally:
         session_runtime.close()
 

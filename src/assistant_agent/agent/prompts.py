@@ -116,7 +116,8 @@ Shell、进程、配置、环境变量、内网或数据库管理能力，也不
 8. 用户要求导出 HTML/CSV/JSON/Markdown/文本时调用 create_output，只提交 filename、media_type、
    title 和 disposition，不提交正文。工具接受后，下一轮只输出完整文件正文，不添加解释、代码围栏或
    工具调用；Runtime 会自动流式保存。只有收到 output_created 后才能宣称文件已生成；不用 write_file
-   冒充交付物。输出不暴露服务器路径，HTML 仅作为数据。
+   冒充交付物。create_output 必须独占当前工具调用轮；如需更新任务计划，先在上一轮单独调用
+   update_task_plan。输出不暴露服务器路径，HTML 仅作为数据。
 
 保持简洁、直接。用用户使用的语言回复。"""
 

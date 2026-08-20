@@ -415,20 +415,36 @@ class AgentLoop:
 
             if coordinator is not None:
                 tool_calls = coordinator.normalize_tool_calls(tool_calls)
-            if any(call.name == "create_output" for call in tool_calls) and coordinator is None:
+            output_calls = [call for call in tool_calls if call.name == "create_output"]
+            if output_calls and coordinator is None:
                 failure = self._output_capture_failure("当前运行入口不支持受管输出捕获。")
                 self._terminal(coordinator, False, failure.safe_message, failure=failure)
                 yield StepEvent(
                     kind="error", text=failure.safe_message, is_error=True, failure=failure
                 )
                 return
-            if any(call.name == "create_output" for call in tool_calls) and len(tool_calls) != 1:
-                failure = self._output_capture_failure("create_output 必须作为单独的工具调用执行。")
-                self._terminal(coordinator, False, failure.safe_message, failure=failure)
-                yield StepEvent(
-                    kind="error", text=failure.safe_message, is_error=True, failure=failure
-                )
-                return
+            if output_calls and len(tool_calls) != 1:
+                other_calls = [call for call in tool_calls if call.name != "create_output"]
+                if (
+                    len(output_calls) == 1
+                    and other_calls
+                    and all(call.name == "update_task_plan" for call in other_calls)
+                ):
+                    tool_calls = other_calls
+                    yield StepEvent(
+                        kind="notice",
+                        text="任务计划先行更新；输出文件将在下一轮单独生成。",
+                        result_code="output_call_deferred",
+                    )
+                else:
+                    failure = self._output_capture_failure(
+                        "create_output 必须作为单独的工具调用执行。"
+                    )
+                    self._terminal(coordinator, False, failure.safe_message, failure=failure)
+                    yield StepEvent(
+                        kind="error", text=failure.safe_message, is_error=True, failure=failure
+                    )
+                    return
             repeats = cursor.record_signature(tool_calls)
             if coordinator is not None:
                 sync_loop_state(self, coordinator, cursor, budget)

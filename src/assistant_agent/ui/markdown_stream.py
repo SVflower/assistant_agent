@@ -94,7 +94,7 @@ class StreamingMarkdownRenderer:
                     console=self._console,
                     refresh_per_second=8,
                     transient=self._transient,
-                    vertical_overflow="visible",
+                    vertical_overflow="crop",
                 )
                 self._live.start()
                 self._on_live(self._live)
@@ -134,6 +134,14 @@ class StreamingMarkdownRenderer:
 
     def _stop_live(self) -> None:
         if self._live is not None:
+            if self._transient:
+                try:
+                    # Rich.Live.stop() forces a final "visible" refresh. Clear the
+                    # transient renderable first so long streams cannot scroll a
+                    # stale copy above the committed final response.
+                    self._live.update(Text(""), refresh=True)
+                except Exception:
+                    self._failed = True
             self._live.stop()
             self._live = None
         self._on_live(None)

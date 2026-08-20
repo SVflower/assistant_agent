@@ -278,6 +278,45 @@ def test_streaming_markdown_can_discard_non_final_segment():
     assert owner.text() == ""
 
 
+def test_transient_stream_is_cropped_and_cleared_before_live_stop(monkeypatch):
+    live_instances = []
+
+    class FakeLive:
+        def __init__(self, renderable, **kwargs):
+            self.renderable = renderable
+            self.vertical_overflow = kwargs["vertical_overflow"]
+            self.updates = []
+            self.stopped = False
+            live_instances.append(self)
+
+        def start(self):
+            return None
+
+        def update(self, renderable, *, refresh=False):
+            self.renderable = renderable
+            self.updates.append((renderable, refresh))
+
+        def stop(self):
+            self.stopped = True
+
+    owner = _Owner()
+    owner._console = RichConsole(record=True, force_terminal=True, width=80)
+    monkeypatch.setattr("assistant_agent.ui.markdown_stream.Live", FakeLive)
+    renderer = StreamingMarkdownRenderer(
+        owner._console,
+        lambda _live: None,
+        transient=True,
+    )
+    renderer.append("很长的流式回答\n" * 200)
+    renderer.finish(commit=False)
+
+    live = live_instances[0]
+    assert live.vertical_overflow == "crop"
+    assert live.stopped is True
+    assert live.updates[-1][0].plain == ""
+    assert live.updates[-1][1] is True
+
+
 def test_streaming_markdown_view_shows_feedback_only_while_stream_is_idle():
     class Clock:
         value = 0.0

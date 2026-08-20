@@ -319,6 +319,24 @@ class RunObservabilityRecorder:
         self._snapshot = self._snapshot.model_copy(update={"task_plan": snapshot})
         return snapshot
 
+    def complete_active_task_plan_item(self, timestamp: str) -> TaskPlanSnapshot | None:
+        """成功终态收口唯一活动步骤；未开始步骤仍保留 pending 事实。"""
+        current = self._snapshot.task_plan
+        if current is None or not any(item.status == "in_progress" for item in current.items):
+            return current
+        snapshot = TaskPlanSnapshot(
+            revision=current.revision + 1,
+            updated_at=timestamp,
+            items=tuple(
+                item.model_copy(update={"status": "completed"})
+                if item.status == "in_progress"
+                else item
+                for item in current.items
+            ),
+        )
+        self._snapshot = self._snapshot.model_copy(update={"task_plan": snapshot})
+        return snapshot
+
     def record_phase(self, phase: str, timestamp: str) -> None:
         if phase == "waiting_interaction":
             self.start_interaction("runtime", "Waiting for interaction", timestamp)

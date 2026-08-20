@@ -236,6 +236,10 @@ class RunCoordinator(ContinuationStateMixin, DefinitionStateMixin):
         """替换当前 Run 的完整计划；由随后的工具完成 checkpoint 原子持久化。"""
         return self._observability.replace_task_plan(items, now_iso())
 
+    def complete_active_task_plan_item(self) -> TaskPlanSnapshot | None:
+        """成功终态前收口模型最后确认执行中的计划项。"""
+        return self._observability.complete_active_task_plan_item(now_iso())
+
     def _capture_bound_context(self) -> None:
         if self._tool_context is None:
             return
@@ -562,6 +566,8 @@ class RunCoordinator(ContinuationStateMixin, DefinitionStateMixin):
         compaction_checkpoint: dict[str, Any] | None,
         failure: RunFailure | None = None,
     ) -> None:
+        if success:
+            self.complete_active_task_plan_item()
         self.state.messages = messages
         self.state.pending_output_capture = None
         self.state.compaction_checkpoint = compaction_checkpoint

@@ -13,6 +13,8 @@ Job、Artifact 或权限状态机。
 - 新增模型工具 `update_task_plan(items)`，只接受完整任务表替换。
 - 简单问答不创建计划；三个及以上可验收步骤的交付任务才使用。
 - item 状态限定为 `pending | in_progress | completed`，顺序执行最多一项 `in_progress`。
+- 成功终态自动将唯一 `in_progress` 项收口为 `completed`，解决受管输出成功后没有下一次模型轮次可
+  更新计划的问题；仍为 `pending` 的步骤不得自动伪造完成。失败、暂停和取消保留最后事实状态。
 - `RunCoordinator` 自动生成 revision/updated_at，模型不能伪造 revision。
 - 计划直接写入既有 `RunObservabilitySnapshot.task_plan`，随下一工具完成 checkpoint 原子保存。
 - API 使用既有 Observability DTO 映射；Web 使用既有 `taskPlan` 类型和 Store。

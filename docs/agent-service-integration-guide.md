@@ -72,7 +72,8 @@ Agent 状态机。版本保持 Service v5、Session v5、RunState v12、Observab
 - `orchestration`：context build、checkpoint 次数/累计耗时/实际编码字节、Session sync 耗时；
 - `trajectory`：最多 256 条安全阶段事实，超限时 `truncated=true`；
 - `task_plan`：简单任务为 `null`；多步骤交付任务可由 `update_task_plan` 显式整表更新，revision 与
-  updated_at 由 RunCoordinator 生成并随 checkpoint 恢复；
+  updated_at 由 RunCoordinator 生成并随 checkpoint 恢复；成功终态收口唯一 `in_progress` 项，
+  未开始的 `pending` 项及失败、暂停、取消状态保持原始事实；
 - `schema_version=1`。
 
 Performance Foundation P0 对 Observability v1 做向后兼容扩展。旧快照缺少 `orchestration` 时读取为

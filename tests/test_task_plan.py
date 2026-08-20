@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 
 from assistant_agent.agent.run.coordinator import RunCoordinator
+from assistant_agent.contracts.observability import TaskPlanItem
 from assistant_agent.persistence.run_store import RunStore
 from assistant_agent.providers.ports import ToolCall
 from assistant_agent.tools.registry import ToolRegistry
@@ -113,3 +114,46 @@ def test_task_plan_rejects_duplicate_ids_and_parallel_active_items(tmp_path) -> 
     parallel[1]["status"] = "in_progress"
     assert tool.run({"items": parallel}, ctx).code == "task_plan_invalid"
     assert captured == []
+
+
+def test_successful_terminal_completes_only_active_plan_item(tmp_path) -> None:
+    coordinator = _coordinator(tmp_path)
+    coordinator.replace_task_plan(
+        (
+            TaskPlanItem(item_id="step-1", content="读取输入", status="completed"),
+            TaskPlanItem(item_id="step-2", content="生成成果", status="in_progress"),
+            TaskPlanItem(item_id="step-3", content="可选复核", status="pending"),
+        )
+    )
+
+    coordinator.terminal(
+        success=True,
+        text="已生成文件。",
+        messages=[],
+        compaction_checkpoint=None,
+    )
+
+    recovered = RunCoordinator.load(RunStore(tmp_path / "runs"), "run-1")
+    plan = recovered.observability_snapshot(persisted=True).task_plan
+    assert plan is not None
+    assert plan.revision == 2
+    assert [item.status for item in plan.items] == ["completed", "completed", "pending"]
+
+
+def test_failed_terminal_preserves_active_plan_item(tmp_path) -> None:
+    coordinator = _coordinator(tmp_path)
+    coordinator.replace_task_plan(
+        (TaskPlanItem(item_id="step-1", content="生成成果", status="in_progress"),)
+    )
+
+    coordinator.terminal(
+        success=False,
+        text="生成失败。",
+        messages=[],
+        compaction_checkpoint=None,
+    )
+
+    plan = coordinator.observability_snapshot().task_plan
+    assert plan is not None
+    assert plan.revision == 1
+    assert plan.items[0].status == "in_progress"

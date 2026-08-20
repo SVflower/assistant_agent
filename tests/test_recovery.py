@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from assistant_agent.agent.run.coordinator import RunCoordinator
-from assistant_agent.agent.run.state import PermissionGrantState
+from assistant_agent.agent.run.state import PendingOutputCaptureState, PermissionGrantState
 from assistant_agent.persistence.run_store import RunStore
 from assistant_agent.providers.ports import ToolCall
 from assistant_agent.tools.permissions import Capability, PermissionRequest, PermissionScope
@@ -85,6 +85,35 @@ def test_observability_recovery_preserves_entries_and_resume_does_not_duplicate(
     assert len(resumed.trajectory) == len(before.trajectory) + 1
     assert resumed.trajectory[-1].title == "Run resumed"
     assert len({item.entry_id for item in resumed.trajectory}) == len(resumed.trajectory)
+
+
+def test_output_validation_repair_budget_survives_checkpoint_reload(tmp_path):
+    coordinator = _coordinator(tmp_path)
+    coordinator.state.pending_output_capture = PendingOutputCaptureState(
+        draft_id="draft_" + "a" * 32,
+        call_id="output-1",
+        filename="report.html",
+        media_type="text/html",
+        disposition="download",
+        max_chunk_bytes=8192,
+    )
+    coordinator.state.phase = "artifact_capture"
+    coordinator.checkpoint()
+
+    loaded = RunCoordinator.load(RunStore(tmp_path), coordinator.run_id)
+    assert loaded.output_validation_failed(
+        "output-1",
+        "html_structure_invalid",
+        messages=[{"role": "tool", "content": "safe repair feedback"}],
+    )
+    recovered = RunCoordinator.load(RunStore(tmp_path), coordinator.run_id)
+    assert recovered.state.pending_output_capture is not None
+    assert recovered.state.pending_output_capture.validation_failures == 1
+    assert not recovered.output_validation_failed(
+        "output-1",
+        "html_structure_invalid",
+        messages=recovered.state.messages,
+    )
 
 
 def test_tool_lifecycle_checkpoints_each_transition(tmp_path):

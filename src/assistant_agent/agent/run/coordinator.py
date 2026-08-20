@@ -47,7 +47,11 @@ from assistant_agent.contracts.charts import (
     MAX_RUN_ARTIFACTS,
 )
 from assistant_agent.contracts.failures import RunFailure
-from assistant_agent.contracts.observability import RunObservabilitySnapshot
+from assistant_agent.contracts.observability import (
+    RunObservabilitySnapshot,
+    TaskPlanItem,
+    TaskPlanSnapshot,
+)
 from assistant_agent.contracts.outputs import OutputArtifactV1
 from assistant_agent.providers.ports import ToolCall
 from assistant_agent.tools.context import ToolContext
@@ -226,6 +230,11 @@ class RunCoordinator(ContinuationStateMixin, DefinitionStateMixin):
 
     def bind_tool_context(self, ctx: ToolContext) -> None:
         self._tool_context = ctx
+        ctx.task_plan_replace = self.replace_task_plan
+
+    def replace_task_plan(self, items: tuple[TaskPlanItem, ...]) -> TaskPlanSnapshot:
+        """替换当前 Run 的完整计划；由随后的工具完成 checkpoint 原子持久化。"""
+        return self._observability.replace_task_plan(items, now_iso())
 
     def _capture_bound_context(self) -> None:
         if self._tool_context is None:
@@ -517,6 +526,32 @@ class RunCoordinator(ContinuationStateMixin, DefinitionStateMixin):
         self.state.pending_output_capture = None
         self.state.phase = "model_pending"
         self.checkpoint()
+
+    def record_output_validation(self, call_id: str, *, passed: bool, result_code: str) -> None:
+        self._observability.record_output_validation(
+            call_id, now_iso(), passed=passed, result_code=result_code
+        )
+
+    def output_validation_failed(
+        self, call_id: str, result_code: str, *, messages: list[dict[str, Any]]
+    ) -> bool:
+        """记录验证失败；首个失败持久化一次安全修复机会。"""
+        pending = self.state.pending_output_capture
+        if pending is None or pending.call_id != call_id:
+            raise ValueError("输出验证失败事实与 pending intent 不匹配")
+        self._observability.record_output_validation(
+            call_id, now_iso(), passed=False, result_code=result_code
+        )
+        if pending.validation_failures >= 1:
+            return False
+        self.state.pending_output_capture = pending.model_copy(
+            update={"validation_failures": pending.validation_failures + 1}
+        )
+        self.state.messages = messages
+        self.state.status = "running"
+        self.state.phase = "artifact_capture"
+        self.checkpoint()
+        return True
 
     def terminal(
         self,

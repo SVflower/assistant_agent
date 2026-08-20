@@ -240,16 +240,7 @@ class OutputStore:
             except (OSError, ValueError, KeyError, TypeError) as exc:
                 raise OutputUnavailableError("输出草稿完成标记损坏") from exc
             return self.get(session_id, output_id)
-        chunks = self._draft_chunks(directory)
-        if not chunks:
-            raise OutputInvalidError("输出草稿没有内容")
-        try:
-            payload = b"".join(path.read_bytes() for path in chunks)
-            content = payload.decode("utf-8")
-        except UnicodeDecodeError as exc:
-            raise OutputInvalidError("输出草稿不是有效 UTF-8") from exc
-        except OSError as exc:
-            raise OutputUnavailableError("输出草稿暂不可读") from exc
+        content = self.read_text_draft(session_id=session_id, run_id=run_id, draft_id=draft_id)
         artifact = self.publish_text(
             session_id=session_id,
             run_id=run_id,
@@ -266,6 +257,18 @@ class OutputStore:
             json.dumps({"output_id": artifact.output_id}, sort_keys=True).encode("utf-8"),
         )
         return artifact
+
+    def read_text_draft(self, *, session_id: str, run_id: str, draft_id: str) -> str:
+        _metadata, directory = self._load_draft(session_id, run_id, draft_id)
+        chunks = self._draft_chunks(directory)
+        if not chunks:
+            raise OutputInvalidError("输出草稿没有内容")
+        try:
+            return b"".join(path.read_bytes() for path in chunks).decode("utf-8")
+        except UnicodeDecodeError as exc:
+            raise OutputInvalidError("输出草稿不是有效 UTF-8") from exc
+        except OSError as exc:
+            raise OutputUnavailableError("输出草稿暂不可读") from exc
 
     def reset_text_draft(self, *, session_id: str, run_id: str, draft_id: str) -> None:
         """丢弃未发布分块，供暂停、崩溃后的捕获轮从头安全重放。"""

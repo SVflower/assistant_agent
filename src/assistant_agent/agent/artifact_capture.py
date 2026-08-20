@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+from assistant_agent.agent.output_validation import (
+    OutputValidationResult,
+    validate_output_content,
+)
 from assistant_agent.agent.run.state import PendingOutputCaptureState
 from assistant_agent.contracts.outputs import OutputArtifactV1, OutputLimitExceededError
 from assistant_agent.tools.ports import OutputStorePort
@@ -23,6 +27,7 @@ class ArtifactCaptureWriter:
         self._buffer = ""
         self._chunk_index = 0
         self._size_bytes = 0
+        self.validation_result: OutputValidationResult | None = None
 
     @property
     def size_bytes(self) -> int:
@@ -54,6 +59,12 @@ class ArtifactCaptureWriter:
             self._buffer = ""
         if self._size_bytes == 0:
             raise OutputLimitExceededError("模型未生成文件正文")
+        content = self._store.read_text_draft(
+            session_id=self._session_id,
+            run_id=self._run_id,
+            draft_id=self._pending.draft_id,
+        )
+        self.validation_result = validate_output_content(self._pending.media_type, content)
         return self._store.finalize_text_draft(
             session_id=self._session_id,
             run_id=self._run_id,

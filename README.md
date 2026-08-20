@@ -300,12 +300,15 @@ Run/Interaction/compaction。Event v1、RunState v6 与 Agent Loop 不变，API/
 M28 曾新增逐字节兼容 V1 的受控 ChartSpecV2、15 类普通图表与确定性数据派生；M30 收紧 Heatmap
 新建路径为 X/Y category axis，拒绝空数据、全 null value 和空白坐标，并提供按图表意图隔离、可恢复的
 一次定向纠错 metadata。Event v1、Session contract/schema v3、RunState v7 保持不变。
-M31-M34 开发期 hard cut 后，当前只支持 RunState v11、Session v5、Chart V2、Attachment/Content v1
+M31-M37 开发期 hard cut 后，当前只支持 RunState v12、Session v5、Chart V2、Attachment/Content v1
 和 Managed Output v1；旧格式不迁移，版本不匹配 fail closed。HTML/CSV/JSON/Markdown/文本交付物
 统一写入可配置的 `<workspace>/outputs/YYYY/MM/DD/<session-id>/`。`create_output` 仅声明元数据，
 Runtime 原生捕获下一轮正文；公共契约不暴露服务器路径或草稿协议。
+Native ArtifactWriter 会在正式发布前验证 HTML/JSON/CSV/Markdown/纯文本的基础结构；无效草稿不会
+进入 Run、Session 或 API/Web，验证事实只以稳定错误码进入安全 trajectory。
 M34 新增 Observability v1：RunSnapshot 与非高频 StepEvent 提供受控 timing、context、model usage 和
-有界 trajectory；Provider 未报告的指标保持 null。TaskPlan 首批为 null，且没有 trajectory 分页接口。
+有界 trajectory；Provider 未报告的指标保持 null。简单任务的 TaskPlan 为 null，多步骤交付任务通过
+`update_task_plan` 显式维护；当前没有 trajectory 分页接口。
 M35-R1 进一步让公开 user/assistant 消息以 nullable `run_id` 权威关联原 Run，并由 RunSnapshot 暴露
 安全创建时间和 provider/model；旧消息不猜测、fork 清空关联。该能力受默认全局 100 个 terminal Run
 与每 Run 256 条 trajectory 保留限制，不是完整长期 TraceStore。

@@ -79,6 +79,7 @@ from assistant_agent.tools.outputs import CreateOutputTool
 from assistant_agent.tools.processes import ManageProcessTool
 from assistant_agent.tools.registry import ToolRegistry, build_default_registry
 from assistant_agent.tools.runtime_inspection import InspectRuntimeTool
+from assistant_agent.tools.task_plan import UpdateTaskPlanTool
 from assistant_agent.tools.tool import Tool
 
 
@@ -104,6 +105,7 @@ def _configure_chart_tool(
     *,
     interactive: bool,
     skills: list[tuple[str, str]],
+    task_planning: bool,
 ) -> tuple[str, bool, list[RuntimeNotice]]:
     available = _register_policy_tool(
         policy,
@@ -121,6 +123,7 @@ def _configure_chart_tool(
         managed_process=False,
         chart_presentation=False,
         runtime_profile=policy.profile,
+        task_planning=task_planning,
     )
     if not policy.allows_tool("present_chart"):
         return prompt, False, []
@@ -137,6 +140,39 @@ def _configure_chart_tool(
         ),
     )
     return prompt, False, [notice]
+
+
+def _configure_task_plan_tool(
+    policy: RuntimePolicy,
+    config: AppConfig,
+    registry: ToolRegistry,
+    system_prompt: str,
+    *,
+    interactive: bool,
+    skills: list[tuple[str, str]],
+) -> tuple[str, bool, list[RuntimeNotice]]:
+    available = _register_policy_tool(policy, config, registry, system_prompt, UpdateTaskPlanTool())
+    if available:
+        return system_prompt, True, []
+    prompt = build_system_prompt(
+        interactive,
+        skills=skills or None,
+        managed_process=False,
+        task_planning=False,
+        runtime_profile=policy.profile,
+    )
+    if not policy.allows_tool("update_task_plan"):
+        return prompt, False, []
+    return (
+        prompt,
+        False,
+        [
+            RuntimeNotice(
+                "task_plan_tool_omitted_context_limit",
+                "上下文窗口不足，当前 Runtime 未注册任务计划工具。",
+            )
+        ],
+    )
 
 
 def _configure_output_tool(
@@ -323,6 +359,15 @@ def create_runtime(
             managed_process=False,
             runtime_profile=policy.profile,
         )
+        system_prompt, task_plan_available, task_plan_notices = _configure_task_plan_tool(
+            policy,
+            config,
+            registry,
+            system_prompt,
+            interactive=interactive,
+            skills=skill_meta,
+        )
+        notices.extend(task_plan_notices)
 
         system_prompt, chart_available, chart_notices = _configure_chart_tool(
             policy,
@@ -331,6 +376,7 @@ def create_runtime(
             system_prompt,
             interactive=interactive,
             skills=skill_meta,
+            task_planning=task_plan_available,
         )
         notices.extend(chart_notices)
 
@@ -386,6 +432,7 @@ def create_runtime(
                 managed_process=False,
                 chart_presentation=chart_available,
                 runtime_profile=policy.profile,
+                task_planning=task_plan_available,
             )
             if policy.allows_tool("inspect_runtime"):
                 notices.append(
@@ -401,6 +448,7 @@ def create_runtime(
             managed_process=True,
             chart_presentation=chart_available,
             runtime_profile=policy.profile,
+            task_planning=task_plan_available,
         )
         managed_process_available = _register_policy_tool(
             policy, config, registry, managed_process_prompt, ManageProcessTool()
@@ -426,6 +474,7 @@ def create_runtime(
                 managed_process=managed_process_available,
                 chart_presentation=chart_available,
                 runtime_profile=policy.profile,
+                task_planning=task_plan_available,
             )
         elif not register_extension_tools(config, registry, system_prompt, extension_tools):
             extension_management = False
@@ -437,6 +486,7 @@ def create_runtime(
                 managed_process=managed_process_available,
                 chart_presentation=chart_available,
                 runtime_profile=policy.profile,
+                task_planning=task_plan_available,
             )
             notices.append(
                 RuntimeNotice(

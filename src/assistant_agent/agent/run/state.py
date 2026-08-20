@@ -42,7 +42,7 @@ ReplayPolicy = Literal["safe_readonly", "safe_idempotent", "requires_decision"]
 RetrySafety = Literal["safe", "unsafe", "uncertain", "unknown"]
 
 _RESOLVED_TOOL_STATUSES = {"completed", "failed", "skipped"}
-_SCHEMA_VERSION: Literal[11] = 11
+_SCHEMA_VERSION: Literal[12] = 12
 
 
 def now_iso() -> str:
@@ -136,6 +136,7 @@ class PendingOutputCaptureState(StrictStateModel):
     disposition: Literal["inline", "download"]
     title: str | None = Field(default=None, max_length=200)
     max_chunk_bytes: int = Field(gt=0)
+    validation_failures: int = Field(default=0, ge=0, le=1)
 
 
 class PermissionRequestState(StrictStateModel):
@@ -176,7 +177,7 @@ class RunState(StrictStateModel):
     成功写入 Session 后才能置真。三者用途不同，不能为了减少字段而互相重建。
     """
 
-    schema_version: Literal[11] = _SCHEMA_VERSION
+    schema_version: Literal[12] = _SCHEMA_VERSION
     run_id: str = Field(min_length=1)
     session_id: str | None = None
     task: str

@@ -5,11 +5,11 @@
 >
 > 本文是公共服务契约的长期唯一正式入口；里程碑归档和阶段性交接不能替代本文。
 > 当前公共事件契约：`EVENT_CONTRACT_VERSION == 1`；Session 服务契约：
-> `SESSION_CONTRACT_VERSION == 5`；当前 Run checkpoint：schema v11；当前 Session 文档：schema v5；
+> `SESSION_CONTRACT_VERSION == 5`；当前 Run checkpoint：schema v12；当前 Session 文档：schema v5；
 > 当前 Output contract：v1。
 > 最近同步：空 Provider 响应失败语义（2026-08-19）。
 >
-> **破坏性契约版本：`AGENT_SERVICE_CONTRACT_VERSION = 5`。** Agent 只读取和写入 RunState v11、
+> **破坏性契约版本：`AGENT_SERVICE_CONTRACT_VERSION = 5`。** Agent 只读取和写入 RunState v12、
 > Session v5、Chart V2、Attachment/Content v1 和 Output v1；旧状态不迁移。
 
 ## 空 Provider 响应
@@ -32,7 +32,7 @@ run_terminal.failure.allowed_actions = [retry_run, stop]
 空响应前已经完成的工具事实、Chart Artifact 和 Output Artifact 继续保留。重试前若收到 pause/cancel，
 优先按既有控制语义结束，不产生 `provider_empty_response`。API/Web 应按稳定 code 展示可重试失败，不解析
 `safe_message`，不在 API 层自动再试，不合成第二个 terminal。该扩展保持 Service v5、Session v5、
-RunState v11、Event v1 不变。
+RunState v12、Event v1 不变。
 
 ## M35-R1 历史运行关联
 
@@ -50,7 +50,7 @@ base URL、provider payload 或配置。`SessionRuntime.run_snapshot(run_id)` �
 RunStore 全局最多保留 100 个已同步 terminal Run；`list_runs` 当前不分页。每个 Run 的 trajectory 最多
 256 条，超限时保留首条与末尾 255 条并设置 `truncated=true`。R1 没有 Session trajectory 分页或完整
 TraceStore，不能宣称永久、完整的运行历史。API 只调用公共 service，不扫描 Session/Run 文件或复制
-Agent 状态机。版本保持 Service v5、Session v5、RunState v11、Observability v1、Event v1。
+Agent 状态机。版本保持 Service v5、Session v5、RunState v12、Observability v1、Event v1。
 
 ## M34 Run Observability
 
@@ -71,7 +71,8 @@ Agent 状态机。版本保持 Service v5、Session v5、RunState v11、Observab
 - `model_usage`：input/output/cache read/cache write/cache hit 与来源；
 - `orchestration`：context build、checkpoint 次数/累计耗时/实际编码字节、Session sync 耗时；
 - `trajectory`：最多 256 条安全阶段事实，超限时 `truncated=true`；
-- `task_plan`：M34 首批始终为 `null`，因为尚无显式整表写入工具；
+- `task_plan`：简单任务为 `null`；多步骤交付任务可由 `update_task_plan` 显式整表更新，revision 与
+  updated_at 由 RunCoordinator 生成并随 checkpoint 恢复；
 - `schema_version=1`。
 
 Performance Foundation P0 对 Observability v1 做向后兼容扩展。旧快照缺少 `orchestration` 时读取为
@@ -1102,7 +1103,7 @@ artifact URL 必须返回统一 404，跨 Session 查询也返回同一 404，�
 - 直接使用 Agent 产生的 histogram/boxplot/percent derived dataset，不在 API/Web 重算；
 - 未知或损坏 V2 只降级当前图表，不丢失文字消息，不改变 final/run_terminal；
 - M31-M34 之后，上述历史兼容范围不再适用于当前运行时；当前只接受 Chart V2、Session v5、Run
-  checkpoint v11 和 Output v1，API 不复制迁移状态机，旧状态在部署前清理。
+  checkpoint v12 和 Output v1，API 不复制迁移状态机，旧状态在部署前清理。
 
 M30 保持 Event v1、Session contract v3、RunState v7 和 ChartSpecV2 字段不变，仅收紧 Agent 新建
 Heatmap 的模型输入边界：生成的 X/Y 轴均为 `category`，空 rows、全 null value、null/空白分类坐标
@@ -1139,7 +1140,7 @@ M31 的 hard cut 覆盖本节此前的兼容读取说明：
 - `ChartSpecV1`、`ChartArtifact`、`PresentationArtifactRef`、`AnyChartArtifact` 和
   `AnyPresentationArtifactRef` 已删除，不再提供 re-export。
 - `StepEvent.chart`、Run/Session presentations、公开 message refs 均只接受 V2。
-- RunStore 的写入、双槽读取和 Coordinator 恢复只接受 checkpoint v11；v1-v10 不回退、不迁移。
+- RunStore 的写入、双槽读取和 Coordinator 恢复只接受 checkpoint v12；v1-v11 不回退、不迁移。
 - SessionStore 的读取、catalog、summary、fork 和写入只接受 Session v5；v0-v4 不回写、不迁移。
 - UserMessageInput/MessageContent/AttachmentRef 当前只接受 Content/Attachment v1；checkpoint/session 只保存
   ref，不保存附件正文、base64、path 或 EXIF。

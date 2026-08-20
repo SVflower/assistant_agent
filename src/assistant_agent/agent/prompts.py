@@ -30,6 +30,7 @@ SYSTEM_PROMPT = """你是一个跑在用户本地机器上的任务执行 Agent�
 - manage_skill(action, source?/name?, scope?)：安装或卸载 Skill；变更在下次启动生效。
 - inspect_runtime()：查询当前工具、Skill、MCP server 数量及各 server 工具；能力自省必须用它，
   不搜索文件猜测。相同查询结果已明确标记，无需重复调用。
+- update_task_plan(items)：为多步骤交付任务记录完整任务清单并逐项更新状态；简单问答不要调用。
 - present_chart(...)：把真实结构化数据展示为受控普通图表，支持折线/面积/分组或堆叠柱状、饼图、
   双轴、散点/气泡、直方图、箱线图、热力图和多面板；只传数据与字段映射，不传 option、formatter、
   HTML、URL、style 或代码。有明确单位时填写 columns[].unit；ISO 时间列用 datetime，批次/子组/
@@ -45,6 +46,8 @@ SYSTEM_PROMPT = """你是一个跑在用户本地机器上的任务执行 Agent�
    只有整篇重写或新建文件才用 write_file（须传完整内容，不能只传片段）。
 5. 改完后用 read_file 或 run_shell 验证结果符合预期。
 6. 需要让开发服务器跨多个步骤持续运行时使用 manage_process；不要用 start /b、nohup 或 & 逃逸。
+7. 需要三个及以上可验收步骤的交付任务，开始执行前调用 update_task_plan；每完成一项立即更新完整
+   列表，不要等到最后批量标记。简单问答、单步工具调用和纯澄清不创建任务列表。
 
 # 必须做
 - 用真实的工具结果驱动决策；不确定文件内容或命令输出时，先用工具确认。
@@ -109,7 +112,8 @@ Shell、进程、配置、环境变量、内网或数据库管理能力，也不
    首次可修正错误按 field_path 重调一次；多面板 aggregate 写对应 panels[i]，聚合语义不猜；
    SPC 各面板使用清楚的列 label/unit，UCL/LCL/CL 是控制线 label，不是轴单位。
 6. 真正存在需求歧义时调用 ask_user；工具审批由服务端处理，不能自行扩大权限。
-7. 用户要求导出 HTML/CSV/JSON/Markdown/文本时调用 create_output，只提交 filename、media_type、
+7. 需要三个及以上可验收步骤的交付任务时调用 update_task_plan 维护完整任务列表；简单问答不调用。
+8. 用户要求导出 HTML/CSV/JSON/Markdown/文本时调用 create_output，只提交 filename、media_type、
    title 和 disposition，不提交正文。工具接受后，下一轮只输出完整文件正文，不添加解释、代码围栏或
    工具调用；Runtime 会自动流式保存。只有收到 output_created 后才能宣称文件已生成；不用 write_file
    冒充交付物。输出不暴露服务器路径，HTML 仅作为数据。
@@ -178,6 +182,7 @@ def build_system_prompt(
     runtime_inspection: bool = True,
     managed_process: bool = True,
     chart_presentation: bool = True,
+    task_planning: bool = True,
     runtime_profile: str = "cli",
 ) -> str:
     """完整系统提示词 = 基础提示词 + 运行环境说明 + 可选技能节（运行时动态生成）。
@@ -208,6 +213,25 @@ def build_system_prompt(
             "6. 需要让开发服务器跨多个步骤持续运行时使用 manage_process；"
             "不要用 start /b、nohup 或 & 逃逸。\n",
             "",
+        )
+    if not task_planning:
+        prompt = (
+            prompt.replace(
+                "- update_task_plan(items)：为多步骤交付任务记录完整任务清单并逐项更新状态；"
+                "简单问答不要调用。\n",
+                "",
+            )
+            .replace(
+                "7. 需要三个及以上可验收步骤的交付任务，开始执行前调用 update_task_plan；"
+                "每完成一项立即更新完整\n   列表，不要等到最后批量标记。"
+                "简单问答、单步工具调用和纯澄清不创建任务列表。\n",
+                "",
+            )
+            .replace(
+                "7. 需要三个及以上可验收步骤的交付任务时调用 update_task_plan "
+                "维护完整任务列表；简单问答不调用。\n",
+                "",
+            )
         )
     if not chart_presentation:
         prompt = (

@@ -7,6 +7,7 @@ from pydantic import ValidationError
 
 from assistant_agent.agent.run.observability import new_observability
 from assistant_agent.agent.run.state import (
+    PendingOutputCaptureState,
     RunState,
     ToolBudgetState,
     ToolCallState,
@@ -60,6 +61,21 @@ def test_run_state_round_trip_is_strict_json():
     state = _state()
     restored = RunState.model_validate_json(state.model_dump_json())
     assert restored == state
+
+
+def test_pending_output_allows_only_one_validation_repair() -> None:
+    fields = {
+        "draft_id": "draft_" + "a" * 32,
+        "call_id": "call-1",
+        "filename": "report.html",
+        "media_type": "text/html",
+        "disposition": "download",
+        "max_chunk_bytes": 8192,
+    }
+    assert PendingOutputCaptureState(**fields).validation_failures == 0
+    assert PendingOutputCaptureState(**fields, validation_failures=1).validation_failures == 1
+    with pytest.raises(ValidationError):
+        PendingOutputCaptureState(**fields, validation_failures=2)
 
 
 def test_run_state_rejects_extra_and_coerced_fields():
@@ -146,13 +162,13 @@ def test_canonical_hash_ignores_mapping_order():
 
 def test_checkpoint_only_accepts_current_schema():
     state = _state(status="cancelled", phase="terminal")
-    assert state.schema_version == 11
+    assert state.schema_version == 12
     assert parse_run_state(state.model_dump(mode="python")) == state
-    for version in (1, 6, 7, None):
+    for version in (1, 6, 7, 11, None):
         incompatible = state.model_dump(mode="python")
         incompatible["schema_version"] = version
         with pytest.raises(Exception) as caught:
             parse_run_state(incompatible)
         assert caught.value.code == "unsupported_run_state_schema"
-        assert caught.value.expected_version == 11
+        assert caught.value.expected_version == 12
         assert caught.value.actual_version == version

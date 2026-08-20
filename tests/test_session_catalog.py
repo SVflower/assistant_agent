@@ -43,7 +43,7 @@ def _service(tmp_path, *, run_store=None, session_store=None):
 
 def _run_document(run_id: str, session_id: str, updated_at: str, status="completed"):
     return {
-        "schema_version": 11,
+        "schema_version": 12,
         "run_id": run_id,
         "session_id": session_id,
         "task": "public summary",

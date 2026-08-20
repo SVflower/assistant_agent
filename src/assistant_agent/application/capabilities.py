@@ -76,6 +76,7 @@ class RuntimePolicy:
                 "present_chart",
                 "create_output",
                 "web_search",
+                "update_task_plan",
             }
         )
         return cls(

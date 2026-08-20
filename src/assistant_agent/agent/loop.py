@@ -10,6 +10,7 @@ from assistant_agent.agent.artifact_capture import ArtifactCaptureWriter
 from assistant_agent.agent.context.compaction import Compactor
 from assistant_agent.agent.context.conversation import Conversation, estimate_tools_tokens
 from assistant_agent.agent.context.window import ContextWindowError
+from assistant_agent.agent.output_validation import OutputValidationError
 from assistant_agent.agent.prompts import build_system_prompt
 from assistant_agent.agent.run.budgets import (
     BudgetContinueCheck,
@@ -363,6 +364,31 @@ class AgentLoop:
                     event = self._finalize_artifact_capture(
                         coordinator, pending_output, capture_writer, tool_calls
                     )
+                except OutputValidationError as exc:
+                    feedback = (
+                        f"输出验证失败 [{exc.reason_code}]：{exc}。"
+                        "请重新输出完整文件正文，不要添加解释、Markdown 代码围栏或工具调用。"
+                    )
+                    self._conversation.replace_tool_result(
+                        pending_output.call_id, "create_output", feedback
+                    )
+                    if coordinator.output_validation_failed(
+                        pending_output.call_id,
+                        exc.reason_code,
+                        messages=self.export_history(),
+                    ):
+                        yield StepEvent(
+                            kind="notice",
+                            text="输出验证未通过，正在进行一次自动修复。",
+                            result_code="output_validation_retrying",
+                        )
+                        continue
+                    failure = self._output_capture_failure("文件正文连续两次未通过安全验证。")
+                    self._terminal(coordinator, False, failure.safe_message, failure=failure)
+                    yield StepEvent(
+                        kind="error", text=failure.safe_message, is_error=True, failure=failure
+                    )
+                    return
                 except OutputError:
                     failure = self._output_capture_failure("文件正文无效或超过输出限制。")
                     self._terminal(coordinator, False, failure.safe_message, failure=failure)
@@ -511,6 +537,12 @@ class AgentLoop:
         if tool_calls:
             raise OutputInvalidError("输出捕获轮禁止工具调用")
         artifact = writer.finalize()
+        validation = writer.validation_result
+        if validation is None:
+            raise RuntimeError("输出捕获完成但缺少验证结果")
+        coordinator.record_output_validation(
+            pending.call_id, passed=True, result_code=validation.result_code
+        )
         self._conversation.replace_tool_result(
             pending.call_id,
             "create_output",

@@ -19,7 +19,8 @@ API/Web 按 `docs/m33-managed-outputs-plan.md` 与正式 service guide 接入。
 
 **M34 当前状态**：Agent 侧已完成受控 Run observability v1。RunSnapshot/StepEvent additive 提供 timing、
 context、model usage 与最多 256 条安全 trajectory；RunState current-only 升为 v11，Event v1、Service v5、
-Session v5 保持不变。TaskPlan 首批为 `null`，不从自然语言猜测；首批无 trajectory 分页接口。API/Web 按
+Session v5 保持不变。M34 首批 TaskPlan 为 `null`，不从自然语言猜测；M37-R1 已增加显式整表写入，
+仍无 trajectory 分页接口。API/Web 按
 `docs/archive/phase24/m34-agent-api-handoff.md` 接入。
 
 **M35-R1 当前状态**：Agent 侧已完成历史消息到 Run 的权威关联。新 Run 的 user/assistant 公共消息持久化
@@ -34,6 +35,20 @@ Web 按 `docs/archive/phase27/m36-chart-axis-api-handoff.md` 实现尺寸感知�
 **Performance Foundation P0 当前状态**：Observability v1 additive 增加 context build、checkpoint 与
 Session sync 分段；纯 telemetry 不再单独 fsync。确定性 checkpoint 回归为 4/9/14，真实两轮工具基线
 约 29 次降至 9 次。Chart 草稿补齐无歧义单系列 line/area/bar。所有公共版本不变，未修改 Loop。
+
+**M37-R1 当前状态**：基于既有 M34 Observability 落地显式 `update_task_plan`。多步骤交付任务可维护
+整表替换的结构化清单，revision/updated_at 由 RunCoordinator 权威生成并随既有 checkpoint 恢复；
+工具按上下文预算动态注册，Web profile 不扩展服务器权限。API 复用既有 task_plan 映射，Web 在运行活动
+摘要和检查器展示进度。所有公共版本不变，未修改 Agent Loop。后续边界见
+[M37 交付工作流方案](docs/m37-delivery-workflow-plan.md)。
+
+**M37-R2 当前状态**：Native ArtifactWriter 在正式发布前对 HTML/JSON/CSV/Markdown/纯文本执行标准库
+确定性验证。无效草稿不产生 Artifact，稳定验证结果进入既有 trajectory；API/Web 无需新增 DTO。
+首批不执行浏览器脚本，不增加公共服务版本或 Web Runtime 权限，详细边界见 M37 方案。
+
+**M37-R3 当前状态**：输出首次验证失败时，Runtime 通过原 `create_output` 工具结果向模型反馈稳定错误码，
+只允许一次自动重新生成；失败次数随 pending capture checkpoint 恢复，第二次失败终止且不发布文件。
+RunState current-only 升为 v12；Service/Session/Event/Observability/Output 契约保持不变。
 
 **已具备能力**：
 - **模型**：后端可切换（云端 OpenAI 兼容 / Anthropic / 本地 LM Studio·Ollama·vLLM），config/`--provider`/对话内 `/model` 三种切法，切换保留上下文。

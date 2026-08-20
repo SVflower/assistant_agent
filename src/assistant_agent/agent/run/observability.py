@@ -12,6 +12,8 @@ from assistant_agent.contracts.observability import (
     ContextUsageSnapshot,
     ModelUsageSnapshot,
     RunObservabilitySnapshot,
+    TaskPlanItem,
+    TaskPlanSnapshot,
     TimingSnapshot,
     TrajectoryCategory,
     TrajectoryEntry,
@@ -292,6 +294,30 @@ class RunObservabilityRecorder:
             call_id=call_id,
             result_code=result_code,
         )
+
+    def record_output_validation(
+        self, call_id: str, timestamp: str, *, passed: bool, result_code: str
+    ) -> None:
+        self._instant(
+            "output",
+            "Output validation passed" if passed else "Output validation failed",
+            timestamp,
+            call_id=call_id,
+            result_code=result_code,
+            status="completed" if passed else "failed",
+        )
+
+    def replace_task_plan(
+        self, items: tuple[TaskPlanItem, ...], timestamp: str
+    ) -> TaskPlanSnapshot:
+        current = self._snapshot.task_plan
+        snapshot = TaskPlanSnapshot(
+            revision=1 if current is None else current.revision + 1,
+            updated_at=timestamp,
+            items=items,
+        )
+        self._snapshot = self._snapshot.model_copy(update={"task_plan": snapshot})
+        return snapshot
 
     def record_phase(self, phase: str, timestamp: str) -> None:
         if phase == "waiting_interaction":

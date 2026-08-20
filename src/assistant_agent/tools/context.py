@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 from assistant_agent.contracts.interactions import InteractionPort
+from assistant_agent.contracts.observability import TaskPlanItem, TaskPlanSnapshot
 from assistant_agent.tools.interaction_bridge import approve_via_port, ask_via_port
 from assistant_agent.tools.models import ArtifactRef, ToolBudget
 from assistant_agent.tools.observers import PostToolUseObserver, PreToolUseObserver
@@ -89,6 +90,9 @@ class ToolContext:
     result_count_matching: Callable[[str, str, Callable[[dict[str, Any]], bool]], int] = (
         lambda _tool, _marker, _matches: 0
     )
+    task_plan_replace: Callable[[tuple[TaskPlanItem, ...]], TaskPlanSnapshot | None] = (
+        lambda _items: None
+    )
     argument_failure_counts: dict[str, int] = field(default_factory=dict)
     blocked_argument_tools: set[str] = field(default_factory=set)
     # 当前工具执行内确认回调的累计等待时间。
@@ -128,6 +132,8 @@ class ToolContext:
         result_count: Callable[[str, str], int] | None = None,
         result_count_matching: Callable[[str, str, Callable[[dict[str, Any]], bool]], int]
         | None = None,
+        task_plan_replace: Callable[[tuple[TaskPlanItem, ...]], TaskPlanSnapshot | None]
+        | None = None,
     ) -> None:
         """绑定当前服务调用身份；每个 Runtime 同时只允许一个活跃 Run。"""
         self.current_run_id = run_id
@@ -136,6 +142,7 @@ class ToolContext:
         self.result_count_matching = result_count_matching or (
             lambda tool, marker, _matches: self.result_count(tool, marker)
         )
+        self.task_plan_replace = task_plan_replace or (lambda _items: None)
         self.argument_failure_counts.clear()
         self.blocked_argument_tools.clear()
 
@@ -144,8 +151,12 @@ class ToolContext:
         self.current_session_id = None
         self.result_count = lambda _tool, _marker: 0
         self.result_count_matching = lambda _tool, _marker, _matches: 0
+        self.task_plan_replace = lambda _items: None
         self.argument_failure_counts.clear()
         self.blocked_argument_tools.clear()
+
+    def replace_task_plan(self, items: tuple[TaskPlanItem, ...]) -> TaskPlanSnapshot | None:
+        return self.task_plan_replace(items)
 
     def record_argument_failure(self, tool_name: str, *, limit: int = 2) -> int:
         count = self.argument_failure_counts.get(tool_name, 0) + 1

@@ -135,6 +135,52 @@ class _OutputThenProviderFailureClient(_NativeOutputClient):
         )
 
 
+class _InvalidOutputClient(_NativeOutputClient):
+    def complete_stream(self, messages, tools=None) -> Iterator[StreamEvent]:
+        self.tools.append(list(tools or []))
+        self.calls += 1
+        if self.calls == 1:
+            yield StreamEvent(
+                kind="tool_calls",
+                tool_calls=[
+                    ToolCall(
+                        id="create-invalid-1",
+                        name="create_output",
+                        arguments={"filename": "invalid.html", "media_type": "text/html"},
+                    )
+                ],
+            )
+            return
+        yield StreamEvent(kind="content", text="<html><body><div>broken</body></html>")
+
+
+class _RepairingOutputClient(_NativeOutputClient):
+    def __init__(self, provider) -> None:
+        super().__init__(provider)
+        self.requests: list[list[dict]] = []
+
+    def complete_stream(self, messages, tools=None) -> Iterator[StreamEvent]:
+        self.requests.append([dict(message) for message in messages])
+        self.tools.append(list(tools or []))
+        self.calls += 1
+        if self.calls == 1:
+            yield StreamEvent(
+                kind="tool_calls",
+                tool_calls=[
+                    ToolCall(
+                        id="create-repair-1",
+                        name="create_output",
+                        arguments={"filename": "repaired.html", "media_type": "text/html"},
+                    )
+                ],
+            )
+            return
+        if self.calls == 2:
+            yield StreamEvent(kind="content", text="<html><body><div>broken</body></html>")
+            return
+        yield StreamEvent(kind="content", text="<html><body><main>repaired</main></body></html>")
+
+
 def _config(tmp_path, monkeypatch):
     monkeypatch.setenv("ASSISTANT_AGENT_HOME", str(tmp_path / "home"))
     path = tmp_path / "config.yaml"
@@ -241,7 +287,7 @@ def test_run_observability_is_authoritative_in_events_snapshot_and_checkpoint(
         assert snapshot.observability.context.source == "provider"
         assert snapshot.observability.task_plan is None
         assert checkpoint["observability"] == snapshot.observability.model_dump(mode="json")
-        assert checkpoint["schema_version"] == 11
+        assert checkpoint["schema_version"] == 12
         assert [event.kind for event in events].count("run_terminal") == 1
         serialized = snapshot.observability.model_dump_json()
         assert "reasoning" not in serialized
@@ -314,6 +360,74 @@ def test_native_artifact_writer_captures_stream_without_assistant_delta(tmp_path
         assert all("<!DOCTYPE" not in str(message.content) for message in session.messages)
         saved = session_runtime.runtime.session_store.load(session_runtime.session.id)
         assert all("<!DOCTYPE" not in str(message.content) for message in saved.message_ledger)
+    finally:
+        session_runtime.close()
+
+
+def test_native_artifact_writer_repairs_once_before_publish(tmp_path, monkeypatch):
+    config_path = _config(tmp_path, monkeypatch)
+    config_path.write_text(
+        "active: fake\nproviders:\n  fake:\n    model: openai/fake\n"
+        "agent:\n  max_context_tokens: 32000\n  reserved_output_tokens: 4096\n",
+        encoding="utf-8",
+    )
+    _RepairingOutputClient.instances.clear()
+    monkeypatch.setattr(runtime_module, "LLMClient", _RepairingOutputClient)
+    service = AgentService(config_path=config_path, workspace_root=tmp_path)
+    session_runtime = service.create_session(interaction=SafeDefaultInteractionPort())
+    try:
+        execution = session_runtime.start_run("创建并修复页面")
+        events = list(execution.events)
+        assert events[-1].terminal_status == "completed"
+        assert [event.kind for event in events].count("run_terminal") == 1
+        assert any(event.result_code == "output_validation_retrying" for event in events)
+        created = [event.output for event in events if event.output is not None]
+        assert len(created) == 1
+        payload = session_runtime.get_output_payload(created[0].output_id)
+        assert payload.content == "<html><body><main>repaired</main></body></html>"
+        client = _RepairingOutputClient.instances[-1]
+        assert client.calls == 3
+        repair_request = str(client.requests[2])
+        assert "html_structure_invalid" in repair_request
+        assert "<div>broken" not in repair_request
+        validations = [
+            item
+            for item in session_runtime.run_snapshot(execution.run_id).observability.trajectory
+            if item.result_code in {"html_structure_invalid", "output_validation_passed"}
+        ]
+        assert [item.status for item in validations] == ["failed", "completed"]
+    finally:
+        session_runtime.close()
+
+
+def test_native_artifact_writer_rejects_after_one_repair(tmp_path, monkeypatch):
+    config_path = _config(tmp_path, monkeypatch)
+    config_path.write_text(
+        "active: fake\nproviders:\n  fake:\n    model: openai/fake\n"
+        "agent:\n  max_context_tokens: 32000\n  reserved_output_tokens: 4096\n",
+        encoding="utf-8",
+    )
+    _InvalidOutputClient.instances.clear()
+    monkeypatch.setattr(runtime_module, "LLMClient", _InvalidOutputClient)
+    service = AgentService(config_path=config_path, workspace_root=tmp_path)
+    session_runtime = service.create_session(interaction=SafeDefaultInteractionPort())
+    try:
+        execution = session_runtime.start_run("创建无效页面")
+        events = list(execution.events)
+        assert events[-1].terminal_status == "failed"
+        assert [event.kind for event in events].count("run_terminal") == 1
+        assert not any(event.output is not None for event in events)
+        assert session_runtime.runtime.output_store.list(session_runtime.session.id) == []
+        snapshot = session_runtime.run_snapshot(execution.run_id)
+        validation = [
+            item
+            for item in snapshot.observability.trajectory
+            if item.result_code == "html_structure_invalid"
+        ]
+        assert len(validation) == 2
+        assert all(item.status == "failed" for item in validation)
+        assert all(item.summary is None for item in validation)
+        assert _InvalidOutputClient.instances[-1].calls == 3
     finally:
         session_runtime.close()
 

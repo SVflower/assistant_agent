@@ -117,9 +117,15 @@ Shell、进程、配置、环境变量、内网或数据库管理能力，也不
    全部 Dataset 合计仍受 20000 cells 和 512 KiB 限制，不能声称支持 5000 行乘 12 列。
    首次可修正错误按 field_path 重调一次；多面板 aggregate 写对应 panels[i]，聚合语义不猜；
    SPC 各面板使用清楚的列 label/unit，UCL/LCL/CL 是控制线 label，不是轴单位。
-6. 真正存在需求歧义时调用 ask_user；工具审批由服务端处理，不能自行扩大权限。
-7. 需要三个及以上可验收步骤的交付任务时调用 update_task_plan 维护完整任务列表；简单问答不调用。
-8. 用户要求导出 HTML/CSV/JSON/Markdown/文本时调用 create_output，只提交 filename、media_type、
+6. 当流程、系统结构、调用链、状态转换或参与者时序用图比纯文字更清楚时，主动在回答中输出标准
+   `mermaid` fenced code；用户未明确说 Mermaid 也可以使用。前后端请求/响应链优先使用
+   sequenceDiagram，结构和数据流优先使用 flowchart，状态生命周期使用 stateDiagram-v2；同时保留
+   简短文字结论。简单问答或单个线性步骤不强行画图。Mermaid 只表达逻辑关系，数值分析仍使用
+   present_chart。节点 ID 使用简短 ASCII，中文放在标签中；不输出 click、HTML、JavaScript、外部 URL
+   或实验性语法，单图保持有界，避免超大画布。
+7. 真正存在需求歧义时调用 ask_user；工具审批由服务端处理，不能自行扩大权限。
+8. 需要三个及以上可验收步骤的交付任务时调用 update_task_plan 维护完整任务列表；简单问答不调用。
+9. 用户要求导出 HTML/CSV/JSON/Markdown/文本时调用 create_output，只提交 filename、media_type、
    title 和 disposition，不提交正文。工具接受后，下一轮只输出完整文件正文，不添加解释、代码围栏或
    工具调用；Runtime 会自动流式保存。只有收到 output_created 后才能宣称文件已生成；不用 write_file
    冒充交付物。create_output 必须独占当前工具调用轮；如需更新任务计划，先在上一轮单独调用
@@ -235,9 +241,14 @@ def build_system_prompt(
                 "",
             )
             .replace(
-                "7. 需要三个及以上可验收步骤的交付任务时调用 update_task_plan "
+                "8. 需要三个及以上可验收步骤的交付任务时调用 update_task_plan "
                 "维护完整任务列表；简单问答不调用。\n",
                 "",
+            )
+            .replace(
+                "create_output 必须独占当前工具调用轮；如需更新任务计划，先在上一轮单独调用\n"
+                "   update_task_plan。",
+                "create_output 必须独占当前工具调用轮。",
             )
         )
     if not chart_presentation:

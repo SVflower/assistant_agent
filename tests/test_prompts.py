@@ -17,6 +17,30 @@ def test_chart_prompt_tracks_runtime_capability():
     assert "present_chart" not in build_system_prompt(chart_presentation=False)
 
 
+def test_web_prompt_proactively_uses_mermaid_for_logic_diagrams():
+    prompt = build_system_prompt(runtime_profile="web")
+
+    assert "主动在回答中输出标准" in prompt
+    assert "`mermaid` fenced code" in prompt
+    assert "sequenceDiagram" in prompt
+    assert "flowchart" in prompt
+    assert "stateDiagram-v2" in prompt
+    assert "数值分析仍使用" in prompt
+    assert "不输出 click、HTML、JavaScript、外部 URL" in prompt
+
+
+def test_cli_prompt_does_not_assume_interactive_mermaid_renderer():
+    assert "`mermaid` fenced code" not in build_system_prompt(runtime_profile="cli")
+
+
+def test_web_task_plan_prompt_still_tracks_runtime_capability():
+    enabled = build_system_prompt(runtime_profile="web", task_planning=True)
+    disabled = build_system_prompt(runtime_profile="web", task_planning=False)
+
+    assert "update_task_plan" in enabled
+    assert "update_task_plan" not in disabled
+
+
 def test_chart_prompt_directs_one_semantic_correction_without_guessing_aggregate():
     prompt = build_system_prompt(chart_presentation=True)
     assert "按 field_path 重调一次" in prompt

@@ -106,7 +106,7 @@ print(total)
 
 def _run_document(run_id: str, session_id: str) -> dict:
     return {
-        "schema_version": 12,
+        "schema_version": 13,
         "run_id": run_id,
         "session_id": session_id,
         "task": "race",
@@ -169,7 +169,7 @@ deadline = time.monotonic() + 10
 while not start.exists() and time.monotonic() < deadline:
     time.sleep(0.01)
 document = {
-        'schema_version': 12, 'run_id': 'run-race', 'session_id': session_id, 'task': 'race',
+        'schema_version': 13, 'run_id': 'run-race', 'session_id': session_id, 'task': 'race',
     'status': 'running', 'phase': 'model_pending',
     'updated_at': '2026-01-01T00:00:00Z',
 }

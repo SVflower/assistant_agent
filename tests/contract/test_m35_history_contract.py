@@ -12,9 +12,9 @@ from assistant_agent.contracts.events import EVENT_CONTRACT_VERSION
 
 
 def test_history_association_is_additive_without_version_upgrade():
-    assert contracts.AGENT_SERVICE_CONTRACT_VERSION == 5
+    assert contracts.AGENT_SERVICE_CONTRACT_VERSION == 6
     assert contracts.SESSION_CONTRACT_VERSION == 5
-    assert RunState.model_fields["schema_version"].default == 12
+    assert RunState.model_fields["schema_version"].default == 13
     assert EVENT_CONTRACT_VERSION == 1
     assert contracts.ExecutionModelSnapshot is service.ExecutionModelSnapshot
 
@@ -47,4 +47,6 @@ def test_execution_model_snapshot_is_strict_and_contains_only_safe_identity():
 def test_history_contract_exposes_only_the_frozen_additive_fields():
     assert "run_id" in contracts.PublicMessageSnapshot.model_fields
     assert tuple(contracts.ExecutionModelSnapshot.model_fields) == ("provider", "model")
-    assert {"created_at", "execution_model"} <= set(contracts.RunSnapshot.model_fields)
+    assert {"created_at", "execution_model", "reasoning_presentation"} <= set(
+        contracts.RunSnapshot.model_fields
+    )

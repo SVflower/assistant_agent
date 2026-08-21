@@ -10,6 +10,7 @@ import json
 import time
 from collections.abc import Callable, Sequence
 from copy import deepcopy
+from datetime import datetime
 from typing import Any, Literal
 
 from assistant_agent.agent.run.budgets import ContinuationStateMixin
@@ -53,6 +54,10 @@ from assistant_agent.contracts.observability import (
     TaskPlanSnapshot,
 )
 from assistant_agent.contracts.outputs import OutputArtifactV1
+from assistant_agent.contracts.reasoning import (
+    MAX_REASONING_PRESENTATION_CHARS,
+    ReasoningPresentationV1,
+)
 from assistant_agent.providers.ports import ToolCall
 from assistant_agent.tools.context import ToolContext
 from assistant_agent.tools.lifecycle import ReplayPolicy
@@ -217,6 +222,33 @@ class RunCoordinator(ContinuationStateMixin, DefinitionStateMixin):
 
     def observe_content_signal(self) -> None:
         self._observability.first_model_signal(now_iso())
+
+    def observe_reasoning(self, text: str) -> None:
+        """累计已经向调用方展示的 reasoning；由后续恢复边界统一 checkpoint。"""
+        if not text:
+            return
+        current = self.state.reasoning_presentation
+        timestamp = now_iso()
+        started_at = current.started_at if current is not None else timestamp
+        existing = current.text if current is not None else ""
+        remaining = max(0, MAX_REASONING_PRESENTATION_CHARS - len(existing))
+        appended = text[:remaining]
+        self.state.reasoning_presentation = ReasoningPresentationV1(
+            text=existing + appended,
+            started_at=started_at,
+            updated_at=timestamp,
+            duration_ms=max(
+                0,
+                round(
+                    (
+                        datetime.fromisoformat(timestamp) - datetime.fromisoformat(started_at)
+                    ).total_seconds()
+                    * 1000
+                ),
+            ),
+            truncated=(current.truncated if current is not None else False)
+            or len(appended) < len(text),
+        )
 
     def observe_usage(self, usage: dict[str, int]) -> None:
         self._observability.observe_usage(usage)

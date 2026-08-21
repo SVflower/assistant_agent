@@ -142,6 +142,11 @@ from assistant_agent.contracts.outputs import (
     OutputPayload,
     OutputUnavailableError,
 )
+from assistant_agent.contracts.reasoning import (
+    MAX_REASONING_PRESENTATION_CHARS,
+    REASONING_PRESENTATION_VERSION,
+    ReasoningPresentationV1,
+)
 from assistant_agent.contracts.sessions import (
     SESSION_CONTRACT_VERSION,
     LastRunSummary,
@@ -152,7 +157,7 @@ from assistant_agent.contracts.sessions import (
     UpdateSessionMetadataRequest,
 )
 
-AGENT_SERVICE_CONTRACT_VERSION = 5
+AGENT_SERVICE_CONTRACT_VERSION = 6
 
 __all__ = [
     "ATTACHMENT_CONTRACT_VERSION",
@@ -213,7 +218,10 @@ __all__ = [
     "MCPServerCapability",
     "MCPStatus",
     "MAX_TRAJECTORY_ENTRIES",
+    "MAX_REASONING_PRESENTATION_CHARS",
     "OBSERVABILITY_CONTRACT_VERSION",
+    "REASONING_PRESENTATION_VERSION",
+    "ReasoningPresentationV1",
     "ContextUsageSnapshot",
     "MetricSource",
     "ModelUsageSnapshot",

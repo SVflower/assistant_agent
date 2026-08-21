@@ -48,7 +48,7 @@ Session sync 分段；纯 telemetry 不再单独 fsync。确定性 checkpoint �
 
 **M37-R3 当前状态**：输出首次验证失败时，Runtime 通过原 `create_output` 工具结果向模型反馈稳定错误码，
 只允许一次自动重新生成；失败次数随 pending capture checkpoint 恢复，第二次失败终止且不发布文件。
-RunState current-only 升为 v12；Service/Session/Event/Observability/Output 契约保持不变。
+RunState current-only 升为 v13；Service 契约升为 v6，Session/Event/Observability/Output 契约保持不变。
 
 **已具备能力**：
 - **模型**：后端可切换（云端 OpenAI 兼容 / Anthropic / 本地 LM Studio·Ollama·vLLM），config/`--provider`/对话内 `/model` 三种切法，切换保留上下文。

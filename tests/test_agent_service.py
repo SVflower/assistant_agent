@@ -63,6 +63,16 @@ class _UsageClient:
         )
 
 
+class _ReasoningClient:
+    def __init__(self, _provider, *_args) -> None:
+        pass
+
+    def complete_stream(self, messages, tools=None) -> Iterator[StreamEvent]:
+        yield StreamEvent(kind="reasoning", text="先分析约束。")
+        yield StreamEvent(kind="reasoning", text="再选择方案。")
+        yield StreamEvent(kind="content", text="最终答案")
+
+
 class _RetryBaselineClient:
     def __init__(self, _provider) -> None:
         self.messages: list[list[dict]] = []
@@ -330,7 +340,7 @@ def test_run_observability_is_authoritative_in_events_snapshot_and_checkpoint(
         assert snapshot.observability.context.source == "provider"
         assert snapshot.observability.task_plan is None
         assert checkpoint["observability"] == snapshot.observability.model_dump(mode="json")
-        assert checkpoint["schema_version"] == 12
+        assert checkpoint["schema_version"] == 13
         assert [event.kind for event in events].count("run_terminal") == 1
         serialized = snapshot.observability.model_dump_json()
         assert "reasoning" not in serialized
@@ -350,6 +360,37 @@ def test_run_observability_is_authoritative_in_events_snapshot_and_checkpoint(
         assert snapshot.observability is not None
         assert snapshot.observability.model_usage.input_tokens == 120
         assert {message.run_id for message in recovered.snapshot().messages} == {run_id}
+    finally:
+        recovered.close()
+
+
+def test_user_visible_reasoning_is_restored_from_run_checkpoint(tmp_path, monkeypatch):
+    config = _config(tmp_path, monkeypatch)
+    monkeypatch.setattr(runtime_module, "LLMClient", _ReasoningClient)
+    service = AgentService(config_path=config, workspace_root=tmp_path)
+    runtime = service.create_session(interaction=SafeDefaultInteractionPort())
+    session_id = runtime.session.id
+    try:
+        execution = runtime.start_run("reasoning history")
+        run_id = execution.run_id
+        assert [event.text for event in execution.events if event.kind == "reasoning"] == [
+            "先分析约束。",
+            "再选择方案。",
+        ]
+        presentation = runtime.run_snapshot(run_id).reasoning_presentation
+        assert presentation is not None
+        assert presentation.text == "先分析约束。再选择方案。"
+        assert presentation.duration_ms >= 0
+        assert presentation.truncated is False
+        checkpoint = runtime.runtime.run_store.load(run_id).document
+        assert checkpoint["reasoning_presentation"]["text"] == presentation.text
+        assert "reasoning_presentation" not in runtime.snapshot().model_dump()
+    finally:
+        runtime.close()
+
+    recovered = service.load_session(session_id)
+    try:
+        assert recovered.run_snapshot(run_id).reasoning_presentation == presentation
     finally:
         recovered.close()
 

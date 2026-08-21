@@ -71,4 +71,4 @@ def test_m23_r1_stable_errors_and_existing_versions():
     assert service.SessionMetadataConflictError.code == "session_metadata_conflict"
     assert service.SessionUnavailableError.code == "session_unavailable"
     assert EVENT_CONTRACT_VERSION == 1
-    assert RunState.model_fields["schema_version"].default == 12
+    assert RunState.model_fields["schema_version"].default == 13

@@ -23,6 +23,7 @@ from assistant_agent.contracts.presentation_common import (
     canonical_json_bytes,
     stable_message_id,
 )
+from assistant_agent.contracts.reasoning import ReasoningPresentationV1
 
 CHART_SCHEMA_VERSION = 2
 
@@ -97,6 +98,7 @@ class RunSnapshot(_StrictModel):
     execution_status: Literal["active", "inactive", "unknown"]
     retry_of_run_id: str | None = None
     observability: RunObservabilitySnapshot | None = None
+    reasoning_presentation: ReasoningPresentationV1 | None = None
 
     @field_validator("artifacts", "outputs", mode="before")
     @classmethod
@@ -115,6 +117,7 @@ __all__ = [
     "MAX_RUN_ARTIFACTS",
     "PendingInteractionSnapshot",
     "PresentationArtifactRefV2",
+    "ReasoningPresentationV1",
     "RunSnapshot",
     "build_chart_artifact_v2",
     "canonical_json_bytes",

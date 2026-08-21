@@ -19,6 +19,7 @@ from assistant_agent.contracts.errors import UnsupportedRunStateSchemaError
 from assistant_agent.contracts.failures import BudgetResource, RunFailure
 from assistant_agent.contracts.observability import RunObservabilitySnapshot
 from assistant_agent.contracts.outputs import OutputArtifactV1
+from assistant_agent.contracts.reasoning import ReasoningPresentationV1
 from assistant_agent.contracts.time import utc_now_rfc3339
 
 RunStatus = Literal["running", "paused", "cancelled", "completed", "failed"]
@@ -42,7 +43,7 @@ ReplayPolicy = Literal["safe_readonly", "safe_idempotent", "requires_decision"]
 RetrySafety = Literal["safe", "unsafe", "uncertain", "unknown"]
 
 _RESOLVED_TOOL_STATUSES = {"completed", "failed", "skipped"}
-_SCHEMA_VERSION: Literal[12] = 12
+_SCHEMA_VERSION: Literal[13] = 13
 
 
 def now_iso() -> str:
@@ -177,7 +178,7 @@ class RunState(StrictStateModel):
     成功写入 Session 后才能置真。三者用途不同，不能为了减少字段而互相重建。
     """
 
-    schema_version: Literal[12] = _SCHEMA_VERSION
+    schema_version: Literal[13] = _SCHEMA_VERSION
     run_id: str = Field(min_length=1)
     session_id: str | None = None
     task: str
@@ -217,6 +218,7 @@ class RunState(StrictStateModel):
     tool_calls: list[ToolCallState] = Field(default_factory=list)
     presentations: list[ChartArtifactV2] = Field(default_factory=list, max_length=16)
     outputs: list[OutputArtifactV1] = Field(default_factory=list, max_length=200)
+    reasoning_presentation: ReasoningPresentationV1 | None = None
     observability: RunObservabilitySnapshot
     pending_output_capture: PendingOutputCaptureState | None = None
     permission_grants: list[PermissionGrantState] = Field(default_factory=list)

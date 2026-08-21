@@ -705,6 +705,7 @@ class SessionRuntime:
             ),
             retry_of_run_id=state.retry_of_run_id,
             observability=state.observability,
+            reasoning_presentation=state.reasoning_presentation,
         )
 
     def start_run(self, task: str | UserMessageInputV1) -> RunExecution:
@@ -1227,7 +1228,9 @@ class SessionRuntime:
                 self._end_run()
 
     def _decorate_observability(self, coordinator: RunCoordinator, event: StepEvent) -> None:
-        if event.kind == "content_delta":
+        if event.kind == "reasoning":
+            coordinator.observe_reasoning(event.text)
+        elif event.kind == "content_delta":
             coordinator.observe_content_signal()
         elif event.kind == "usage" and event.usage:
             coordinator.observe_usage(event.usage)

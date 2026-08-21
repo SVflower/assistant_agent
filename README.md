@@ -300,10 +300,12 @@ Run/Interaction/compaction。Event v1、RunState v6 与 Agent Loop 不变，API/
 M28 曾新增逐字节兼容 V1 的受控 ChartSpecV2、15 类普通图表与确定性数据派生；M30 收紧 Heatmap
 新建路径为 X/Y category axis，拒绝空数据、全 null value 和空白坐标，并提供按图表意图隔离、可恢复的
 一次定向纠错 metadata。Event v1、Session contract/schema v3、RunState v7 保持不变。
-M31-M37 开发期 hard cut 后，当前只支持 RunState v12、Session v5、Chart V2、Attachment/Content v1
+M31-M37 开发期 hard cut 后，当前只支持 RunState v13、Session v5、Chart V2、Attachment/Content v1
 和 Managed Output v1；旧格式不迁移，版本不匹配 fail closed。HTML/CSV/JSON/Markdown/文本交付物
 统一写入可配置的 `<workspace>/outputs/YYYY/MM/DD/<session-id>/`。`create_output` 仅声明元数据，
 Runtime 原生捕获下一轮正文；公共契约不暴露服务器路径或草稿协议。
+RunState v13 额外保存用户实时看到的有界 `ReasoningPresentationV1`，供刷新后恢复 Thinking；该记录
+不进入 Session ledger、后续模型上下文、trajectory、日志或普通导出。
 Native ArtifactWriter 会在正式发布前验证 HTML/JSON/CSV/Markdown/纯文本的基础结构；无效草稿不会
 进入 Run、Session 或 API/Web，验证事实只以稳定错误码进入安全 trajectory。
 M34 新增 Observability v1：RunSnapshot 与非高频 StepEvent 提供受控 timing、context、model usage 和

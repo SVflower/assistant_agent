@@ -5,11 +5,11 @@
 >
 > 本文是公共服务契约的长期唯一正式入口；里程碑归档和阶段性交接不能替代本文。
 > 当前公共事件契约：`EVENT_CONTRACT_VERSION == 1`；Session 服务契约：
-> `SESSION_CONTRACT_VERSION == 5`；当前 Run checkpoint：schema v12；当前 Session 文档：schema v5；
+> `SESSION_CONTRACT_VERSION == 5`；当前 Run checkpoint：schema v13；当前 Session 文档：schema v5；
 > 当前 Output contract：v1。
 > 最近同步：空 Provider 响应失败语义（2026-08-19）。
 >
-> **破坏性契约版本：`AGENT_SERVICE_CONTRACT_VERSION = 5`。** Agent 只读取和写入 RunState v12、
+> **破坏性契约版本：`AGENT_SERVICE_CONTRACT_VERSION = 6`。** Agent 只读取和写入 RunState v13、
 > Session v5、Chart V2、Attachment/Content v1 和 Output v1；旧状态不迁移。
 
 ## 空 Provider 响应
@@ -32,7 +32,7 @@ run_terminal.failure.allowed_actions = [retry_run, stop]
 空响应前已经完成的工具事实、Chart Artifact 和 Output Artifact 继续保留。重试前若收到 pause/cancel，
 优先按既有控制语义结束，不产生 `provider_empty_response`。API/Web 应按稳定 code 展示可重试失败，不解析
 `safe_message`，不在 API 层自动再试，不合成第二个 terminal。该扩展保持 Service v5、Session v5、
-RunState v12、Event v1 不变。
+RunState v13、Event v1 不变。
 
 ## M35-R1 历史运行关联
 
@@ -50,7 +50,7 @@ base URL、provider payload 或配置。`SessionRuntime.run_snapshot(run_id)` �
 RunStore 全局最多保留 100 个已同步 terminal Run；`list_runs` 当前不分页。每个 Run 的 trajectory 最多
 256 条，超限时保留首条与末尾 255 条并设置 `truncated=true`。R1 没有 Session trajectory 分页或完整
 TraceStore，不能宣称永久、完整的运行历史。API 只调用公共 service，不扫描 Session/Run 文件或复制
-Agent 状态机。版本保持 Service v5、Session v5、RunState v12、Observability v1、Event v1。
+Agent 状态机。版本保持 Service v6、Session v5、RunState v13、Observability v1、Event v1。
 
 ## M34 Run Observability
 
@@ -781,7 +781,9 @@ Interaction。普通可纠正的 `tool_result.failure` 可使用 `terminal_statu
 4. API 可增加 `seq/timestamp/session_id/run_id`，但不能写回 Agent checkpoint；
 5. 网络层只以 `run_terminal` 判断 Run 终态；
 6. `failure.safe_message` 可展示，但第三方原始异常、密钥、环境变量和敏感参数不能进入 DTO；
-7. `activity` 不写入 Session history，`reasoning` 不进入普通 Web 事件或重连缓存。
+7. `activity` 不写入 Session history；`reasoning` 仍为 sensitive，只有显式支持该能力的受控 Web
+   映射可以实时下发。Agent 仅把已下发文本保存为有界 `ReasoningPresentationV1` Run 私有展示记录，
+   不写入 Session、模型上下文、trajectory、日志或普通导出。
 
 ## 8. 跨线程事件桥
 
@@ -1105,7 +1107,7 @@ artifact URL 必须返回统一 404，跨 Session 查询也返回同一 404，�
 - 直接使用 Agent 产生的 histogram/boxplot/percent derived dataset，不在 API/Web 重算；
 - 未知或损坏 V2 只降级当前图表，不丢失文字消息，不改变 final/run_terminal；
 - M31-M34 之后，上述历史兼容范围不再适用于当前运行时；当前只接受 Chart V2、Session v5、Run
-  checkpoint v12 和 Output v1，API 不复制迁移状态机，旧状态在部署前清理。
+  checkpoint v13 和 Output v1，API 不复制迁移状态机，旧状态在部署前清理。
 
 M30 保持 Event v1、Session contract v3、RunState v7 和 ChartSpecV2 字段不变，仅收紧 Agent 新建
 Heatmap 的模型输入边界：生成的 X/Y 轴均为 `category`，空 rows、全 null value、null/空白分类坐标
@@ -1138,11 +1140,11 @@ reference label 应参与左右边距测量，空间不足时采用受控 inside
 
 M31 的 hard cut 覆盖本节此前的兼容读取说明：
 
-- 公共根导出 `AGENT_SERVICE_CONTRACT_VERSION = 5`；API 启动时必须校验。
+- 公共根导出 `AGENT_SERVICE_CONTRACT_VERSION = 6`；API 启动时必须校验。
 - `ChartSpecV1`、`ChartArtifact`、`PresentationArtifactRef`、`AnyChartArtifact` 和
   `AnyPresentationArtifactRef` 已删除，不再提供 re-export。
 - `StepEvent.chart`、Run/Session presentations、公开 message refs 均只接受 V2。
-- RunStore 的写入、双槽读取和 Coordinator 恢复只接受 checkpoint v12；v1-v11 不回退、不迁移。
+- RunStore 的写入、双槽读取和 Coordinator 恢复只接受 checkpoint v13；v1-v12 不回退、不迁移。
 - SessionStore 的读取、catalog、summary、fork 和写入只接受 Session v5；v0-v4 不回写、不迁移。
 - UserMessageInput/MessageContent/AttachmentRef 当前只接受 Content/Attachment v1；checkpoint/session 只保存
   ref，不保存附件正文、base64、path 或 EXIF。
@@ -1159,7 +1161,7 @@ M31 的 hard cut 覆盖本节此前的兼容读取说明：
 - 将 `final` 当作唯一终态，忽略 `run_terminal`；
 - 解析中文错误文本推断重试、继续或用户按钮；
 - 把 `activity` 或 partial `content_delta` 写成完整 assistant 消息；
-- 把 `tool_args`、reasoning 或异常堆栈直接发给客户端；
+- 把 `tool_args`、未展示的 hidden reasoning 或异常堆栈直接发给客户端；
 - API 自己复制 `sync_terminal_session`、definition difference 或 recovery 状态机；
 - 同一 Session 并发载入两个 Runtime；
 - 超时、断线或未知 request ID 时自动授权；
@@ -1174,12 +1176,12 @@ M31 的 hard cut 覆盖本节此前的兼容读取说明：
 ## 14. 接入验收清单
 
 1. 只导入 `assistant_agent.service`、`assistant_agent.contracts` 和必要的 `assistant_agent.interaction` 实现；
-2. 启动时验证 `AGENT_SERVICE_CONTRACT_VERSION == 5`、`SESSION_CONTRACT_VERSION == 5`、
+2. 启动时验证 `AGENT_SERVICE_CONTRACT_VERSION == 6`、`SESSION_CONTRACT_VERSION == 5`、
    `OUTPUT_CONTRACT_VERSION == 1`、`OBSERVABILITY_CONTRACT_VERSION == 1` 与
    `EVENT_CONTRACT_VERSION == 1`；
 3. config/workspace 路径由服务端固定；
 4. Iterator 在有界工作线程中逐事件消费；
-5. reasoning 和原始工具参数不进入网络 DTO；
+5. 只有已展示、受限的 `ReasoningPresentationV1` 可进入 Run DTO；原始工具参数和未展示 reasoning 不进入；
 6. 同 Session 第二个 Run 明确冲突；
 7. pause/cancel/resume 保持原 run_id 和终态语义；
 8. 五类 Interaction 均能请求、超时和安全拒绝，三类预算 continuation 均按精确 request ID 响应；
@@ -1188,7 +1190,7 @@ M31 的 hard cut 覆盖本节此前的兼容读取说明：
 11. 调用方具备事件转换、并发、断线、授权和脱敏测试；
 12. `final -> run_terminal(completed)` 顺序稳定，failed/paused 只产生一次带结构化 failure 的终态；
 13. Provider 429/503/timeout、预算、权限、依赖和未知副作用不依赖错误文本分类；
-14. reasoning、原始异常、密钥、环境变量和敏感工具参数不会进入网络 DTO；
+14. 未展示 reasoning、原始异常、密钥、环境变量和敏感工具参数不会进入网络 DTO；
 15. Agent 与调用方分别通过各自的 pytest、Ruff 和 mypy 质量门。
 16. optional MCP 离线或后台发现不会阻塞 API readiness，required MCP 创建失败仍返回类型化依赖错误；
 17. API 能正确展示 `available_cached`、`discovering`、`restart_required`、`connecting`，且不把目录状态

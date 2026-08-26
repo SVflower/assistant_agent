@@ -147,6 +147,7 @@ from assistant_agent.contracts.reasoning import (
     REASONING_PRESENTATION_VERSION,
     ReasoningPresentationV1,
 )
+from assistant_agent.contracts.run_items import ItemEvent, RunItem, RunItemKind, RunItemStatus
 from assistant_agent.contracts.sessions import (
     SESSION_CONTRACT_VERSION,
     LastRunSummary,
@@ -291,6 +292,10 @@ __all__ = [
     "ToolDisplay",
     "ToolPreview",
     "UpdateSessionMetadataRequest",
+    "ItemEvent",
+    "RunItem",
+    "RunItemKind",
+    "RunItemStatus",
     "TabularDatasetV1",
     "AnnotationSpecV1",
     "AxisSpecV1",

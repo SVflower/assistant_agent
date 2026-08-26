@@ -24,6 +24,7 @@ from assistant_agent.contracts.presentation_common import (
     stable_message_id,
 )
 from assistant_agent.contracts.reasoning import ReasoningPresentationV1
+from assistant_agent.contracts.run_items import RunItem
 
 CHART_SCHEMA_VERSION = 2
 
@@ -99,6 +100,7 @@ class RunSnapshot(_StrictModel):
     retry_of_run_id: str | None = None
     observability: RunObservabilitySnapshot | None = None
     reasoning_presentation: ReasoningPresentationV1 | None = None
+    items: tuple[RunItem, ...] = ()
 
     @field_validator("artifacts", "outputs", mode="before")
     @classmethod

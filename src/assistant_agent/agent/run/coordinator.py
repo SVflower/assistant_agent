@@ -58,6 +58,7 @@ from assistant_agent.contracts.reasoning import (
     MAX_REASONING_PRESENTATION_CHARS,
     ReasoningPresentationV1,
 )
+from assistant_agent.contracts.run_items import RunItem, RunItemKind, RunItemStatus
 from assistant_agent.providers.ports import ToolCall
 from assistant_agent.tools.context import ToolContext
 from assistant_agent.tools.lifecycle import ReplayPolicy
@@ -156,6 +157,19 @@ class RunCoordinator(ContinuationStateMixin, DefinitionStateMixin):
                 max_extensions=continuation_max_extensions,
             ),
             observability=new_observability(resolved_run_id, timestamp),
+            items=[
+                RunItem(
+                    item_id=f"item_user_{resolved_run_id}",
+                    run_id=resolved_run_id,
+                    kind="user",
+                    status="completed",
+                    sequence=0,
+                    created_at=timestamp,
+                    started_at=timestamp,
+                    completed_at=timestamp,
+                    summary=task[:16_000],
+                )
+            ],
             created_at=timestamp,
             updated_at=timestamp,
         )
@@ -199,6 +213,55 @@ class RunCoordinator(ContinuationStateMixin, DefinitionStateMixin):
 
     def bind_logger(self, logger: RunTelemetry) -> None:
         self._logger = logger
+
+    def upsert_item(
+        self,
+        item_id: str,
+        *,
+        kind: RunItemKind,
+        status: RunItemStatus,
+        summary: str = "",
+        parent_item_id: str | None = None,
+        payload: dict[str, Any] | None = None,
+    ) -> RunItem:
+        """集中维护 Item 生命周期，供 Loop/工具边界使用。"""
+        current = next((item for item in self.state.items if item.item_id == item_id), None)
+        timestamp = now_iso()
+        if current is None:
+            item = RunItem(
+                item_id=item_id,
+                run_id=self.run_id,
+                kind=kind,
+                status=status,
+                sequence=(self.state.items[-1].sequence + 1 if self.state.items else 0),
+                parent_item_id=parent_item_id,
+                created_at=timestamp,
+                started_at=(
+                    timestamp
+                    if status
+                    in {"started", "streaming", "waiting", "completed", "failed", "cancelled"}
+                    else None
+                ),
+                completed_at=timestamp if status in {"completed", "failed", "cancelled"} else None,
+                summary=summary[:16_000],
+                payload=payload or {},
+            )
+            self.state.items.append(item)
+        else:
+            item = current.model_copy(
+                update={
+                    "status": status,
+                    "summary": summary[:16_000] or current.summary,
+                    "completed_at": (
+                        timestamp
+                        if status in {"completed", "failed", "cancelled"}
+                        else current.completed_at
+                    ),
+                    "payload": payload if payload is not None else current.payload,
+                }
+            )
+            self.state.items[self.state.items.index(current)] = item
+        return item
 
     def note_resume(self) -> None:
         source = self.load_info.source if self.load_info is not None else "current"
@@ -390,6 +453,13 @@ class RunCoordinator(ContinuationStateMixin, DefinitionStateMixin):
         if call.status not in {"planned", "awaiting_approval"}:
             raise ValueError(f"非法 started 转换：{call.status}")
         call.status = "started"
+        self.upsert_item(
+            f"item_tool_{call_id}",
+            kind="tool",
+            status="started",
+            summary=call.name,
+            payload={"call_id": call_id, "tool_name": call.name},
+        )
         call.permission_requests = [encode_request(item) for item in requests]
         call.replay_policy = replay_policy
         self._observability.start_tool(call_id, call.name, now_iso())
@@ -408,6 +478,13 @@ class RunCoordinator(ContinuationStateMixin, DefinitionStateMixin):
         if call.status not in {"planned", "awaiting_approval", "started"}:
             raise ValueError(f"非法 completed 转换：{call.status}")
         call.permission_requests = [encode_request(item) for item in requests]
+        self.upsert_item(
+            f"item_tool_{call_id}",
+            kind="tool",
+            status="failed" if result.is_error else "completed",
+            summary=result.code,
+            payload={"call_id": call_id, "tool_name": call.name, "result_code": result.code},
+        )
         call.replay_policy = replay_policy
         self._observability.finish_interactions(now_iso())
         if result.code == "mcp_outcome_unknown":
@@ -600,6 +677,18 @@ class RunCoordinator(ContinuationStateMixin, DefinitionStateMixin):
     ) -> None:
         if success:
             self.complete_active_task_plan_item()
+        self.upsert_item(
+            "item_final",
+            kind="assistant",
+            status="completed" if success else "failed",
+            summary=text,
+        )
+        self.upsert_item(
+            "item_terminal",
+            kind="terminal",
+            status="completed" if success else "failed",
+            summary="completed" if success else "failed",
+        )
         self.state.messages = messages
         self.state.pending_output_capture = None
         self.state.compaction_checkpoint = compaction_checkpoint
@@ -652,6 +741,8 @@ class RunCoordinator(ContinuationStateMixin, DefinitionStateMixin):
         compaction_checkpoint: dict[str, Any] | None,
     ) -> None:
         """把强制取消保存为不可恢复 terminal Run。"""
+        self.upsert_item("item_final", kind="assistant", status="cancelled", summary=text)
+        self.upsert_item("item_terminal", kind="terminal", status="cancelled", summary="cancelled")
         self.state.messages = messages
         self.state.pending_output_capture = None
         self.state.compaction_checkpoint = compaction_checkpoint
@@ -674,6 +765,7 @@ class RunCoordinator(ContinuationStateMixin, DefinitionStateMixin):
         phase: Literal["model_pending", "artifact_capture", "tools_pending", "tool_uncertain"]
         | None = None,
     ) -> None:
+        self.upsert_item("item_terminal", kind="terminal", status="waiting", summary=text)
         if messages is not None:
             self.state.messages = messages
         self.state.status = "paused"

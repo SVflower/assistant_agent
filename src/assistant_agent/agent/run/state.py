@@ -20,6 +20,7 @@ from assistant_agent.contracts.failures import BudgetResource, RunFailure
 from assistant_agent.contracts.observability import RunObservabilitySnapshot
 from assistant_agent.contracts.outputs import OutputArtifactV1
 from assistant_agent.contracts.reasoning import ReasoningPresentationV1
+from assistant_agent.contracts.run_items import RunItem
 from assistant_agent.contracts.time import utc_now_rfc3339
 
 RunStatus = Literal["running", "paused", "cancelled", "completed", "failed"]
@@ -219,6 +220,8 @@ class RunState(StrictStateModel):
     presentations: list[ChartArtifactV2] = Field(default_factory=list, max_length=16)
     outputs: list[OutputArtifactV1] = Field(default_factory=list, max_length=200)
     reasoning_presentation: ReasoningPresentationV1 | None = None
+    # 唯一运行时间轴事实。messages/observability 等字段仍是面向各领域的投影。
+    items: list[RunItem] = Field(default_factory=list, max_length=2_000)
     observability: RunObservabilitySnapshot
     pending_output_capture: PendingOutputCaptureState | None = None
     permission_grants: list[PermissionGrantState] = Field(default_factory=list)
@@ -235,7 +238,7 @@ class RunState(StrictStateModel):
     updated_at: str
 
     @model_validator(mode="after")
-    def _state_is_consistent(self) -> RunState:
+    def _state_is_consistent(self) -> RunState:  # noqa: C901
         is_terminal = self.status in {"cancelled", "completed", "failed"}
         if is_terminal != (self.phase == "terminal"):
             raise ValueError("completed/failed 与 terminal phase 必须一致")
@@ -291,6 +294,14 @@ class RunState(StrictStateModel):
             raise ValueError("Output 不属于当前 Run")
         if any(item.session_id != self.session_id for item in self.outputs):
             raise ValueError("Output 不属于当前 Session")
+        item_ids = [item.item_id for item in self.items]
+        if len(item_ids) != len(set(item_ids)):
+            raise ValueError("Run 存在重复 item_id")
+        if any(item.run_id != self.run_id for item in self.items):
+            raise ValueError("RunItem 不属于当前 Run")
+        sequences = [item.sequence for item in self.items]
+        if sequences != sorted(sequences):
+            raise ValueError("RunItem sequence 必须单调递增")
         retry_hashes = (self.retry_idempotency_key_hash, self.retry_request_hash)
         if (retry_hashes[0] is None) != (retry_hashes[1] is None):
             raise ValueError("重试幂等键哈希与请求哈希必须同时存在")

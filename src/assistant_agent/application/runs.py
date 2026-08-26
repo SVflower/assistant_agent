@@ -706,6 +706,7 @@ class SessionRuntime:
             retry_of_run_id=state.retry_of_run_id,
             observability=state.observability,
             reasoning_presentation=state.reasoning_presentation,
+            items=tuple(state.items),
         )
 
     def start_run(self, task: str | UserMessageInputV1) -> RunExecution:

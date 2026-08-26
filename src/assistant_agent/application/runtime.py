@@ -9,7 +9,7 @@ from __future__ import annotations
 import threading
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Literal, cast
 
 from assistant_agent.agent.loop import AgentLoop
 from assistant_agent.agent.run.coordinator import RunCoordinator
@@ -26,7 +26,11 @@ from assistant_agent.application.ports import (
     SkillMetaPort,
 )
 from assistant_agent.config.schema import AppConfig
-from assistant_agent.contracts.capabilities import RuntimeCapabilities, RuntimeNotice
+from assistant_agent.contracts.capabilities import (
+    RuntimeCapabilities,
+    RuntimeNotice,
+    SandboxProfile,
+)
 from assistant_agent.contracts.errors import RuntimeClosedError
 from assistant_agent.contracts.interactions import InteractionPort
 from assistant_agent.tools.context import ToolContext
@@ -132,6 +136,7 @@ class AgentRuntime:
             tool_output_increment=self.config.agent.continuation.tool_output_increment,
             max_tool_output_chars_hard=self.config.agent.continuation.max_tool_output_chars_hard,
             session_id=session_id,
+            sandbox_profile=self.sandbox_profile(),
             baseline_messages=self.loop.export_history(),
             baseline_compaction_checkpoint=self.loop.export_checkpoint(),
             logger=self.logger,
@@ -143,6 +148,42 @@ class AgentRuntime:
             result_count_matching=coordinator.count_tool_results_matching,
         )
         return coordinator
+
+    def sandbox_profile(self) -> SandboxProfile:
+        """返回当前 Runtime 的策略快照，供新 Run 固化。"""
+        sandbox = self.config.sandbox
+        filesystem = (
+            sandbox.filesystem
+            or {
+                "off": "host",
+                "workspace": "workspace",
+                "container": "workspace",
+            }[sandbox.mode]
+        )
+        process = (
+            sandbox.process
+            or {
+                "off": "host",
+                "workspace": "confined",
+                "container": "container",
+            }[sandbox.mode]
+        )
+        extensions = sandbox.extensions or (
+            "container" if sandbox.mode == "container" else "disabled"
+        )
+        return SandboxProfile(
+            mode=sandbox.mode,
+            filesystem=cast(Literal["host", "workspace", "read_only"], filesystem),
+            process=cast(Literal["host", "confined", "container"], process),
+            network=sandbox.network,
+            extensions=extensions,
+            containerized=sandbox.mode == "container",
+            resource_limits={
+                "memory": sandbox.memory,
+                "cpus": sandbox.cpus,
+                "pids": sandbox.pids_limit,
+            },
+        )
 
     def bind_run(self, coordinator: RunCoordinator) -> None:
         self.tool_context.bind_run(

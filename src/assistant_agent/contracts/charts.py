@@ -6,6 +6,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from assistant_agent.contracts.capabilities import SandboxProfile
 from assistant_agent.contracts.charts_v2 import (
     ChartArtifactV2,
     ChartSpecV2,
@@ -83,6 +84,7 @@ class RunSnapshot(_StrictModel):
     session_id: str | None = None
     created_at: str
     execution_model: ExecutionModelSnapshot | None = None
+    sandbox_profile: SandboxProfile | None = None
     status: Literal["running", "paused", "cancelled", "completed", "failed"]
     phase: str
     updated_at: str

@@ -14,6 +14,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from assistant_agent.contracts.capabilities import SandboxProfile
 from assistant_agent.contracts.charts import ChartArtifactV2
 from assistant_agent.contracts.errors import UnsupportedRunStateSchemaError
 from assistant_agent.contracts.failures import BudgetResource, RunFailure
@@ -188,6 +189,7 @@ class RunState(StrictStateModel):
     interactive: bool
     provider: str = Field(min_length=1)
     model: str = Field(min_length=1)
+    sandbox_profile: SandboxProfile | None = None
     system_prompt_hash: str = Field(min_length=64, max_length=64)
     tool_schema_hash: str = Field(min_length=64, max_length=64)
     messages: list[dict[str, Any]] = Field(default_factory=list)

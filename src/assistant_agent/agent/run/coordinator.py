@@ -43,6 +43,7 @@ from assistant_agent.agent.run.state import (
     parse_run_state,
     stable_call_id,
 )
+from assistant_agent.contracts.capabilities import SandboxProfile
 from assistant_agent.contracts.charts import (
     MAX_RUN_ARTIFACT_BYTES,
     MAX_RUN_ARTIFACTS,
@@ -113,6 +114,7 @@ class RunCoordinator(ContinuationStateMixin, DefinitionStateMixin):
         max_tool_output_chars_hard: int | None = None,
         session_id: str | None = None,
         run_id: str | None = None,
+        sandbox_profile: SandboxProfile | None = None,
         baseline_messages: list[dict[str, Any]] | None = None,
         baseline_compaction_checkpoint: dict[str, Any] | None = None,
         logger: RunTelemetry | None = None,
@@ -126,6 +128,7 @@ class RunCoordinator(ContinuationStateMixin, DefinitionStateMixin):
             interactive=interactive,
             provider=provider,
             model=model,
+            sandbox_profile=sandbox_profile,
             system_prompt_hash=canonical_hash(system_prompt),
             tool_schema_hash=canonical_hash(tool_schemas),
             baseline_messages=deepcopy(baseline_messages or []),

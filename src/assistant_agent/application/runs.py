@@ -678,6 +678,7 @@ class SessionRuntime:
                 provider=state.provider,
                 model=state.model,
             ),
+            sandbox_profile=state.sandbox_profile,
             status=state.status,
             phase=state.phase,
             updated_at=state.updated_at,

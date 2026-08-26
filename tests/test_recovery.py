@@ -6,6 +6,7 @@ import pytest
 
 from assistant_agent.agent.run.coordinator import RunCoordinator
 from assistant_agent.agent.run.state import PendingOutputCaptureState, PermissionGrantState
+from assistant_agent.contracts.capabilities import SandboxProfile
 from assistant_agent.persistence.run_store import RunStore
 from assistant_agent.providers.ports import ToolCall
 from assistant_agent.tools.permissions import Capability, PermissionRequest, PermissionScope
@@ -59,6 +60,35 @@ def test_create_initialize_and_load(tmp_path):
     loaded = RunCoordinator.load(RunStore(tmp_path), "run-1")
     assert loaded.state.messages[-1]["content"] == "test"
     assert loaded.state.phase == "model_pending"
+
+
+def test_sandbox_profile_survives_checkpoint_reload(tmp_path):
+    profile = SandboxProfile(
+        mode="container",
+        filesystem="workspace",
+        process="container",
+        network="none",
+        extensions="container",
+        containerized=True,
+        resource_limits={"memory": "1g", "cpus": 1.0, "pids": 256},
+    )
+    coordinator = RunCoordinator.create(
+        RunStore(tmp_path),
+        task="sandboxed",
+        provider="p",
+        model="m",
+        system_prompt="sys",
+        tool_schemas=[],
+        interactive=True,
+        max_iterations=5,
+        max_tool_calls=10,
+        max_total_tool_output_chars=100,
+        run_id="run-sandbox",
+        sandbox_profile=profile,
+    )
+    coordinator.checkpoint()
+    loaded = RunCoordinator.load(RunStore(tmp_path), coordinator.run_id)
+    assert loaded.state.sandbox_profile == profile
 
 
 def test_observability_recovery_preserves_entries_and_resume_does_not_duplicate(tmp_path):

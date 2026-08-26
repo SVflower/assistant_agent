@@ -67,6 +67,8 @@ class StepEvent:
     # Additive identity for consumers that reconcile a run as structured items.
     # Existing callers may ignore it and continue using kind/call_id.
     item_id: str | None = None
+    item_kind: str | None = None
+    item_status: str | None = None
     text: str = ""
     tool_name: str = ""
     tool_args: dict[str, Any] | None = None
@@ -88,5 +90,32 @@ class StepEvent:
     trajectory_entry: TrajectoryEntry | None = None
 
     def __post_init__(self) -> None:
+        if self.item_id is None:
+            if self.kind == "reasoning":
+                self.item_id = "item_reasoning"
+            elif self.kind == "content_delta" or self.kind == "final":
+                self.item_id = "item_final"
+            elif self.kind in {"tool_call", "tool_result"} and self.call_id:
+                self.item_id = f"item_tool_{self.call_id}"
+            elif self.kind == "run_terminal":
+                self.item_id = "item_terminal"
+        if self.item_kind is None:
+            self.item_kind = {
+                "reasoning": "reasoning",
+                "content_delta": "assistant",
+                "final": "assistant",
+                "tool_call": "tool",
+                "tool_result": "tool",
+                "run_terminal": "terminal",
+            }.get(self.kind)
+        if self.item_status is None:
+            self.item_status = {
+                "reasoning": "streaming",
+                "content_delta": "streaming",
+                "final": "completed",
+                "tool_call": "started",
+                "tool_result": "failed" if self.is_error else "completed",
+                "run_terminal": self.terminal_status,
+            }.get(self.kind)
         if self.kind == "reasoning":
             self.sensitive = True

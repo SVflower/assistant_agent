@@ -329,7 +329,21 @@ class RunCoordinator(ContinuationStateMixin, DefinitionStateMixin):
 
     def replace_task_plan(self, items: tuple[TaskPlanItem, ...]) -> TaskPlanSnapshot:
         """替换当前 Run 的完整计划；由随后的工具完成 checkpoint 原子持久化。"""
-        return self._observability.replace_task_plan(items, now_iso())
+        snapshot = self._observability.replace_task_plan(items, now_iso())
+        for plan_item in items:
+            status = {
+                "pending": "planned",
+                "in_progress": "started",
+                "completed": "completed",
+            }.get(plan_item.status, "planned")
+            self.upsert_item(
+                f"item_plan_{plan_item.item_id}",
+                kind="plan",
+                status=status,  # type: ignore[arg-type]
+                summary=plan_item.content,
+                payload={"plan_item_id": plan_item.item_id},
+            )
+        return snapshot
 
     def complete_active_task_plan_item(self) -> TaskPlanSnapshot | None:
         """成功终态前收口模型最后确认执行中的计划项。"""
@@ -575,6 +589,13 @@ class RunCoordinator(ContinuationStateMixin, DefinitionStateMixin):
             self._reject_chart(result, "图表超过当前 Run 的安全存储上限，已忽略。")
             return
         self.state.presentations.append(artifact)
+        self.upsert_item(
+            f"item_chart_{artifact.artifact_id}",
+            kind="chart",
+            status="completed",
+            summary=artifact.title,
+            payload={"artifact_id": artifact.artifact_id},
+        )
 
     def _record_output(self, result: ToolResult) -> None:
         artifact = result.output_artifact
@@ -593,6 +614,13 @@ class RunCoordinator(ContinuationStateMixin, DefinitionStateMixin):
             self._reject_output(result, "输出归属无效，已拒绝。", "output_invalid")
             return
         self.state.outputs.append(artifact)
+        self.upsert_item(
+            f"item_output_{artifact.output_id}",
+            kind="output",
+            status="completed",
+            summary=artifact.filename,
+            payload={"output_id": artifact.output_id},
+        )
 
     @staticmethod
     def _reject_output(result: ToolResult, message: str, code: str) -> None:

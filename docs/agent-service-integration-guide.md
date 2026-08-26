@@ -950,6 +950,13 @@ degraded_discovery | required_failed
 - `connected`：当前 Runtime 已建立连接；
 - `degraded_*` / `required_failed` / `blocked_by_policy` / `disabled`：当前不可用。
 
+调用期连续失败保护：同一 Runtime 内同一 MCP Server 连续 3 次发生 transport/SDK
+异常后，会进入 30 秒短时熔断。熔断期间不会再次发送 MCP 请求，工具调用映射为
+`dependency_unavailable`，其状态为 `degraded_connection`，`error_category` 为
+`breaker`。一次成功调用会清零该 Server 的失败计数。该保护不自动重放请求，且状态
+仅存在于当前 Runtime 进程内，不跨 Runtime 或进程重启持久化；熔断剩余时间和失败
+计数当前不属于公共快照字段。
+
 调用方应映射枚举，不要解析 notice 文本推断能力，也不要把 `available_cached` 当作 provider readiness。
 
 公共异常：

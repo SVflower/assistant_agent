@@ -9,9 +9,15 @@ from typing import Any
 import pytest
 
 from assistant_agent.config.schema import MCPConfig, MCPServerConfig, MCPToolPolicyConfig
-from assistant_agent.integrations.mcp import MCPManager, MCPTool, extract_result
+from assistant_agent.integrations.mcp import (
+    MCPDependencyUnavailable,
+    MCPManager,
+    MCPTool,
+    extract_result,
+)
 from assistant_agent.integrations.mcp.discovery import _sanitize
 from assistant_agent.integrations.mcp.manager import _Server
+from assistant_agent.integrations.mcp.status import MCPServerStatus
 from assistant_agent.integrations.mcp.transport import _interpolate_env, _managed_args, _minimal_env
 from assistant_agent.observability import NullLogger
 from assistant_agent.tools.permissions import Capability
@@ -69,6 +75,7 @@ class _FakeSession:
         self._call_delay = call_delay
         self._call_exc = call_exc
         self._call_result = call_result
+        self.call_count = 0
 
     async def initialize(self) -> None:
         return None
@@ -77,6 +84,7 @@ class _FakeSession:
         return _FakeList(self._tools)
 
     async def call_tool(self, name: str, args: dict, *, meta: dict | None = None) -> Any:
+        self.call_count += 1
         self.last_meta = meta
         if self._call_delay:
             await asyncio.sleep(self._call_delay)
@@ -477,6 +485,24 @@ def test_sync_bridge_timeout_cancels():
     _inject(m, "web", _FakeSession([_FakeTool("do")], call_delay=2.0))
     with pytest.raises(TimeoutError):
         m._call_tool("web", "do", {}, 0.2)
+    m.close()
+
+
+def test_transport_breaker_blocks_repeated_failures_without_sending_again():
+    m = _mgr({"web": MCPServerConfig(command="x")})
+    session = _FakeSession([_FakeTool("do")], call_exc=ConnectionError("offline"))
+    _inject(m, "web", session)
+    m._statuses["web"] = MCPServerStatus(
+        "web", "stdio", "optional", "connected", tool_names=("do",)
+    )
+    for _ in range(3):
+        with pytest.raises(ConnectionError):
+            m._call_tool("web", "do", {}, 1.0)
+    calls = session.call_count
+    with pytest.raises(MCPDependencyUnavailable, match="熔断"):
+        m._call_tool("web", "do", {}, 1.0)
+    assert session.call_count == calls
+    assert m.server_statuses()[0].error_category == "breaker"
     m.close()
 
 

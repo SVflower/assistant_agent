@@ -106,7 +106,12 @@ class MCPManager:
         self._status_lock = threading.RLock()
         self._background: Future | None = None
         self._lazy_configs: dict[str, MCPServerConfig] = {}
+        self._transport_failures: dict[str, int] = {}
+        self._breaker_until: dict[str, float] = {}
         self.warnings: list[str] = []
+
+    _BREAKER_THRESHOLD = 3
+    _BREAKER_COOLDOWN_SECONDS = 30.0
 
     # ---- 线程/loop ----
 
@@ -598,13 +603,56 @@ class MCPManager:
         meta: dict[str, Any] | None = None,
     ) -> Any:
         """MCPTool.run 的同步桥入口：把 call_tool 投进 loop 线程等结果。"""
+        now = time.monotonic()
+        with self._status_lock:
+            breaker_until = self._breaker_until.get(server, 0.0)
+            if breaker_until > now:
+                raise MCPDependencyUnavailable(f"MCP server {server} 已进入短时熔断")
+            self._breaker_until.pop(server, None)
         if server not in self._servers:
             self._connect_lazy(server)
         connected = self._servers[server]
         if connected.tool_names and raw_tool not in connected.tool_names:
             raise MCPDependencyUnavailable(f"MCP server {server} 不再提供工具 {raw_tool}")
         session = connected.session
-        return self._submit(session.call_tool(raw_tool, args, meta=meta or None), timeout=timeout)
+        try:
+            result = self._submit(
+                session.call_tool(raw_tool, args, meta=meta or None), timeout=timeout
+            )
+        except (TimeoutError, OSError, ConnectionError):
+            self._record_transport_failure(server)
+            raise
+        except Exception:
+            # SDK/transport 异常没有稳定的公共类型；这条路径仅记录熔断计数，
+            # MCPTool 仍负责把它转换为安全的调用结果。
+            self._record_transport_failure(server)
+            raise
+        self._record_transport_success(server)
+        return result
+
+    def _record_transport_failure(self, server: str) -> None:
+        with self._status_lock:
+            failures = self._transport_failures.get(server, 0) + 1
+            self._transport_failures[server] = failures
+            if failures < self._BREAKER_THRESHOLD:
+                return
+            self._breaker_until[server] = time.monotonic() + self._BREAKER_COOLDOWN_SECONDS
+            status = self._statuses.get(server)
+            if status is not None:
+                self._statuses[server] = MCPServerStatus(
+                    status.name,
+                    status.transport,
+                    status.startup,
+                    "degraded_connection",
+                    tool_names=status.tool_names,
+                    checked_at=datetime.now(UTC).isoformat(),
+                    error_category="breaker",
+                )
+
+    def _record_transport_success(self, server: str) -> None:
+        with self._status_lock:
+            self._transport_failures.pop(server, None)
+            self._breaker_until.pop(server, None)
 
     def _connect_lazy(self, name: str) -> None:
         cfg = self._lazy_configs.get(name)

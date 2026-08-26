@@ -32,7 +32,7 @@ Callable[[str], bool]      # 接收 str、返回 bool 的函数
 @dataclass(frozen=True)
 class RunExecution:
     run_id: str
-    events: Iterator[StepEvent]
+    events: Iterator[ItemEvent]
 ```
 
 `@dataclass` 自动生成构造函数等样板代码。`frozen=True` 防止字段被重新赋值，适合表示已经创建好的
@@ -65,8 +65,8 @@ duck typing 的类型化版本。
 ## Iterator 与 yield：边生成边消费
 
 ```python
-def run(...) -> Iterator[StepEvent]:
-    yield StepEvent(kind="activity", phase="calling_model")
+def run(...) -> Iterator[ItemEvent]:
+    yield ItemEvent(kind="activity", phase="calling_model")
     yield from execute_turn(...)
 ```
 

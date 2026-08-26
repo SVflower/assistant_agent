@@ -9,7 +9,7 @@ from rich.syntax import Syntax
 from rich.table import Table
 from rich.text import Text
 
-from assistant_agent.contracts.events import StepEvent
+from assistant_agent.contracts.events import ItemEvent
 from assistant_agent.observability.redaction import sanitize_for_display
 from assistant_agent.tools.display import ToolPreview, call_display, safe_text
 
@@ -28,7 +28,7 @@ class ToolRenderer:
         self._console = console
         self._mode = mode
 
-    def call(self, event: StepEvent) -> str:
+    def call(self, event: ItemEvent) -> str:
         display = event.display or call_display(event.tool_name, event.tool_args or {})
         action = safe_text(display.action, 80)
         target = safe_text(display.target, 160)
@@ -55,7 +55,7 @@ class ToolRenderer:
             self._console.print(Text(detail, style="dim"))
         return label
 
-    def result(self, event: StepEvent) -> None:
+    def result(self, event: ItemEvent) -> None:
         display = event.display
         raw_summary = display.summary if display and display.summary else event.text
         summary = safe_text(raw_summary, 180)

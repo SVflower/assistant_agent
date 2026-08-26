@@ -6,7 +6,7 @@ from typing import Any
 
 from assistant_agent.agent.run.coordinator import RunCoordinator
 from assistant_agent.agent.run.ports import ControlState
-from assistant_agent.contracts.events import StepEvent
+from assistant_agent.contracts.events import ItemEvent
 
 
 def finish_control(
@@ -16,7 +16,7 @@ def finish_control(
     messages: list[dict[str, Any]],
     compaction_checkpoint: dict[str, Any] | None,
     text: str | None = None,
-) -> StepEvent:
+) -> ItemEvent:
     if state is ControlState.CANCEL_REQUESTED:
         message = text or "任务已强制取消；已发生的外部副作用不会自动回滚。"
         if coordinator is not None:
@@ -25,8 +25,8 @@ def finish_control(
                 messages=messages,
                 compaction_checkpoint=compaction_checkpoint,
             )
-        return StepEvent(kind="interrupted", text=message)
+        return ItemEvent(kind="interrupted", text=message)
     message = text or "任务已暂停，可使用 Run ID 恢复。"
     if coordinator is not None:
         coordinator.pause(message, messages=messages)
-    return StepEvent(kind="interrupted", text=message)
+    return ItemEvent(kind="interrupted", text=message)

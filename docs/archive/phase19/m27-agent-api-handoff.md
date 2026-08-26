@@ -5,7 +5,7 @@
 API 必改项：无。
 
 Agent 的 `present_chart` 现在可接收省略 `columns[].data_type` 的模型草稿，并在 Agent 内部归一化为
-原有严格 `ChartSpecV1`。成功后的 `ToolResult.chart`、`StepEvent.chart`、Artifact hash、Session/Run
+原有严格 `ChartSpecV1`。成功后的 `ToolResult.chart`、`ItemEvent.chart`、Artifact hash、Session/Run
 snapshot 与下载读取链路完全不变。
 
 ## 兼容性

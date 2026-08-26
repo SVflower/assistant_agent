@@ -9,7 +9,7 @@ from assistant_agent.agent.run.coordinator import RecoveryChoice, RunCoordinator
 from assistant_agent.agent.run.ports import ControlState
 from assistant_agent.agent.run.state import ToolCallState
 from assistant_agent.agent.tool_batch import LoopCursor, execute_tool_batch
-from assistant_agent.contracts.events import StepEvent
+from assistant_agent.contracts.events import ItemEvent
 from assistant_agent.providers.ports import ToolCall
 from assistant_agent.tools.models import ToolBudget
 
@@ -32,7 +32,7 @@ def resume_loop(
     loop: Any,
     coordinator: RunCoordinator,
     recovery_check: Callable[[ToolCallState], RecoveryChoice] | None,
-) -> Generator[StepEvent, None, None]:
+) -> Generator[ItemEvent, None, None]:
     """恢复现有 Loop；状态转换仍全部委托 RunCoordinator。"""
     previous_budget = loop._tool_ctx.budget
     coordinator.restore_tool_context(loop._tool_ctx)
@@ -48,13 +48,13 @@ def resume_loop(
     try:
         if coordinator.state.phase == "terminal":
             if coordinator.state.status == "completed":
-                yield StepEvent(
+                yield ItemEvent(
                     kind="final", item_id="item_final", text=coordinator.state.terminal_text
                 )
             elif coordinator.state.status == "cancelled":
-                yield StepEvent(kind="interrupted", text=coordinator.state.terminal_text)
+                yield ItemEvent(kind="interrupted", text=coordinator.state.terminal_text)
             else:
-                yield StepEvent(
+                yield ItemEvent(
                     kind="error",
                     text=coordinator.state.terminal_text,
                     is_error=True,
@@ -64,7 +64,7 @@ def resume_loop(
         for call in coordinator.mark_uncertain_if_needed():
             if call.replay_policy in {"safe_readonly", "safe_idempotent"}:
                 coordinator.retry(call.id)
-                yield StepEvent(
+                yield ItemEvent(
                     kind="notice",
                     text=f"（恢复：自动重试安全工具 {call.name}，call_id={call.id}）",
                 )
@@ -75,20 +75,20 @@ def resume_loop(
                     f"请运行 assistant-agent resume {coordinator.run_id} 后选择。"
                 )
                 coordinator.pause(text, phase="tool_uncertain")
-                yield StepEvent(kind="error", text=text, is_error=True)
+                yield ItemEvent(kind="error", text=text, is_error=True)
                 return
             choice = recovery_check(call)
             if choice == "abort":
                 text = f"已暂停 Run {coordinator.run_id}，未重放 {call.name}。"
                 coordinator.pause(text, phase="tool_uncertain")
-                yield StepEvent(kind="interrupted", text=text)
+                yield ItemEvent(kind="interrupted", text=text)
                 return
             if choice == "retry":
                 coordinator.retry(call.id)
             else:
                 result = coordinator.skip(call.id)
                 loop._conversation.add_tool_result(call.id, call.name, result.output)
-        yield StepEvent(
+        yield ItemEvent(
             kind="tool_result",
             item_id=f"item_tool_{call.id}",
             tool_name=call.name,
@@ -118,11 +118,11 @@ def resume_loop(
             if outcome.uncertain_call_id is not None:
                 text = "工具执行结果未知，Run 已暂停，等待恢复决策。"
                 coordinator.pause(text, phase="tool_uncertain")
-                yield StepEvent(kind="interrupted", text=text)
+                yield ItemEvent(kind="interrupted", text=text)
                 return
             coordinator.batch_completed(loop.export_history())
             if outcome.exhausted_reason is not None:
-                yield StepEvent(kind="activity", phase="waiting_interaction")
+                yield ItemEvent(kind="activity", phase="waiting_interaction")
                 if not loop._continue_tool_budget(
                     outcome.exhausted_reason, cursor, coordinator, loop._tool_ctx.budget
                 ):

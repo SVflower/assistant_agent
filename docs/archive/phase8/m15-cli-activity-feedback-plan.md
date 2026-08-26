@@ -61,7 +61,7 @@ ActivityController 只依赖 Rich 和 UI 类型，不反向依赖 agent/tools。
 
 ### 3.2 活性状态机
 
-ConversationRenderer 使用现有 StepEvent，不新增 Loop 事件：
+ConversationRenderer 使用现有 ItemEvent，不新增 Loop 事件：
 
 | 区间 | 用户可见状态 | 结束条件 |
 |---|---|---|

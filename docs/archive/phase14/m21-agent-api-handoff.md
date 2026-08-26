@@ -12,7 +12,7 @@
 不要修改 Agent 仓库，不要复制受管进程、Session/Run、恢复或 checkpoint 状态机。
 
 M21 修复前台 Shell 父进程先退出、后台后代继承 PIPE 导致 Run 永久停在 `tools_pending` 的问题，
-并提供 Runtime 隔离的 `manage_process`。StepEvent 终态、Interaction、恢复和 checkpoint 语义不变。
+并提供 Runtime 隔离的 `manage_process`。ItemEvent 终态、Interaction、恢复和 checkpoint 语义不变。
 
 ## 2. API 必改项
 
@@ -68,7 +68,7 @@ API/Web 不应展示或持久化 OS PID、完整命令、环境变量、原始�
 ```text
 tool_call(run_shell, display.timeout_seconds=60)
 tool_result(call_id 相同, success=true)
-...正常 StepEvent 流...
+...正常 ItemEvent 流...
 final
 run_terminal(completed)
 ```

@@ -15,7 +15,7 @@ from prompt_toolkit.output.base import Size
 from prompt_toolkit.output.vt100 import Vt100_Output
 from rich.console import Console as RichConsole
 
-from assistant_agent.contracts.events import StepEvent
+from assistant_agent.contracts.events import ItemEvent
 from assistant_agent.tools.display import call_display, result_display, safe_text
 from assistant_agent.tools.models import ToolResult
 from assistant_agent.ui.chat_prompt import ChatPrompt, SlashCommandCompleter
@@ -89,12 +89,12 @@ def test_normal_write_renderer_shows_redacted_bounded_preview_and_not_result_bod
     args = {"path": "tasks.py", "content": "token = 'sk-abcdef123456'\nprint('safe')"}
     call = call_display("write_file", args)
     renderer = ToolRenderer(owner._console, "normal")
-    renderer.call(StepEvent(kind="tool_call", tool_name="write_file", tool_args=args, display=call))
+    renderer.call(ItemEvent(kind="tool_call", tool_name="write_file", tool_args=args, display=call))
     before = owner.text()
     assert "写入 tasks.py" in before and "准备写入 · 2 行" in before
     assert "print('safe')" in before and "sk-abcdef" not in before and "REDACTED" in before
     renderer.result(
-        StepEvent(
+        ItemEvent(
             kind="tool_result",
             tool_name="write_file",
             text="raw result body",
@@ -120,7 +120,7 @@ def test_normal_edit_renderer_shows_structured_diff():
     assert call.preview.added_lines == 2 and call.preview.removed_lines == 1
 
     renderer = ToolRenderer(owner._console, "normal")
-    renderer.call(StepEvent(kind="tool_call", tool_name="edit_file", tool_args=args, display=call))
+    renderer.call(ItemEvent(kind="tool_call", tool_name="edit_file", tool_args=args, display=call))
     html = owner._console.export_html(inline_styles=True, clear=False).lower()
     output = owner.text()
     assert "编辑 index.html" in output and "准备修改 · +2 -1" in output
@@ -133,7 +133,7 @@ def test_normal_write_preview_uses_code_area_background():
     args = {"path": "demo.py", "content": "value = 1"}
     renderer = ToolRenderer(owner._console, "normal")
     renderer.call(
-        StepEvent(
+        ItemEvent(
             kind="tool_call",
             tool_name="write_file",
             tool_args=args,
@@ -181,7 +181,7 @@ def test_write_preview_precedes_permission_confirmation(monkeypatch):
     args = {"path": "outside/demo.py", "content": "print('review me')"}
 
     renderer.call(
-        StepEvent(
+        ItemEvent(
             kind="tool_call",
             tool_name="write_file",
             tool_args=args,
@@ -199,7 +199,7 @@ def test_unknown_extension_preview_renders_in_narrow_terminal():
     args = {"path": "data.unknown", "content": "a very long value that exceeds the terminal width"}
     renderer = ToolRenderer(owner._console, "normal")
     renderer.call(
-        StepEvent(
+        ItemEvent(
             kind="tool_call",
             tool_name="write_file",
             tool_args=args,
@@ -215,7 +215,7 @@ def test_verbose_tool_renderer_is_detailed_but_redacted():
     args = {"api_key": "sk-abcdef123456", "value": "safe"}
     renderer = ToolRenderer(owner._console, "verbose")
     renderer.call(
-        StepEvent(
+        ItemEvent(
             kind="tool_call",
             tool_name="external",
             tool_args=args,
@@ -233,7 +233,7 @@ def test_verbose_result_metadata_is_recursively_redacted():
     owner = _Owner()
     renderer = ToolRenderer(owner._console, "verbose")
     renderer.result(
-        StepEvent(
+        ItemEvent(
             kind="tool_result",
             text="ok",
             display=result_display("external", {}, ToolResult.ok("ok")),
@@ -380,20 +380,20 @@ def test_conversation_normal_avoids_duplicate_tool_body():
     result = ToolResult.ok("文件完整正文", metadata={"start_line": 1, "end_line": 3})
     events = iter(
         [
-            StepEvent(
+            ItemEvent(
                 kind="tool_call",
                 tool_name="read_file",
                 tool_args=args,
                 display=call_display("read_file", args),
             ),
-            StepEvent(
+            ItemEvent(
                 kind="tool_result",
                 tool_name="read_file",
                 text=result.output,
                 display=result_display("read_file", args, result),
             ),
-            StepEvent(kind="content_delta", text="**完成**"),
-            StepEvent(kind="final", text="**完成**"),
+            ItemEvent(kind="content_delta", text="**完成**"),
+            ItemEvent(kind="final", text="**完成**"),
         ]
     )
     ConversationRenderer(owner, "normal", False).render(events)
@@ -408,14 +408,14 @@ def test_conversation_normal_discards_tool_progress_but_commits_final_once():
     args = {"path": "notes.txt"}
     events = iter(
         [
-            StepEvent(kind="content_delta", text="我先读取文件。"),
-            StepEvent(
+            ItemEvent(kind="content_delta", text="我先读取文件。"),
+            ItemEvent(
                 kind="tool_call",
                 tool_name="read_file",
                 tool_args=args,
                 display=call_display("read_file", args),
             ),
-            StepEvent(
+            ItemEvent(
                 kind="tool_result",
                 tool_name="read_file",
                 display=result_display(
@@ -424,14 +424,14 @@ def test_conversation_normal_discards_tool_progress_but_commits_final_once():
                     ToolResult.ok("body", metadata={"start_line": 1, "end_line": 1}),
                 ),
             ),
-            StepEvent(kind="content_delta", text="接着做一次验证。"),
-            StepEvent(
+            ItemEvent(kind="content_delta", text="接着做一次验证。"),
+            ItemEvent(
                 kind="tool_call",
                 tool_name="read_file",
                 tool_args=args,
                 display=call_display("read_file", args),
             ),
-            StepEvent(
+            ItemEvent(
                 kind="tool_result",
                 tool_name="read_file",
                 display=result_display(
@@ -440,9 +440,9 @@ def test_conversation_normal_discards_tool_progress_but_commits_final_once():
                     ToolResult.ok("body", metadata={"start_line": 1, "end_line": 1}),
                 ),
             ),
-            StepEvent(kind="usage", usage={"prompt_tokens": 1200, "completion_tokens": 80}),
-            StepEvent(kind="content_delta", text="最终完成。"),
-            StepEvent(kind="final", text="最终完成。"),
+            ItemEvent(kind="usage", usage={"prompt_tokens": 1200, "completion_tokens": 80}),
+            ItemEvent(kind="content_delta", text="最终完成。"),
+            ItemEvent(kind="final", text="最终完成。"),
         ]
     )
     ConversationRenderer(owner, "normal", False).render(events)
@@ -459,10 +459,10 @@ def test_conversation_verbose_keeps_tool_progress_and_usage():
     owner = _Owner(mode="verbose")
     events = iter(
         [
-            StepEvent(kind="content_delta", text="我先读取文件。"),
-            StepEvent(kind="tool_call", tool_name="read_file", tool_args={"path": "a.txt"}),
-            StepEvent(kind="usage", usage={"prompt_tokens": 10, "completion_tokens": 2}),
-            StepEvent(kind="final", text="完成。"),
+            ItemEvent(kind="content_delta", text="我先读取文件。"),
+            ItemEvent(kind="tool_call", tool_name="read_file", tool_args={"path": "a.txt"}),
+            ItemEvent(kind="usage", usage={"prompt_tokens": 10, "completion_tokens": 2}),
+            ItemEvent(kind="final", text="完成。"),
         ]
     )
     ConversationRenderer(owner, "verbose", False).render(events)
@@ -475,10 +475,10 @@ def test_conversation_quiet_only_prints_final_answer():
     owner = _Owner(mode="quiet")
     events = iter(
         [
-            StepEvent(kind="content_delta", text="过程"),
-            StepEvent(kind="tool_call", tool_name="read_file", tool_args={"path": "a"}),
-            StepEvent(kind="tool_result", text="body"),
-            StepEvent(kind="final", text="最终答案"),
+            ItemEvent(kind="content_delta", text="过程"),
+            ItemEvent(kind="tool_call", tool_name="read_file", tool_args={"path": "a"}),
+            ItemEvent(kind="tool_result", text="body"),
+            ItemEvent(kind="final", text="最终答案"),
         ]
     )
     ConversationRenderer(owner, "quiet", False).render(events)

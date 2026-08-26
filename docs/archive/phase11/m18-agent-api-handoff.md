@@ -6,21 +6,21 @@
 `assistant-agent` Python 包使用 `AgentService` / `SessionRuntime`，不得解析 CLI 输出、日志、
 Python 异常或中文错误文本。
 
-M18 不要求 API 改成 async。API 可继续在工作线程迭代同步 `Iterator[StepEvent]`，自行增加 seq、
+M18 不要求 API 改成 async。API 可继续在工作线程迭代同步 `Iterator[ItemEvent]`，自行增加 seq、
 timestamp、session_id、run_id、heartbeat、重连缓存和 WebSocket DTO。
 
 ## 版本
 
-- `StepEvent.contract_version`：仍为 `1`。本期仅新增可选字段和 `activity` kind，既有字段含义未变。
+- `ItemEvent.contract_version`：仍为 `1`。本期仅新增可选字段和 `activity` kind，既有字段含义未变。
 - Run checkpoint `schema_version`：`2 -> 3`。
 - API 若维护独立 Web contract，可按自身兼容策略升版；不得把 Agent checkpoint 版本当作 Web 版本。
 
-## StepEvent
+## ItemEvent
 
 公共导入：
 
 ```python
-from assistant_agent.service import BudgetSnapshot, RunFailure, StepEvent
+from assistant_agent.service import BudgetSnapshot, RunFailure, ItemEvent
 ```
 
 完整字段：
@@ -196,7 +196,7 @@ Agent 自动迁移 v1/v2：保留当时的当前预算作为初始 limit，扩�
 API 可按如下规则映射，不改变 Agent 语义：
 
 ```text
-StepEvent.activity      -> run.activity（覆盖临时状态）
+ItemEvent.activity      -> run.activity（覆盖临时状态）
 content_delta           -> assistant.delta（partial=true）
 tool_call/tool_result   -> run.tool（使用 call_id 配对，优先 display）
 usage                   -> run.usage

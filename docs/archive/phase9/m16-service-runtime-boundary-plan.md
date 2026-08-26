@@ -18,7 +18,7 @@ M16 的目标是把已经存在的运行能力整理成稳定、UI 无关的 Pyt
 1. 单一 Runtime 工厂供 CLI 与 API 共同复用；
 2. 用同步、结构化 InteractionPort 替代 Console 字符串回调；
 3. 用公共门面统一 Session、Run、恢复和终态同步编排；
-4. 冻结可版本化的 `StepEvent` 进程内契约；
+4. 冻结可版本化的 `ItemEvent` 进程内契约；
 5. 明确每 Session 隔离、单 Run 执行和幂等关闭语义。
 
 本期保持同步 Agent，不进行全栈 async 改造，也不把 HTTP/API 层职责带入 Agent 仓库。
@@ -223,7 +223,7 @@ reasoning、原始 secrets、未脱敏 arguments 或内部 logger payload。
 1. 在锁内检查 Runtime open 且无 active Run；否则抛 `SessionBusyError`；
 2. `RunControl.reset()`，清空仅属于上次任务的瞬时绑定，但保留该 Session 的授权记忆；
 3. 创建 RunCoordinator，绑定 session/logger/interaction identity；
-4. 返回同步 `Iterator[StepEvent]` 并持续执行 Loop；
+4. 返回同步 `Iterator[ItemEvent]` 并持续执行 Loop；
 5. 迭代结束或异常时按 RunState 生成唯一 `run_terminal` 事件；
 6. terminal Run 幂等同步 Session，成功后 `mark_session_synced()`，再执行安全 prune；
 7. 同步失败保留 `session_synced=False` 和 checkpoint，允许再次恢复补同步；
@@ -244,9 +244,9 @@ reasoning、原始 secrets、未脱敏 arguments 或内部 logger payload。
 
 ## 8. 稳定事件契约
 
-- `assistant_agent.service.events` 明确 re-export `StepEvent`、`ToolDisplay`、`EVENT_CONTRACT_VERSION`；
+- `assistant_agent.service.events` 明确 re-export `ItemEvent`、`ToolDisplay`、`EVENT_CONTRACT_VERSION`；
 - 初始契约版本为 1；新增可选字段保持向后兼容，删除/改义/改变 kind 必须提升主版本；
-- `StepEvent` 新增默认字段 `contract_version`、`sensitive`、`terminal_status`；现有构造调用保持兼容；
+- `ItemEvent` 新增默认字段 `contract_version`、`sensitive`、`terminal_status`；现有构造调用保持兼容；
 - reasoning 事件在类型层自动标记 `sensitive=True`，API 默认丢弃；其他事件不得携带隐藏 reasoning；
 - tool_call/tool_result 延续稳定 call_id 配对，展示优先使用 ToolDisplay；
 - 服务门面在每次运行末尾只产生一个 `kind="run_terminal"` 事件，`terminal_status` 为
@@ -324,7 +324,7 @@ reasoning、原始 secrets、未脱敏 arguments 或内部 logger payload。
 
 ### Session/Run
 
-- Fake provider：create Session -> create Run -> StepEvent -> terminal sync -> session_synced；
+- Fake provider：create Session -> create Run -> ItemEvent -> terminal sync -> session_synced；
 - 同 Session 并发第二个 Run 抛 busy；不同 Session 可在不同线程同时执行且状态不污染；
 - 每个新 Run 前 RunControl reset；pause/cancel 状态和 checkpoint 与现有语义一致；
 - resume 使用原 run_id；定义拒绝或超时保持 paused；接受后才更新定义；
@@ -336,7 +336,7 @@ reasoning、原始 secrets、未脱敏 arguments 或内部 logger payload。
 
 - call/result 的 call_id 配对；ToolDisplay 脱敏摘要优先；
 - reasoning 自动 sensitive；终态严格且唯一映射四种状态；
-- 旧 StepEvent 构造方式仍可用，新增字段有默认值；
+- 旧 ItemEvent 构造方式仍可用，新增字段有默认值；
 - CLI normal/verbose/quiet、banner、活动动画、授权和恢复行为不回退；
 - API 契约测试只导入 `assistant_agent.service` / `assistant_agent.interaction`。
 

@@ -10,7 +10,7 @@ from typing import Any
 
 from assistant_agent.agent.run.failures import provider_failure
 from assistant_agent.agent.run.ports import ControlState
-from assistant_agent.contracts.events import StepEvent
+from assistant_agent.contracts.events import ItemEvent
 from assistant_agent.contracts.failures import RunFailure
 from assistant_agent.providers.ports import ModelProviderPort, StreamEvent, ToolCall
 
@@ -94,7 +94,7 @@ def stream_model_turn(
     content_sink: Callable[[str], None] | None = None,
     emit_content: bool = True,
     collect_content: bool = True,
-) -> Generator[StepEvent, None, ModelTurnResult]:
+) -> Generator[ItemEvent, None, ModelTurnResult]:
     """保持 provider 流事件顺序，并对完全空响应做一次有界修正。"""
     request_messages = messages
     for attempt in range(2):
@@ -117,7 +117,7 @@ def stream_model_turn(
                 interrupted = stopped.value
                 break
             if event.kind == "reasoning":
-                yield StepEvent(kind="reasoning", item_id="item_reasoning", text=event.text)
+                yield ItemEvent(kind="reasoning", item_id="item_reasoning", text=event.text)
             elif event.kind == "content":
                 saw_content = saw_content or bool(event.text)
                 if content_sink is not None:
@@ -125,11 +125,11 @@ def stream_model_turn(
                 if collect_content:
                     content_parts.append(event.text)
                 if emit_content:
-                    yield StepEvent(kind="content_delta", item_id="item_final", text=event.text)
+                    yield ItemEvent(kind="content_delta", item_id="item_final", text=event.text)
             elif event.kind == "tool_calls":
                 tool_calls = event.tool_calls
             elif event.kind == "usage":
-                yield StepEvent(kind="usage", usage=event.usage)
+                yield ItemEvent(kind="usage", usage=event.usage)
             elif event.kind == "finish" and event.finish_reason == "length":
                 failure = provider_failure(
                     "provider_output_truncated",

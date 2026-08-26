@@ -155,7 +155,7 @@ required_failed
 ```
 
 Runtime 初始 capabilities 保持可用；`SessionRuntime.capabilities` 每次读取动态刷新 MCP 状态，不改变
-StepEvent。`EVENT_CONTRACT_VERSION` 不提升。
+ItemEvent。`EVENT_CONTRACT_VERSION` 不提升。
 
 ## 5. 预计修改文件
 
@@ -226,7 +226,7 @@ M20 已按本方案完成，未修改 `agent/loop.py`。实测结果：
 用户验收时发现模型会搜索项目目录猜测 MCP 配置。现已新增只读 `inspect_runtime`，直接查询当前
 Registry、可见 Skill 和 MCPManager 动态状态；`configure_mcp_server list` 仅用于配置清单。核心工具
 优先占用 Schema 预算，optional MCP 仅使用剩余空间，避免外部 Schema 挤垮 Runtime。
-该修复只增加 Agent 内部工具及 notice code，未改变 StepEvent、RuntimeCapabilities 字段、Interaction、
+该修复只增加 Agent 内部工具及 notice code，未改变 ItemEvent、RuntimeCapabilities 字段、Interaction、
 Run/Session 生命周期或 checkpoint；公共服务契约与 API 必改项无新增变化。
 
 `integrations/mcp/manager.py` 物理行数 720，已按 600 行预警规则在 `docs/ARCHITECTURE.md` 完成内聚性

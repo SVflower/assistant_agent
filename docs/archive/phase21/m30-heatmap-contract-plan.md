@@ -18,7 +18,7 @@ Artifact 的 Y 分类数据却声明 linear axis，Web 可得到合法 DTO 但�
 
 - 不修改 `agent/loop.py`。
 - Event v1、Session contract/schema v3、RunState v7、ChartSpecV1/V2 DTO 均不升版。
-- `ToolResult.metadata -> StepEvent.result_metadata` 只增加可选键。
+- `ToolResult.metadata -> ItemEvent.result_metadata` 只增加可选键。
 - 不收紧历史 V2 Artifact 的公共解析，否则 M28 已保存的 linear-Y Heatmap 可能拖垮 Session/Run 加载。
   严格约束位于 Agent 唯一新建入口，生成后的 canonical 字段有契约测试。
 - 图表失败不改变 final/run_terminal。

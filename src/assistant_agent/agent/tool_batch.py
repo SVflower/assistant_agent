@@ -10,7 +10,7 @@ from assistant_agent.agent.context.conversation import Conversation
 from assistant_agent.agent.run.coordinator import RunCoordinator
 from assistant_agent.agent.run.failures import tool_failure
 from assistant_agent.agent.run.ports import ControlState
-from assistant_agent.contracts.events import StepEvent
+from assistant_agent.contracts.events import ItemEvent
 from assistant_agent.providers.ports import ToolCall
 from assistant_agent.tools.context import ToolContext
 from assistant_agent.tools.models import ToolResult
@@ -55,7 +55,7 @@ def execute_tool_batch(
     conversation: Conversation,
     coordinator: RunCoordinator | None,
     ensure_budget: Callable[[str], bool] | None = None,
-) -> Generator[StepEvent, None, BatchOutcome]:
+) -> Generator[ItemEvent, None, BatchOutcome]:
     """顺序执行一个批次；已 checkpoint 的结果不重放。"""
     exhausted_reason: str | None = None
     skipped_calls = 0
@@ -71,7 +71,7 @@ def execute_tool_batch(
                 exhausted_reason = exhausted_reason or saved.budget_exhausted
                 if not saved.executed:
                     skipped_calls += 1
-                yield StepEvent(
+                yield ItemEvent(
                     kind="notice",
                     text=f"（恢复：工具 {call.name} 已有确认结果，跳过重放）",
                 )
@@ -79,17 +79,17 @@ def execute_tool_batch(
 
         reason = ctx.budget.exhausted_reason() if ctx.budget is not None else None
         if reason is not None and ensure_budget is not None:
-            yield StepEvent(kind="activity", phase="waiting_interaction")
+            yield ItemEvent(kind="activity", phase="waiting_interaction")
             if ensure_budget(reason):
                 exhausted_reason = None
 
         display = registry.display_call(call.name, call.arguments)
         if call.name == "run_shell":
             display = replace(display, timeout_seconds=float(ctx.shell_timeout))
-        yield StepEvent(
+        yield ItemEvent(
             kind="activity", phase="executing_tool", tool_name=call.name, display=display
         )
-        yield StepEvent(
+        yield ItemEvent(
             kind="tool_call",
             item_id=f"item_tool_{call.id}",
             tool_name=call.name,
@@ -111,7 +111,7 @@ def execute_tool_batch(
         failure = tool_failure(result.code, retryable=result.retryable) if result.is_error else None
         if result.code != "mcp_outcome_unknown" or coordinator is None:
             conversation.add_tool_result(call.id, call.name, result.output)
-        yield StepEvent(
+        yield ItemEvent(
             kind="tool_result",
             item_id=f"item_tool_{call.id}",
             tool_name=call.name,
@@ -126,13 +126,13 @@ def execute_tool_batch(
             output=result.output_artifact,
         )
         if result.code == "artifact_rejected":
-            yield StepEvent(
+            yield ItemEvent(
                 kind="notice",
                 text="图表未创建；文字回答与 Run 状态不受影响。",
                 result_code="artifact_rejected",
             )
         if coordinator is not None:
-            yield StepEvent(kind="activity", phase="saving_checkpoint")
+            yield ItemEvent(kind="activity", phase="saving_checkpoint")
         if result.code == "mcp_outcome_unknown" and coordinator is not None:
             return BatchOutcome(
                 exhausted_reason,
@@ -151,7 +151,7 @@ def _cancel_pending(
     calls: list[ToolCall],
     conversation: Conversation,
     coordinator: RunCoordinator | None,
-) -> Generator[StepEvent, None, None]:
+) -> Generator[ItemEvent, None, None]:
     """为未开始的批次调用补稳定结果，保证 terminal 历史没有悬空 tool_call。"""
     for call in calls:
         result = ToolResult.error(
@@ -163,7 +163,7 @@ def _cancel_pending(
         if coordinator is not None:
             coordinator.tool_completed(call.id, result, [], "requires_decision")
         conversation.add_tool_result(call.id, call.name, result.output)
-        yield StepEvent(
+        yield ItemEvent(
             kind="tool_result",
             item_id=f"item_tool_{call.id}",
             tool_name=call.name,

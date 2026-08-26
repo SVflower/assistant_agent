@@ -74,7 +74,7 @@ python -m assistant_agent
 - **架构事实源** `docs/ARCHITECTURE.md`：新增目录、移动所有权或增加跨包依赖前先核对；`bootstrap` 是唯一 composition root，`service` 只做稳定公共转发。
 - **技术债登记册** `docs/TECH_DEBT.md`：新债即时登记，每次里程碑评审更新，防隐形复利。
 - **覆盖率** `pytest --cov`：不设强制门槛，但关键路径（流式碎片拼接、confirm 解析）低覆盖要显形并补测。
-- **跨项目契约同步**：`docs/agent-service-integration-guide.md` 是 Agent 对 API 及其他调用方的长期正式契约。凡里程碑修改 `assistant_agent.service` / `assistant_agent.interaction` 公共出口、StepEvent/DTO、Interaction、Run/Session 状态、失败码、生命周期或兼容语义，必须在同一里程碑同步该文档、契约版本/迁移说明、完整事件序列和契约测试；归档 plan/handoff 只能记录历史，不能替代正式契约。破坏性变化必须提升契约版本；向后兼容扩展也必须写明。若确认无影响，方案和验收报告必须明确记录“公共服务契约无变化”及依据。阶段收尾时还必须输出一份可直接交给 API 项目 AI 的变更清单，包含 Agent commit、API 必改项、兼容影响和联调测试。
+- **跨项目契约同步**：`docs/agent-service-integration-guide.md` 是 Agent 对 API 及其他调用方的长期正式契约。凡里程碑修改 `assistant_agent.service` / `assistant_agent.interaction` 公共出口、ItemEvent/DTO、Interaction、Run/Session 状态、失败码、生命周期或兼容语义，必须在同一里程碑同步该文档、契约版本/迁移说明、完整事件序列和契约测试；归档 plan/handoff 只能记录历史，不能替代正式契约。破坏性变化必须提升契约版本；向后兼容扩展也必须写明。若确认无影响，方案和验收报告必须明确记录“公共服务契约无变化”及依据。阶段收尾时还必须输出一份可直接交给 API 项目 AI 的变更清单，包含 Agent commit、API 必改项、兼容影响和联调测试。
 
 ## 里程碑完成定义（DoD）
 
@@ -113,7 +113,7 @@ python -m assistant_agent
   暂停提示、授权/继续后恢复动画，以及 normal 模式下文件变更预览和外部副作用意图；不展示
   隐藏推理，未修改 Loop。
 - M16 已完成：UI 无关 Runtime 工厂、结构化同步 InteractionPort、隔离 SessionRuntime、
-  Session/Run 公共门面和 StepEvent v1；CLI/API 复用同一装配与恢复语义，未修改 Loop。
+  Session/Run 公共门面和 ItemEvent v1；CLI/API 复用同一装配与恢复语义，未修改 Loop。
 - M17 已完成：部署级 RuntimePolicy、MCP optional/required 与连接超时分离、有界并行启动、
   脱敏 RuntimeCapabilities 和一次性能力探测；CLI 保持兼容，未修改 Loop。
 - M18 已完成：结构化 RunFailure/activity/BudgetSnapshot；三类预算 continuation 统一经 InteractionPort
@@ -128,7 +128,7 @@ python -m assistant_agent
   `manage_process` 提供 Runtime 隔离的后台进程启动/状态/有界日志/停止，关闭时统一清理；CLI 展示
   安全 timeout，服务契约向后兼容扩展，未修改 Loop。
 - M24 已完成：受控 ChartSpecV1、不可变 Chart Artifact 与纯幂等 `present_chart`；RunState v4 原子
-  checkpoint、Session message refs、公共 list/get/snapshot 和删除级联；StepEvent v1 additive 兼容，
+  checkpoint、Session message refs、公共 list/get/snapshot 和删除级联；ItemEvent v1 additive 兼容，
   低上下文/关闭 recovery 安全省略能力，未修改 Loop。
 - M25 已完成：`RuntimePolicy.web()` 以注册白名单隔离服务器能力；安全搜索免审批，文件/Shell/进程/
   扩展/MCP 与未证明 DNS 绑定安全的 `fetch_url` 不注册；Interaction 提供截止时间并可被 pause/cancel
@@ -160,7 +160,7 @@ python -m assistant_agent
   深复制与附件预算校验。Event v1 保持不变，Loop 仅接收类型化用户输入。
 - M33 Agent 侧已完成：Native ArtifactWriter、元数据型 `create_output`、原子 OutputStore、RunState v10、
   Session/contract v5、Service contract v5；Runtime 原生捕获正文，模型不接触草稿协议；Event v1 保持不变。
-- M34 Agent 侧已完成：Observability contract v1、RunState v11、权威 RunSnapshot 与 additive StepEvent
+- M34 Agent 侧已完成：Observability contract v1、RunState v11、权威 RunSnapshot 与 additive ItemEvent
   观测字段；安全 trajectory 有界为 256 条，缺失指标保持 null。TaskPlan 首批为 null，无分页接口；
   Event v1、Service v5、Session v5 不变，未修改 Loop。
 - M35-R1 Agent 侧已完成：公开 user/assistant 消息以 nullable `run_id` 权威关联原 Run；RunSnapshot

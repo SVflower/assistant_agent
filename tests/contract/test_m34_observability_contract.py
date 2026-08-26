@@ -8,7 +8,7 @@ from pydantic import ValidationError
 import assistant_agent.contracts as contracts
 import assistant_agent.service as service
 from assistant_agent.agent.run.observability import new_observability
-from assistant_agent.contracts.events import StepEvent
+from assistant_agent.contracts.events import ItemEvent
 from assistant_agent.contracts.observability import ContextUsageSnapshot
 
 
@@ -24,7 +24,7 @@ def test_public_exports_and_versions_are_additive() -> None:
 
 def test_step_event_carries_optional_snapshot_and_trajectory_upsert() -> None:
     snapshot = new_observability("run-contract", "2026-08-17T00:00:00Z")
-    event = StepEvent(
+    event = ItemEvent(
         kind="activity",
         phase="calling_model",
         observability=snapshot,

@@ -27,7 +27,7 @@ from assistant_agent.agent.tool_batch import LoopCursor, execute_tool_batch
 from assistant_agent.agent.turn import stream_model_turn
 from assistant_agent.config.schema import AppConfig
 from assistant_agent.contracts.attachments import UserMessageInputV1
-from assistant_agent.contracts.events import StepEvent
+from assistant_agent.contracts.events import ItemEvent
 from assistant_agent.contracts.failures import (
     BudgetResource,
     RunFailure,
@@ -148,7 +148,7 @@ class AgentLoop:
     def load_checkpoint(self, checkpoint: dict[str, Any] | None) -> None:
         self._conversation.load_checkpoint(checkpoint)
 
-    def _maybe_compact(self) -> Iterator[StepEvent]:
+    def _maybe_compact(self) -> Iterator[ItemEvent]:
         if self._compactor is None:
             return
         used = self._conversation.full_usage()
@@ -160,8 +160,8 @@ class AgentLoop:
             return
         self._conversation.set_checkpoint(result.summary, result.covered_upto)
         if result.usage:
-            yield StepEvent(kind="usage", usage=result.usage)
-        yield StepEvent(
+            yield ItemEvent(kind="usage", usage=result.usage)
+        yield ItemEvent(
             kind="notice",
             text="（已把早前对话压缩为摘要，节省上下文；完整历史仍存档）",
         )
@@ -171,7 +171,7 @@ class AgentLoop:
         task: str | UserMessageInputV1,
         *,
         coordinator: RunCoordinator | None = None,
-    ) -> Iterator[StepEvent]:
+    ) -> Iterator[ItemEvent]:
         """执行新任务；coordinator 为 None 时保持旧的非恢复路径。"""
         previous_budget = self._tool_ctx.budget
         budget = ToolBudget(
@@ -194,7 +194,7 @@ class AgentLoop:
                 if coordinator is not None:
                     coordinator.initialize(self.export_history(), self.export_checkpoint(), budget)
                     self._terminal(coordinator, False, failure.safe_message, failure=failure)
-                yield StepEvent(kind="error", text=str(exc), is_error=True, failure=failure)
+                yield ItemEvent(kind="error", text=str(exc), is_error=True, failure=failure)
                 return
             cursor = LoopCursor(0, self._config.agent.max_iterations)
             if coordinator is not None:
@@ -211,13 +211,13 @@ class AgentLoop:
         coordinator: RunCoordinator,
         *,
         recovery_check: RecoveryCheck | None = None,
-    ) -> Iterator[StepEvent]:
+    ) -> Iterator[ItemEvent]:
         """从 RunState 游标继续；不重新追加原始 task。"""
         yield from resume_loop(self, coordinator, recovery_check)
 
     def _drive(  # noqa: C901 - 单一循环保持模型/工具/捕获终态顺序可审计
         self, cursor: LoopCursor, coordinator: RunCoordinator | None
-    ) -> Iterator[StepEvent]:
+    ) -> Iterator[ItemEvent]:
         budget = self._tool_ctx.budget
         if budget is None:
             raise RuntimeError("AgentLoop 缺少任务级 ToolBudget")
@@ -228,7 +228,7 @@ class AgentLoop:
                 yield self._finish_control(control_state, coordinator)
                 return
             if cursor.iteration >= cursor.iteration_budget:
-                yield StepEvent(
+                yield ItemEvent(
                     kind="activity",
                     phase="waiting_interaction",
                     budget=budget_snapshot(cursor, budget),
@@ -249,12 +249,12 @@ class AgentLoop:
                         "iterations", cursor.iteration, cursor.iteration_budget
                     )
                     self._terminal(coordinator, False, text, failure=failure)
-                    yield StepEvent(kind="error", text=text, is_error=True, failure=failure)
+                    yield ItemEvent(kind="error", text=text, is_error=True, failure=failure)
                     return
                 cursor.iteration_budget = new_limit
             cursor.iteration += 1
             yield from self._maybe_compact()
-            yield StepEvent(
+            yield ItemEvent(
                 kind="activity",
                 phase="preparing_context",
                 budget=budget_snapshot(cursor, budget),
@@ -269,7 +269,7 @@ class AgentLoop:
                     self._config.agent.max_context_tokens,
                 )
                 self._terminal(coordinator, False, failure.safe_message, failure=failure)
-                yield StepEvent(
+                yield ItemEvent(
                     kind="error",
                     text=str(exc),
                     is_error=True,
@@ -298,12 +298,12 @@ class AgentLoop:
                 except (OutputError, RuntimeError):
                     failure = self._output_capture_failure("输出草稿无法恢复。")
                     self._terminal(coordinator, False, failure.safe_message, failure=failure)
-                    yield StepEvent(
+                    yield ItemEvent(
                         kind="error", text=failure.safe_message, is_error=True, failure=failure
                     )
                     return
 
-            yield StepEvent(
+            yield ItemEvent(
                 kind="activity",
                 phase="calling_model",
                 budget=budget_snapshot(cursor, budget),
@@ -321,7 +321,7 @@ class AgentLoop:
             except OutputError:
                 failure = self._output_capture_failure("文件正文无效或超过输出限制。")
                 self._terminal(coordinator, False, failure.safe_message, failure=failure)
-                yield StepEvent(
+                yield ItemEvent(
                     kind="error", text=failure.safe_message, is_error=True, failure=failure
                 )
                 return
@@ -347,12 +347,12 @@ class AgentLoop:
                                 else "model_pending"
                             ),
                         )
-                    yield StepEvent(kind="interrupted", text=text)
+                    yield ItemEvent(kind="interrupted", text=text)
                 else:
                     assert stream_failure is not None
                     text = stream_failure.safe_message
                     self._terminal(coordinator, False, text, failure=stream_failure)
-                    yield StepEvent(
+                    yield ItemEvent(
                         kind="error",
                         text=text,
                         is_error=True,
@@ -379,7 +379,7 @@ class AgentLoop:
                         exc.reason_code,
                         messages=self.export_history(),
                     ):
-                        yield StepEvent(
+                        yield ItemEvent(
                             kind="notice",
                             text="输出验证未通过，正在进行一次自动修复。",
                             result_code="output_validation_retrying",
@@ -387,14 +387,14 @@ class AgentLoop:
                         continue
                     failure = self._output_capture_failure("文件正文连续两次未通过安全验证。")
                     self._terminal(coordinator, False, failure.safe_message, failure=failure)
-                    yield StepEvent(
+                    yield ItemEvent(
                         kind="error", text=failure.safe_message, is_error=True, failure=failure
                     )
                     return
                 except OutputError:
                     failure = self._output_capture_failure("文件正文无效或超过输出限制。")
                     self._terminal(coordinator, False, failure.safe_message, failure=failure)
-                    yield StepEvent(
+                    yield ItemEvent(
                         kind="error", text=failure.safe_message, is_error=True, failure=failure
                     )
                     return
@@ -405,14 +405,14 @@ class AgentLoop:
                 final = f"已生成文件：{artifact.filename}"
                 self._conversation.add_assistant(final)
                 self._terminal(coordinator, True, final)
-                yield StepEvent(kind="final", item_id="item_final", text=final)
+                yield ItemEvent(kind="final", item_id="item_final", text=final)
                 return
 
             if not tool_calls:
                 final = content or "（模型未返回内容）"
                 self._conversation.add_assistant(final)
                 self._terminal(coordinator, True, final)
-                yield StepEvent(kind="final", item_id="item_final", text=final)
+                yield ItemEvent(kind="final", item_id="item_final", text=final)
                 return
 
             if coordinator is not None:
@@ -421,7 +421,7 @@ class AgentLoop:
             if output_calls and coordinator is None:
                 failure = self._output_capture_failure("当前运行入口不支持受管输出捕获。")
                 self._terminal(coordinator, False, failure.safe_message, failure=failure)
-                yield StepEvent(
+                yield ItemEvent(
                     kind="error", text=failure.safe_message, is_error=True, failure=failure
                 )
                 return
@@ -433,7 +433,7 @@ class AgentLoop:
                     and all(call.name == "update_task_plan" for call in other_calls)
                 ):
                     tool_calls = other_calls
-                    yield StepEvent(
+                    yield ItemEvent(
                         kind="notice",
                         text="任务计划先行更新；输出文件将在下一轮单独生成。",
                         result_code="output_call_deferred",
@@ -443,7 +443,7 @@ class AgentLoop:
                         "create_output 必须作为单独的工具调用执行。"
                     )
                     self._terminal(coordinator, False, failure.safe_message, failure=failure)
-                    yield StepEvent(
+                    yield ItemEvent(
                         kind="error", text=failure.safe_message, is_error=True, failure=failure
                     )
                     return
@@ -453,7 +453,7 @@ class AgentLoop:
             if repeats >= _REPEAT_LIMIT:
                 text = f"检测到连续 {repeats} 次相同的工具调用，已停止以避免死循环。"
                 self._terminal(coordinator, False, text)
-                yield StepEvent(kind="error", text=text, is_error=True)
+                yield ItemEvent(kind="error", text=text, is_error=True)
                 return
 
             raw_tool_calls = [
@@ -475,7 +475,7 @@ class AgentLoop:
                 text = "已中断；工具计划已保存，尚未执行。"
                 if coordinator is not None:
                     coordinator.pause(text, phase="tools_pending")
-                yield StepEvent(kind="interrupted", text=text)
+                yield ItemEvent(kind="interrupted", text=text)
                 return
 
             outcome = yield from execute_tool_batch(
@@ -500,12 +500,12 @@ class AgentLoop:
                 text = "工具执行结果未知，Run 已暂停，等待恢复决策。"
                 if coordinator is not None:
                     coordinator.pause(text, phase="tool_uncertain")
-                yield StepEvent(kind="interrupted", text=text)
+                yield ItemEvent(kind="interrupted", text=text)
                 return
             if coordinator is not None:
                 coordinator.batch_completed(self.export_history())
             if outcome.exhausted_reason is not None:
-                yield StepEvent(
+                yield ItemEvent(
                     kind="activity",
                     phase="waiting_interaction",
                     budget=budget_snapshot(cursor, budget),
@@ -551,7 +551,7 @@ class AgentLoop:
         pending: PendingOutputCaptureState,
         writer: ArtifactCaptureWriter,
         tool_calls: list[Any],
-    ) -> StepEvent:
+    ) -> ItemEvent:
         if tool_calls:
             raise OutputInvalidError("输出捕获轮禁止工具调用")
         artifact = writer.finalize()
@@ -567,7 +567,7 @@ class AgentLoop:
             f"已创建输出文件：{artifact.filename}（{artifact.size_bytes} bytes）",
         )
         coordinator.output_capture_completed(artifact, messages=self.export_history())
-        return StepEvent(
+        return ItemEvent(
             kind="tool_result",
             tool_name="create_output",
             text=f"已创建输出文件：{artifact.filename}（{artifact.size_bytes} bytes）",
@@ -581,7 +581,7 @@ class AgentLoop:
         reason: str,
         skipped_calls: int,
         coordinator: RunCoordinator | None,
-    ) -> StepEvent:
+    ) -> ItemEvent:
         budget = self._tool_ctx.budget
         if budget is None:
             raise RuntimeError("AgentLoop 缺少任务级 ToolBudget")
@@ -602,7 +602,7 @@ class AgentLoop:
         )
         failure = budget_failure(resource, used, limit)
         self._terminal(coordinator, False, text, failure=failure)
-        return StepEvent(kind="error", text=text, is_error=True, failure=failure)
+        return ItemEvent(kind="error", text=text, is_error=True, failure=failure)
 
     def _continue_tool_budget(
         self,
@@ -654,7 +654,7 @@ class AgentLoop:
         coordinator: RunCoordinator | None,
         *,
         text: str | None = None,
-    ) -> StepEvent:
+    ) -> ItemEvent:
         return finish_control(
             state,
             coordinator,

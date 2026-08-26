@@ -2,7 +2,7 @@
 
 > **状态：✅ 已交付**。四条评审要点全部落地：① 双历史（raw + checkpoint{summary,covered_upto} + tail）；
 > ② checkpoint 随 Session 持久化，resume 不重复摘要；③ 压缩边界按完整用户轮（group_turns）；
-> ④ 摘要 token 经 StepEvent(usage) 独立上报，不进 M6.5。Compactor 持 client、loop 编排触发，
+> ④ 摘要 token 经 ItemEvent(usage) 独立上报，不进 M6.5。Compactor 持 client、loop 编排触发，
 > context 保持被动。**默认关闭，关闭时上下文逐字节等于硬截断**。摘要失败→降级硬截断，会话不断。
 > 实测真实模型压缩一段 6 轮历史，摘要正确保留关键约束（x0-x3 赋值）；240 测试绿。
 
@@ -64,7 +64,7 @@ recent_tail            covered_upto 之后的完整轮次（未压缩）
 
 **3. 摘要用量核算（评审：不算 M6.5）**
 - M6.5 管的是**工具调用数 + 工具输出字符**，不管 LLM token。摘要是 LLM 调用，不能塞进去。
-- 摘要请求的 in/out token 计入**全局 usage**，经 `StepEvent(kind="usage")` 或独立日志事件上报。
+- 摘要请求的 in/out token 计入**全局 usage**，经 `ItemEvent(kind="usage")` 或独立日志事件上报。
 - 关联 M8a：M8a 的 usage 口径要能容纳"非工具的内部 LLM 调用"。
 
 **4. 内核触碰（重点，极谨慎）**

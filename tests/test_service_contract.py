@@ -7,19 +7,19 @@ from assistant_agent.service import (
     EVENT_CONTRACT_VERSION,
     AgentRuntime,
     AgentService,
-    StepEvent,
+    ItemEvent,
     create_runtime,
 )
 
 
 def test_reasoning_is_always_marked_sensitive() -> None:
-    event = StepEvent(kind="reasoning", text="hidden")
+    event = ItemEvent(kind="reasoning", text="hidden")
     assert event.contract_version == EVENT_CONTRACT_VERSION == 1
     assert event.sensitive is True
 
 
 def test_event_defaults_are_stable() -> None:
-    event = StepEvent(kind="tool_result", call_id="call-1")
+    event = ItemEvent(kind="tool_result", call_id="call-1")
     assert event.call_id == "call-1"
     assert event.terminal_status is None
     assert event.sensitive is False

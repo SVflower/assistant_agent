@@ -19,7 +19,7 @@ from assistant_agent.cli.recovery import resume_command, runs_command, sessions_
 from assistant_agent.cli.reload import CLIRuntimeHolder
 from assistant_agent.cli.setup import build_runtime
 from assistant_agent.config.loader import ConfigError, load_config
-from assistant_agent.contracts.events import StepEvent
+from assistant_agent.contracts.events import ItemEvent
 from assistant_agent.execution import RunControl
 from assistant_agent.service import SessionRuntime
 from assistant_agent.ui.console import Console
@@ -35,7 +35,7 @@ _run_control = RunControl()
 
 
 def _run_streamed(
-    console: Console, events: Iterator[StepEvent], run_control: RunControl | None = None
+    console: Console, events: Iterator[ItemEvent], run_control: RunControl | None = None
 ) -> None:
     """在可中断上下文中渲染一次任务的流式事件。"""
     control = run_control or _run_control

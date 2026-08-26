@@ -2,7 +2,7 @@
 
 ## 目标
 
-在现有 AgentLoop、RunCoordinator、StepEvent、Session ledger 和 checkpoint 之上，补齐
+在现有 AgentLoop、RunCoordinator、ItemEvent、Session ledger 和 checkpoint 之上，补齐
 Codex 风格的结构化运行项目模型，使长任务的计划、Thinking、工具、Artifact、输出和最终回答
 都能被稳定关联、增量更新、重连重放和历史恢复。
 
@@ -16,7 +16,7 @@ Codex 风格的结构化运行项目模型，使长任务的计划、Thinking、
 
 ## 已实施的第一步
 
-`StepEvent.item_id` 已作为可选字段加入：
+`ItemEvent.item_id` 已作为可选字段加入：
 
 - 工具调用和工具结果使用同一个 `item_tool_<call_id>`；
 - 最终回答使用 `item_final`；
@@ -61,6 +61,6 @@ API 增加可选 Item DTO 与事件投影；Web 以 `run_id + seq` 去重、以 
 - 取消后不能变成 completed；
 - 已完成工具不重放；
 - Artifact/Output 只发布一次；
-- 旧 StepEvent 顺序和现有 CLI/API/Web 行为保持不变。
+- 旧 ItemEvent 顺序和现有 CLI/API/Web 行为保持不变。
 
 每一小步只运行相关单测、契约测试和受影响的 API/Web 测试；不以全量测试作为本阶段前置条件。

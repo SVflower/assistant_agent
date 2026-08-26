@@ -4,7 +4,7 @@ from dataclasses import fields
 
 from assistant_agent.agent.run.observability import new_observability
 from assistant_agent.agent.run.state import RunState, ToolBudgetState
-from assistant_agent.contracts.events import EVENT_CONTRACT_VERSION, StepEvent
+from assistant_agent.contracts.events import EVENT_CONTRACT_VERSION, ItemEvent
 from assistant_agent.contracts.interactions import (
     ApprovalRequest,
     ContinueRequest,
@@ -93,7 +93,7 @@ def test_service_public_exports_baseline():
         "UnsupportedSchemaError",
         "UnsupportedSessionSchemaError",
         "PublicMessageSnapshot",
-        "StepEvent",
+        "ItemEvent",
         "ToolDisplay",
         "BudgetSnapshot",
         "RunFailure",
@@ -129,7 +129,7 @@ def test_service_public_exports_baseline():
 
 def test_item_event_v1_field_baseline_and_sensitive_reasoning():
     assert EVENT_CONTRACT_VERSION == 1
-    assert [field.name for field in fields(StepEvent)] == [
+    assert [field.name for field in fields(ItemEvent)] == [
         "kind",
         "item_id",
         "item_kind",
@@ -154,7 +154,7 @@ def test_item_event_v1_field_baseline_and_sensitive_reasoning():
         "observability",
         "trajectory_entry",
     ]
-    event = StepEvent(kind="reasoning", text="private")
+    event = ItemEvent(kind="reasoning", text="private")
     assert event.contract_version == 1
     assert event.sensitive is True
 

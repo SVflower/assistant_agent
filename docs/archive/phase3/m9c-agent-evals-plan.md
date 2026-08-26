@@ -35,7 +35,7 @@ M9c 还清 D9，并补 `cli/setup.py`、Runtime 失败清理和本次触及的�
 
 ### 可复用基础
 
-- `AgentLoop.run()` 已公开稳定 `StepEvent` 流，包含 tool_call/tool_result/final/error/usage。
+- `AgentLoop.run()` 已公开稳定 `ItemEvent` 流，包含 tool_call/tool_result/final/error/usage。
 - `ToolRegistry`、`PermissionPolicy`、预算和 `[permission_denied]` 机器码可直接断言。
 - `tests/test_loop.py` 的 FakeStreamClient 已证明 scripted 多轮轨迹可完全离线运行。
 - YAML/Pydantic、pytest、JSONL logger 和 CI 已在项目内，无需引入新依赖。

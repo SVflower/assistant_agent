@@ -121,15 +121,10 @@ class ItemEvent:
             self.sensitive = True
 
 
-# 仅供尚未迁移的 CLI 渲染器和历史测试使用；公共服务边界只使用 ItemEvent。
-StepEvent = ItemEvent
-
-
 __all__ = [
     "EVENT_CONTRACT_VERSION",
     "EventKind",
     "ItemEvent",
-    "StepEvent",
     "TerminalStatus",
     "ToolDisplay",
     "ToolPreview",

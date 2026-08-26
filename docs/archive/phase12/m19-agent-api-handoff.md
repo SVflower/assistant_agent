@@ -7,7 +7,7 @@
 
 ## 1. 结论
 
-M19 是内部架构重建，不要求 API 复制或重写状态机。公共 Service 根入口、StepEvent v1、Run
+M19 是内部架构重建，不要求 API 复制或重写状态机。公共 Service 根入口、ItemEvent v1、Run
 checkpoint v3、Session/Run 状态、Interaction request/decision、failure code、权限、预算 continuation、
 tool_uncertain 和 `session_synced` 语义保持兼容。
 
@@ -54,7 +54,7 @@ from assistant_agent.contracts import (
     EVENT_CONTRACT_VERSION,
     InteractionPort,
     RunFailure,
-    StepEvent,
+    ItemEvent,
 )
 from assistant_agent.interaction import BlockingInteractionPort, SafeDefaultInteractionPort
 from assistant_agent.service import AgentService, RuntimePolicy
@@ -70,12 +70,12 @@ warning: str = ""
 ```
 
 API 可把非空 warning 经自身脱敏后映射为诊断 notice，不应把原字符串直接发送到网络；它不是
-StepEvent、failure 或 terminal status，不能改变 Run snapshot 终态。旧代码不读取该字段时行为不变。
+ItemEvent、failure 或 terminal status，不能改变 Run snapshot 终态。旧代码不读取该字段时行为不变。
 
 ## 4. 明确无需修改
 
 - WebSocket event kind、seq、timestamp、heartbeat 和重连缓存；
-- StepEvent DTO 字段或 `EVENT_CONTRACT_VERSION`；
+- ItemEvent DTO 字段或 `EVENT_CONTRACT_VERSION`；
 - checkpoint schema 或数据库迁移；
 - failure code / allowed_actions 映射；
 - continuation、授权、ask_user、定义变化和 tool_uncertain Interaction DTO；
@@ -105,6 +105,6 @@ StepEvent、failure 或 terminal status，不能改变 Run snapshot 终态。旧
 - recovery eval：4/4 PASS；
 - 生产 Python：13,467 行，120 个文件；eval 基础设施：1,404 行；
 - 超过 600 行生产模块：0；
-- StepEvent：contract v1；Run checkpoint：schema v3。
+- ItemEvent：contract v1；Run checkpoint：schema v3。
 
 长期契约以 `docs/agent-service-integration-guide.md` 为准；本文件是 M19 完成时的交接快照。

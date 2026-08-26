@@ -32,7 +32,7 @@ run_terminal.failure.allowed_actions = [retry_run, stop]
 空响应前已经完成的工具事实、Chart Artifact 和 Output Artifact 继续保留。重试前若收到 pause/cancel，
 优先按既有控制语义结束，不产生 `provider_empty_response`。API/Web 应按稳定 code 展示可重试失败，不解析
 `safe_message`，不在 API 层自动再试，不合成第二个 terminal。该扩展保持 Service v5、Session v5、
-RunState v13、ItemEvent v1 不变；StepEvent 仅为内部迁移别名。
+RunState v13、ItemEvent v1 不变；ItemEvent 仅为内部迁移别名。
 
 ## M35-R1 历史运行关联
 
@@ -59,7 +59,7 @@ TraceStore，不能宣称永久、完整的运行历史。API 只调用公共 se
 `ContextUsageSnapshot`、`ModelUsageSnapshot`、`OrchestrationTimingSnapshot`、`TrajectoryEntry`、`TaskPlanSnapshot` 和
 `TaskPlanItem`。Event v1 与 Service v5 保持不变；Run checkpoint current-only 升为 v11。
 
-`StepEvent` additive 增加 `observability: RunObservabilitySnapshot | None` 与
+`ItemEvent` additive 增加 `observability: RunObservabilitySnapshot | None` 与
 `trajectory_entry: TrajectoryEntry | None`。API 应将前者映射为 `run.observability`，将后者按
 `entry_id` upsert 为 `run.trajectory`；不能只 append。现有 `usage -> run.usage` 继续保留，但必须与
 `observability.model_usage` 同源，API 不建立第二个 Token 累计器。
@@ -94,7 +94,7 @@ reasoning、原始 prompt/provider payload、密钥、环境变量、服务器�
 Runtime 在下一模型轮禁用全部工具，把普通文本流写入私有草稿并自动分块、校验和 finalize；模型、API、Web
 均不知道 draft_id/chunk_index/finalize。默认分块上限为 8192 UTF-8 bytes，并受既有总量限制。
 草稿仅属于 Agent 内部存储，不进入公共 DTO 或网络事件。成功的 `tool_result` 通过
-`StepEvent.output: OutputArtifactV1 | None` 发布小型引用，Event contract 保持 v1；内容不进入事件。
+`ItemEvent.output: OutputArtifactV1 | None` 发布小型引用，Event contract 保持 v1；内容不进入事件。
 Output ref 包含 opaque `output_id`、Session/Run/message/call 归属、filename/title、MIME、大小、SHA-256、
 时间、disposition 和 preview_supported，绝不包含服务器路径。
 
@@ -141,7 +141,7 @@ Rich 终端输出。
 ```text
 上层服务
   -> assistant_agent.service       Runtime、Session、Run 与恢复用例
-  -> assistant_agent.contracts     StepEvent、失败、能力与 Interaction DTO/Protocol
+  -> assistant_agent.contracts     ItemEvent、失败、能力与 Interaction DTO/Protocol
   -> assistant_agent.interaction   安全默认和同步阻塞 Interaction 实现
   -> assistant_agent 内部实现      LLM、Tools、Skills、MCP、Workspace、checkpoint
 ```
@@ -220,21 +220,21 @@ assistant_agent.tools
 
 ### 2.1 M19 导入策略
 
-- `EVENT_CONTRACT_VERSION` 保持 `1`，StepEvent 字段、默认值和事件顺序未破坏；
+- `EVENT_CONTRACT_VERSION` 保持 `1`，ItemEvent 字段、默认值和事件顺序未破坏；
 - Run checkpoint 保持 schema v3，旧 checkpoint 无需迁移；
 - `AgentService`、`AgentRuntime`、`SessionRuntime`、`create_runtime` 的公共根导入和构造签名不变；
 - `RuntimeNotice` 等稳定 DTO 可统一从 `assistant_agent.contracts` 根入口导入；
 - `RunExecution` 保留可选 `warning: str = ""`，用于 checkpoint 回退等诊断；调用方须
   自行脱敏，不能直接透传网络；
 - `llm/mcp/obs/runtime/session/skills/web` 等迁移前顶层包，以及 Agent/Tool/Service 的旧转发模块已删除；
-- 这是开发期内部 Python import 的破坏性清理，不提升 `EVENT_CONTRACT_VERSION`，因为 StepEvent/DTO
+- 这是开发期内部 Python import 的破坏性清理，不提升 `EVENT_CONTRACT_VERSION`，因为 ItemEvent/DTO
   和运行语义没有变化；
 - API/Web 若只依赖三个公共根入口，无运行逻辑修改；若曾穿透内部目录，必须迁回公共入口并增加
   禁止内部 import 的架构测试。
 
 ### 2.2 M20 启动与扩展契约
 
-- `EVENT_CONTRACT_VERSION` 保持 `1`；StepEvent、Run checkpoint、Interaction 和终态顺序无变化；
+- `EVENT_CONTRACT_VERSION` 保持 `1`；ItemEvent、Run checkpoint、Interaction 和终态顺序无变化；
 - `RuntimeStartupEvent` 从 `assistant_agent.contracts` 导出，不从 `assistant_agent.service` 转发；
 - `create_runtime(..., startup_observer=...)` 可接收同步 observer，用于低层宿主展示 Runtime 创建进度；
 - observer 只收到安全阶段事实，不属于 Run 事件流；observer 异常会被忽略，不能阻断创建；
@@ -262,7 +262,7 @@ assistant_agent.tools
 
 ### 2.4 M24 图表与 Presentation Artifact 契约
 
-- `EVENT_CONTRACT_VERSION` 保持 `1`，不新增 EventKind；`ToolResult/StepEvent` additive 增加
+- `EVENT_CONTRACT_VERSION` 保持 `1`，不新增 EventKind；`ToolResult/ItemEvent` additive 增加
   `chart: ChartArtifact | None`。
 - Run checkpoint 升 v4；读取 v1/v2/v3 时迁移为 `presentations=[]`。旧 Agent 不承诺降级读取 v4。
 - Agent 是 Artifact 唯一权威所有者。API 不保存第二份完整数据，不解析 checkpoint/Session 文件。
@@ -293,7 +293,7 @@ assistant_agent.tools
   `legal_options`。
 - `SessionRuntime.pause()/cancel()` 会中断待处理 Blocking Interaction；中断、timeout、close、异常和
   晚到响应均 fail closed。port 保持可用于 pause 后的恢复。
-- Event contract 仍为 v1，checkpoint 仍为 v4；Interaction 是调用方网络事件，不是 StepEvent。
+- Event contract 仍为 v1，checkpoint 仍为 v4；Interaction 是调用方网络事件，不是 ItemEvent。
 
 ### 2.6 M25-AGENT-02 Run 终态所有权
 
@@ -555,7 +555,7 @@ snapshot 为 `null`；API 用它分别映射 HTTP 201/200，不得自行扫描�
 | `SessionMigrationRequiredError` | `session_migration_required` | 旧历史或幂等结果无法安全迁移 |
 | `SessionUnavailableError` | `session_unavailable` | Session/Artifact 存储暂不可用 |
 
-`EVENT_CONTRACT_VERSION` 仍为 1，Run checkpoint 仍为 v6；fork 不创建 Run，也不产生 StepEvent。
+`EVENT_CONTRACT_VERSION` 仍为 1，Run checkpoint 仍为 v6；fork 不创建 Run，也不产生 ItemEvent。
 `PresentationArtifactRef.run_id` 是向后兼容 nullable 扩展，只有 fork Artifact 使用 `null`。
 
 ### 5.4 删除
@@ -597,7 +597,7 @@ for event in execution.events:
     publish(event)
 ```
 
-`execution.events` 是同步、惰性 `Iterator[StepEvent]`：
+`execution.events` 是同步、惰性 `Iterator[ItemEvent]`：
 
 - 创建 `RunExecution` 不等于任务已经执行完；
 - 必须在工作线程中持续消费 Iterator；
@@ -651,7 +651,7 @@ Run 的终态和 Session 同步由 Agent 唯一拥有。即使事件源出现未
 terminal；应继续消费 Agent 返回的结构化 failed terminal。若 Iterator 因调用方自身网络/worker 故障
 中断，应重新读取公共 snapshot/恢复 Run，而不是根据 Python 异常文本猜测状态。
 
-## 7. StepEvent 契约
+## 7. ItemEvent 契约
 
 公共类型：
 
@@ -660,12 +660,12 @@ from assistant_agent.service import (
     EVENT_CONTRACT_VERSION,
     BudgetSnapshot,
     RunFailure,
-    StepEvent,
+    ItemEvent,
     ToolDisplay,
 )
 ```
 
-`StepEvent` 完整公共字段：
+`ItemEvent` 完整公共字段：
 
 ```text
 kind, text, tool_name, tool_args, is_error, usage, call_id, display,
@@ -1143,7 +1143,7 @@ M31 的 hard cut 覆盖本节此前的兼容读取说明：
 - 公共根导出 `AGENT_SERVICE_CONTRACT_VERSION = 6`；API 启动时必须校验。
 - `ChartSpecV1`、`ChartArtifact`、`PresentationArtifactRef`、`AnyChartArtifact` 和
   `AnyPresentationArtifactRef` 已删除，不再提供 re-export。
-- `StepEvent.chart`、Run/Session presentations、公开 message refs 均只接受 V2。
+- `ItemEvent.chart`、Run/Session presentations、公开 message refs 均只接受 V2。
 - RunStore 的写入、双槽读取和 Coordinator 恢复只接受 checkpoint v13；v1-v12 不回退、不迁移。
 - SessionStore 的读取、catalog、summary、fork 和写入只接受 Session v5；v0-v4 不回写、不迁移。
 - UserMessageInput/MessageContent/AttachmentRef 当前只接受 Content/Attachment v1；checkpoint/session 只保存

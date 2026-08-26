@@ -19,5 +19,5 @@ Agent M32 本地提交已完成。公共服务契约升为 **v3**，Event contra
 - `ingest_attachments` 批量原子：任一附件无效则不发布部分引用。
 - 未绑定附件可调用 `delete_unbound_attachments(ids)`；存储也按 TTL 回收。
 - 成功 `start_run` 将引用绑定到 Session。Session 删除级联；Run 删除不级联已绑定附件。
-- provider 只在调用边界临时得到 data URL（图片）或边界文本（文本）；StepEvent 不新增附件 payload。
+- provider 只在调用边界临时得到 data URL（图片）或边界文本（文本）；ItemEvent 不新增附件 payload。
 - API/Web 不需要升级 EventKind 或解析终端日志。

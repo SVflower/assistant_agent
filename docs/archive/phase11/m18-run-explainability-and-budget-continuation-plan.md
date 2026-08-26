@@ -21,7 +21,7 @@ Web 或 CLI 中复制执行状态机。
 ### 必做
 
 - 新增公共 `RunFailure`、`FailureCode`、`AllowedAction`、`BudgetSnapshot` 契约。
-- `StepEvent` 向后兼容增加 `failure`、`phase`、`budget` 字段及 `activity` 事件。
+- `ItemEvent` 向后兼容增加 `failure`、`phase`、`budget` 字段及 `activity` 事件。
 - RunState schema v3 保存 failure、预算硬上限、扩展次数和已应用 continuation 决策。
 - 扩展现有 `ContinueRequest`，统一三类预算资源；安全默认仍为 stop。
 - 工具预算在执行下一调用前请求 continuation，确认后只扩展当前 Run，并先 checkpoint 后执行。
@@ -46,7 +46,7 @@ Web 或 CLI 中复制执行状态机。
 - `RunCoordinator` 仍是 RunState 转换与原子 checkpoint 的唯一所有者。
 - `InteractionPort.confirm_continue()` 仍是 continuation 唯一交互入口。
 - `SessionRuntime._stream()` 仍是 `run_terminal` 唯一生成点，且每个 Run 只生成一次。
-- API 只消费 `StepEvent`、Interaction DTO 和 Run snapshot，不解析日志、异常或中文文本。
+- API 只消费 `ItemEvent`、Interaction DTO 和 Run snapshot，不解析日志、异常或中文文本。
 
 ### 是否修改内核
 
@@ -107,7 +107,7 @@ action 由 Agent 按当前状态明确给出，不由 API 从 `safe_message` 推
 
 ## 事件与终态
 
-`StepEvent` 新增向后兼容可选字段：
+`ItemEvent` 新增向后兼容可选字段：
 
 - `failure: RunFailure | None`
 - `phase: ActivityPhase | None`

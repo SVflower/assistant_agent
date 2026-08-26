@@ -1,6 +1,6 @@
 """终端输入输出，基于 Rich。
 
-负责把 AgentLoop 的 StepEvent 渲染给用户，并提供危险操作的确认交互。
+负责把 AgentLoop 的 ItemEvent 渲染给用户，并提供危险操作的确认交互。
 """
 
 from __future__ import annotations
@@ -15,7 +15,7 @@ from rich.console import Console as RichConsole
 from rich.text import Text
 
 from assistant_agent.contracts.capabilities import RuntimeStartupEvent
-from assistant_agent.contracts.events import StepEvent
+from assistant_agent.contracts.events import ItemEvent
 from assistant_agent.tools.context import ConfirmChoice
 from assistant_agent.ui.activity import suspend_active
 from assistant_agent.ui.formatting import (
@@ -166,7 +166,7 @@ class Console:
         line.truncate(width, overflow="ellipsis", pad=True)
         self._console.print(line)
 
-    def render_stream(self, events: Iterator[StepEvent]) -> None:
+    def render_stream(self, events: Iterator[ItemEvent]) -> None:
         """消费一次任务的流式事件并渲染。
 
         协调原则（见 M2 方案 7.4）：spinner（Live）只用于"无正文输出的空窗期"，

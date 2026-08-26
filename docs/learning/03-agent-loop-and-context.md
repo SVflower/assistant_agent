@@ -30,7 +30,7 @@ sequenceDiagram
     Loop->>Coord: before_model + checkpoint
     Loop->>Model: stream(messages, tools)
     Model-->>Loop: text chunks / tool calls / usage
-    Loop-->>Caller: StepEvent stream
+    Loop-->>Caller: ItemEvent stream
     Loop->>Coord: model_completed + checkpoint
     Loop->>Registry: execute(tool call)
     Registry->>Coord: approval_pending / tool_started / tool_completed
@@ -49,9 +49,9 @@ sequenceDiagram
 失败前模型已经输出的零散文本可以保留为 partial，但不能伪装成 `final`。这保证 Web 不会把半句话当成
 完整答案。
 
-## StepEvent 是什么
+## ItemEvent 是什么
 
-`contracts/events.py:StepEvent` 是同步事件 DTO。常见 kind：
+`contracts/events.py:ItemEvent` 是同步事件 DTO。常见 kind：
 
 - `activity`：安全运行事实，如 `calling_model`、`executing_tool`。
 - `content_delta`：可展示正文的流式片段。
@@ -108,5 +108,5 @@ system prompt + tool schemas + history + reserved output <= max_context_tokens
 ## 阅读建议
 
 先看 `AgentLoop.run()` 和 `resume()` 的外层控制，再看 `RunCoordinator` 的状态方法。不要一开始钻进
-prompt 文本。随后用 `tests` 中 Fake provider 案例跟踪 `StepEvent` 顺序。
+prompt 文本。随后用 `tests` 中 Fake provider 案例跟踪 `ItemEvent` 顺序。
 

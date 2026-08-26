@@ -25,7 +25,7 @@ error bar、annotation、双 Y 轴和最多四面板。本期不做 KDE、小提
   dataset。percent stack、pie/heatmap 聚合也由 Agent 确定性完成。
 - 安全硬限：512 KiB/Artifact、16 Artifact/Run、2 MiB/Run；4 datasets、4 panels、2 layout columns、
   12 columns/dataset、5000 rows/dataset、20000 cells、8 series；overlay 数量按冻结契约限制。
-- `StepEvent.chart`、ToolResult、Run/Session snapshot 使用 V1/V2 联合；Event 外壳保持 v1。
+- `ItemEvent.chart`、ToolResult、Run/Session snapshot 使用 V1/V2 联合；Event 外壳保持 v1。
 - Run checkpoint 升 v7，v1-v6 无损迁移；Session schema/contract 升 v3，v1/v2 锁内原子迁移。
 
 ## 主要文件

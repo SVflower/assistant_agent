@@ -63,7 +63,7 @@ from assistant_agent.contracts.errors import (
     UnsupportedInputModalityError,
     UserMessageNotFoundError,
 )
-from assistant_agent.contracts.events import StepEvent, TerminalStatus
+from assistant_agent.contracts.events import ItemEvent, TerminalStatus
 from assistant_agent.contracts.failures import AllowedAction, BudgetSnapshot, RunFailure
 from assistant_agent.contracts.interactions import (
     DefinitionChangeRequest,
@@ -76,7 +76,7 @@ from assistant_agent.contracts.sessions import PublicMessageSnapshot, SessionSna
 _PUBLIC_MESSAGE_ID = re.compile(r"^msg_[a-f0-9]{24}$")
 
 
-class _ExecutionEvents(Iterator[StepEvent]):
+class _ExecutionEvents(Iterator[ItemEvent]):
     """为底层事件 generator 增加取消、关闭和最终收口语义。
 
     generator 中的异常是在调用 ``next()`` 时发生的，因此仅在 ``start_run`` 外包一层 try/except
@@ -86,7 +86,7 @@ class _ExecutionEvents(Iterator[StepEvent]):
 
     def __init__(
         self,
-        source: Iterator[StepEvent],
+        source: Iterator[ItemEvent],
         on_close: Callable[[bool], None],
         request_cancel: Callable[[], object],
     ) -> None:
@@ -103,7 +103,7 @@ class _ExecutionEvents(Iterator[StepEvent]):
     def __iter__(self) -> _ExecutionEvents:
         return self
 
-    def __next__(self) -> StepEvent:
+    def __next__(self) -> ItemEvent:
         # Python generator 不支持并发 next()。显式拒绝比让底层抛出难以归因的
         # "generator already executing" 更容易让 API 找到错误用法。
         with self._lock:
@@ -167,7 +167,7 @@ class _ExecutionEvents(Iterator[StepEvent]):
 @dataclass(frozen=True)
 class RunExecution:
     run_id: str
-    events: Iterator[StepEvent]
+    events: Iterator[ItemEvent]
     warning: str = ""
 
     def close(self) -> None:
@@ -187,7 +187,7 @@ class RetryRunExecution:
     original_run_id: str
     new_run_id: str
     created: bool
-    events: Iterator[StepEvent]
+    events: Iterator[ItemEvent]
     warning: str = ""
 
     def close(self) -> None:
@@ -802,7 +802,7 @@ class SessionRuntime:
                 compaction_checkpoint=state.compaction_checkpoint,
             )
             finalized = self._finish_run(coordinator)
-            terminal = StepEvent(
+            terminal = ItemEvent(
                 kind="run_terminal",
                 text=coordinator.state.terminal_text,
                 terminal_status="cancelled",
@@ -906,7 +906,7 @@ class SessionRuntime:
                     f"只有遗留 running Run 可以协调，当前状态为 {state.status}"
                 )
             coordinator.reconcile_orphan(request_hash)
-            terminal = StepEvent(
+            terminal = ItemEvent(
                 kind="run_terminal",
                 text=coordinator.state.terminal_text,
                 terminal_status="paused",
@@ -1117,7 +1117,7 @@ class SessionRuntime:
     def _owned_execution(
         self,
         coordinator: RunCoordinator,
-        source: Iterator[StepEvent],
+        source: Iterator[ItemEvent],
         warning: str = "",
     ) -> RunExecution:
         events = _ExecutionEvents(
@@ -1156,9 +1156,9 @@ class SessionRuntime:
             self._end_run()
             raise
 
-    def _paused_stream(self, coordinator: RunCoordinator) -> Iterator[StepEvent]:
+    def _paused_stream(self, coordinator: RunCoordinator) -> Iterator[ItemEvent]:
         try:
-            event = StepEvent(
+            event = ItemEvent(
                 kind="run_terminal",
                 text=coordinator.state.terminal_text,
                 terminal_status="paused",
@@ -1170,8 +1170,8 @@ class SessionRuntime:
             self._end_run()
 
     def _stream(
-        self, coordinator: RunCoordinator, source: Iterator[StepEvent]
-    ) -> Iterator[StepEvent]:
+        self, coordinator: RunCoordinator, source: Iterator[ItemEvent]
+    ) -> Iterator[ItemEvent]:
         exhausted = False
         try:
             for event in source:
@@ -1211,13 +1211,13 @@ class SessionRuntime:
                 # source 耗尽之前），故此处的 yield 只在 source 正常走完后触发，不会撞上
                 # GeneratorExit。改动上面的控制流时须维持这一点，否则 finally 内 yield 会抛错。
                 if exhausted:
-                    syncing = StepEvent(kind="activity", phase="syncing_session")
+                    syncing = ItemEvent(kind="activity", phase="syncing_session")
                     self._decorate_observability(coordinator, syncing)
                     yield syncing
                     finalized = self._finish_run(coordinator)
                     for code in finalized.notice_codes:
                         yield self._finalization_notice(code)
-                    terminal = StepEvent(
+                    terminal = ItemEvent(
                         kind="run_terminal",
                         text=coordinator.state.terminal_text,
                         terminal_status=finalized.status,
@@ -1228,7 +1228,7 @@ class SessionRuntime:
             finally:
                 self._end_run()
 
-    def _decorate_observability(self, coordinator: RunCoordinator, event: StepEvent) -> None:
+    def _decorate_observability(self, coordinator: RunCoordinator, event: ItemEvent) -> None:
         if event.kind == "reasoning":
             coordinator.observe_reasoning(event.text)
         elif event.kind == "content_delta":
@@ -1252,13 +1252,13 @@ class SessionRuntime:
             event.trajectory_entry = trajectory[-1] if trajectory else None
 
     @staticmethod
-    def _finalization_notice(code: str) -> StepEvent:
+    def _finalization_notice(code: str) -> ItemEvent:
         messages = {
             "session_sync_deferred": "Run 终态已保存，会话同步将在后续重试。",
             "run_prune_deferred": "Run 终态已保存，历史清理将在后续重试。",
             "output_draft_cleanup_deferred": "未完成输出草稿将在后续清理。",
         }
-        return StepEvent(kind="notice", text=messages[code], result_code=code)
+        return ItemEvent(kind="notice", text=messages[code], result_code=code)
 
     def _finish_run(self, coordinator: RunCoordinator) -> _FinalizationResult:
         status = coordinator.state.status

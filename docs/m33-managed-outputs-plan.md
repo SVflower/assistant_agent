@@ -7,7 +7,7 @@ Artifact、输入附件、Chart Presentation 与 Deliverable Output 是不同事
 成为交付物。Agent 是 Output 元数据、内容、归属和生命周期的唯一 owner，API 不扫描服务器目录。
 
 本里程碑最终采用开发期 hard cut：RunState v10、Session schema/contract v5、Agent Service contract v5，
-不读取旧状态。Event contract 保持 v1，`StepEvent.output` 字段不变。本次经用户批准修改 `agent/loop.py`。
+不读取旧状态。Event contract 保持 v1，`ItemEvent.output` 字段不变。本次经用户批准修改 `agent/loop.py`。
 
 ## 公共契约
 
@@ -63,7 +63,7 @@ CLI `/outputs` 列当前 Session 文件名、大小与本机路径；首版不�
 
 API 必须精确固定 M33 Agent commit，并校验：Agent Service contract=5、Session contract=5、RunState=10、
 Output contract=1、Event contract=1。建议网络端新增 Session Output 列表、元数据与认证内容下载接口；
-WebSocket 只转发 `StepEvent.output` 引用，内容通过 REST 读取。HTTP 下载设置 Content-Type、
+WebSocket 只转发 `ItemEvent.output` 引用，内容通过 REST 读取。HTTP 下载设置 Content-Type、
 Content-Disposition、Content-Length、ETag 和 `X-Content-Type-Options: nosniff`。跨 Session访问统一 404。
 
 Web Runtime 仍禁止 Shell/服务器文件工具，只允许元数据型 `create_output`；这不会赋予任意路径写权限。

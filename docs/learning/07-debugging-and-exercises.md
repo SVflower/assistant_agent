@@ -14,7 +14,7 @@
 
 ## 三份事实怎么查
 
-1. **StepEvent**：调用方当时看到了什么，事件顺序是否正确。
+1. **ItemEvent**：调用方当时看到了什么，事件顺序是否正确。
 2. **Run checkpoint**：任务为何停在某个 phase，预算和工具状态是什么。
 3. **Session ledger**：最终公开历史是什么，assistant 回复关联哪个 user。
 
@@ -89,7 +89,7 @@ checkpoint 和受管日志。
 
 ## 练习 5：从 Service 嵌入 Agent
 
-写一个仅在本地运行的小脚本：创建 `AgentService`、创建 Session、消费 StepEvent、打印唯一 terminal，
+写一个仅在本地运行的小脚本：创建 `AgentService`、创建 Session、消费 ItemEvent、打印唯一 terminal，
 最后通过 context manager/`close()` 释放资源。不要解析 `event.text` 来判断失败，使用
 `terminal_status` 和结构化 `failure`。
 

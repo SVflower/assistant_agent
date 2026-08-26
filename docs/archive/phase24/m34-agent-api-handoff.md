@@ -88,9 +88,9 @@ summary: string <= 1024 | null
 `TaskPlanSnapshot`/`TaskPlanItem` 已作为预留 DTO 导出，但本阶段没有显式计划写入工具，生产值
 始终为 `null`。API 不发布 `run.task_plan`，Web 隐藏计划面板，不得从自然语言或工具轨迹猜测计划。
 
-## StepEvent 与 Snapshot
+## ItemEvent 与 Snapshot
 
-`StepEvent` additive 增加：
+`ItemEvent` additive 增加：
 
 ```text
 observability: RunObservabilitySnapshot | null
@@ -107,9 +107,9 @@ Agent 在非 `reasoning`/`content_delta` 事件上附加当前 snapshot，并在
 API 推荐映射：
 
 ```text
-StepEvent.observability    -> run.observability
-StepEvent.trajectory_entry -> run.trajectory（按 entry_id upsert）
-StepEvent.usage            -> 现有 run.usage（兼容保留）
+ItemEvent.observability    -> run.observability
+ItemEvent.trajectory_entry -> run.trajectory（按 entry_id upsert）
+ItemEvent.usage            -> 现有 run.usage（兼容保留）
 RunSnapshot.observability  -> REST RunResponse.observability 权威覆盖
 ```
 

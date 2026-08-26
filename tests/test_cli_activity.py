@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 from rich.console import Console as RichConsole
 
-from assistant_agent.contracts.events import StepEvent, ToolDisplay
+from assistant_agent.contracts.events import ItemEvent, ToolDisplay
 from assistant_agent.tools.display import call_display
 from assistant_agent.ui.activity import ActivityController, ActivityIndicator
 from assistant_agent.ui.console import Console
@@ -185,9 +185,9 @@ def test_normal_only_persists_external_decisions_and_change_previews():
     shell = call_display("run_shell", {"command": "pytest -q"})
     write = call_display("write_file", {"path": "out.txt", "content": "ok"})
 
-    renderer.call(StepEvent(kind="tool_call", tool_name="read_file", display=read))
-    renderer.call(StepEvent(kind="tool_call", tool_name="run_shell", display=shell))
-    renderer.call(StepEvent(kind="tool_call", tool_name="write_file", display=write))
+    renderer.call(ItemEvent(kind="tool_call", tool_name="read_file", display=read))
+    renderer.call(ItemEvent(kind="tool_call", tool_name="run_shell", display=shell))
+    renderer.call(ItemEvent(kind="tool_call", tool_name="write_file", display=write))
     output = console.export_text()
 
     assert "读取 notes.txt" not in output
@@ -206,7 +206,7 @@ def test_tool_activity_label_includes_safe_timeout():
     console = RichConsole(record=True, width=100)
     renderer = ToolRenderer(console, "normal")
     display = ToolDisplay("运行命令", "pytest -q", timeout_seconds=60)
-    label = renderer.call(StepEvent(kind="tool_call", tool_name="run_shell", display=display))
+    label = renderer.call(ItemEvent(kind="tool_call", tool_name="run_shell", display=display))
     assert label.endswith("最长 60s")
 
 
@@ -246,16 +246,16 @@ def test_renderer_tracks_tool_and_notice_phases_and_cleans_up(monkeypatch):
     args = {"command": "pytest -q"}
     events = iter(
         [
-            StepEvent(kind="reasoning", text="hidden"),
-            StepEvent(
+            ItemEvent(kind="reasoning", text="hidden"),
+            ItemEvent(
                 kind="tool_call",
                 tool_name="run_shell",
                 tool_args=args,
                 display=call_display("run_shell", args),
             ),
-            StepEvent(kind="tool_result", tool_name="run_shell", text="ok"),
-            StepEvent(kind="notice", text="上下文已压缩"),
-            StepEvent(kind="final", text="完成"),
+            ItemEvent(kind="tool_result", tool_name="run_shell", text="ok"),
+            ItemEvent(kind="notice", text="上下文已压缩"),
+            ItemEvent(kind="final", text="完成"),
         ]
     )
 
@@ -278,7 +278,7 @@ def test_renderer_terminal_events_clean_up_activity(monkeypatch, terminal_kind):
     owner = _Owner()
 
     ConversationRenderer(owner, "normal", False).render(
-        iter([StepEvent(kind=terminal_kind, text="done")])
+        iter([ItemEvent(kind=terminal_kind, text="done")])
     )
 
     activity = _ActivitySpy.instances[0]
@@ -292,7 +292,7 @@ def test_renderer_quiet_disables_activity_and_exception_still_cleans_up(monkeypa
     owner = _Owner()
 
     def broken_events():
-        yield StepEvent(kind="reasoning", text="hidden")
+        yield ItemEvent(kind="reasoning", text="hidden")
         raise RuntimeError("stream failed")
 
     try:

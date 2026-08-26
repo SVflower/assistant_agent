@@ -22,13 +22,13 @@ CLI 和 Web 的用户交互与进程生命周期确实不同：
 | MCP | 本机子进程或个人远程服务 | 使用服务端固定配置，连接数量和失败降级必须受控 |
 | 扩展安装 | 用户可在本机授权安装 | Web 首期默认关闭，避免请求修改部署配置 |
 | 启动体验 | 可以短暂等待扩展连接并展示 banner | API 进程不能等待所有 MCP；单 Session 创建也必须有界 |
-| 事件 | 直接渲染 StepEvent | 转换 DTO、编号、缓存、广播和断线重连 |
+| 事件 | 直接渲染 ItemEvent | 转换 DTO、编号、缓存、广播和断线重连 |
 
 但这些差异不能演变成两套 Agent：
 
 ```text
 CLI Adapter ─┐
-             ├─ Runtime Factory -> SessionRuntime -> Run -> StepEvent
+             ├─ Runtime Factory -> SessionRuntime -> Run -> ItemEvent
 Web Adapter ─┘
 ```
 
@@ -44,7 +44,7 @@ Web Adapter ─┘
 - 同步 `InteractionPort` 可跨线程授权、澄清和恢复；
 - 一个 SessionRuntime 对应隔离 Conversation、RunControl、权限记忆和 MCPManager；
 - 同 Session 单 Run、不同 Session 可分线程运行；
-- `StepEvent v1`、敏感 reasoning 和无歧义 `run_terminal`；
+- `ItemEvent v1`、敏感 reasoning 和无歧义 `run_terminal`；
 - 固定 `config_path/workspace_root`，不依赖并发修改 `os.chdir()`；
 - CLI 已复用公共工厂和 Session/Run 门面。
 
@@ -88,7 +88,7 @@ Typer 参数
   -> CLI RuntimePolicy
   -> ConsoleInteractionAdapter
   -> AgentService/SessionRuntime（可接受有限启动等待）
-  -> StepEvent -> Console renderer
+  -> ItemEvent -> Console renderer
 ```
 
 CLI 保留：
@@ -108,7 +108,7 @@ Session 请求
   -> 使用部署时固定的 config + workspace
   -> Service RuntimePolicy
   -> 工作线程中 lazy create/load SessionRuntime
-  -> StepEvent -> EventHub -> WebSocket
+  -> ItemEvent -> EventHub -> WebSocket
   -> InteractionRequest -> Broker -> REST response -> InteractionPort
 ```
 

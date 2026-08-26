@@ -15,7 +15,7 @@ JSONL 事件溯源或浏览器高权限能力，不展示 hidden reasoning，不
   `ModelUsageSnapshot`、`TrajectoryEntry` 和可空 `TaskPlanSnapshot` 公共 DTO；
 - RunState v11 内的有界、可恢复观测事实；
 - `RunSnapshot.observability` 权威恢复入口；
-- 既有 `StepEvent` 上 additive 的 `observability` 与 `trajectory` 可选字段；
+- 既有 `ItemEvent` 上 additive 的 `observability` 与 `trajectory` 可选字段；
 - Provider usage 的 cache token 和可靠流式计时归一化。
 
 本阶段不实现：
@@ -31,7 +31,7 @@ JSONL 事件溯源或浏览器高权限能力，不展示 hidden reasoning，不
 - 数值来源仅允许 `provider | estimated | derived | unavailable`；不可得值为 `null`。
 - Context 的 `used_tokens` 优先采用最近一次 provider prompt usage，否则采用现有 context estimator；
   `projected_tokens` 始终是当前表层的估算值，输出 token 不计入上下文压力。
-- Model usage 沿用既有 `StepEvent.usage`。同一模型 step 的后续 usage 替换前值，再与已完成 step 累计，
+- Model usage 沿用既有 `ItemEvent.usage`。同一模型 step 的后续 usage 替换前值，再与已完成 step 累计，
   防止流式分片重复累加。cache 未报告时保持 `null`。
 - Timing 用进程内 monotonic 计算并固化毫秒；UTC 仅用于展示。重启间隔不通过 wall clock 倒推。
 - Trajectory 只记录 `run/model/tool/interaction/output/compaction` 安全事实；不保存参数、输出正文、
@@ -44,7 +44,7 @@ JSONL 事件溯源或浏览器高权限能力，不展示 hidden reasoning，不
 2. `agent/run/observability.py` 持有纯运行记录器；`RunCoordinator` 在既有状态转换点驱动记录器，
    并通过原 checkpoint 保存，不建立第二套状态机。
 3. `application/runs.py` 在既有事件迭代边界更新 context/usage，并把当前权威 snapshot 或单条
-   trajectory 附加到 StepEvent；`run_terminal` 仍且只发送一次。
+   trajectory 附加到 ItemEvent；`run_terminal` 仍且只发送一次。
 4. `providers/litellm.py` 只归一 Provider 明确报告的 cache token，并用 monotonic 记录请求、首个
    可见内容或 tool-call fragment、usage 到达时间。未报告 usage 时不伪造 token。
 
@@ -63,7 +63,7 @@ JSONL 事件溯源或浏览器高权限能力，不展示 hidden reasoning，不
 - usage 分片替换、cache 未报告为 null、cache 报告正确；
 - pause/cancel/interaction timing；
 - checkpoint 恢复不重复 trajectory，重启间隔不伪造耗时；
-- RunSnapshot 与 StepEvent additive 契约、v11 hard cut；
+- RunSnapshot 与 ItemEvent additive 契约、v11 hard cut；
 - 定向 pytest、涉及文件 Ruff、涉及包 mypy。
 
 ## 风险

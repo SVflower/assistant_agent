@@ -173,7 +173,7 @@ exhausted_reason
 
 - `AgentLoop.run()` 开始时创建新预算，结束/异常/中断时清理。
 - 执行完整工具批次，为每个 call 写入 result。
-- 若预算耗尽，在批次结果完整后发 `StepEvent(kind="error")` 并终止。
+- 若预算耗尽，在批次结果完整后发 `ItemEvent(kind="error")` 并终止。
 - 不改变流式模型接口、重复调用熔断、continue_check、会话导出和 UI 依赖方向。
 
 ### S3 — 可观测性与文档
@@ -251,7 +251,7 @@ git diff --check
 3. 日志能区分完整耗时、确认等待、近似执行耗时，并记录原始/返回输出长度。
 4. 单任务工具调用总数和累计返回结果均受配置约束。
 5. 任意单轮多工具批次中，每个 assistant tool call 都有对应 tool result。
-6. 预算耗尽后产生清晰 StepEvent 和结构化日志，未授权/超预算工具不执行。
+6. 预算耗尽后产生清晰 ItemEvent 和结构化日志，未授权/超预算工具不执行。
 7. Registry 不保存任务计数，工具/obs 不反向依赖 agent/UI，架构测试通过。
 8. `agent/loop.py` 的改动只涉及预算生命周期和批次终止，不夹带 UI/provider/MCP 逻辑。
 9. 技术债、ROADMAP、配置示例和归档引用与实现一致，无密钥或运行产物入库。

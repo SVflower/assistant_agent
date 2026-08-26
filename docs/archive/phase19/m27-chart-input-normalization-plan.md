@@ -10,7 +10,7 @@ Cloud 模型通常能提交完整参数，但不应形成两条 provider 专属�
 
 ## 决策
 
-- 公共 `ChartSpecV1`、`ChartArtifact`、`StepEvent` 和 Event v1 保持不变。
+- 公共 `ChartSpecV1`、`ChartArtifact`、`ItemEvent` 和 Event v1 保持不变。
 - 只在工具输入边界接受受控草稿：`data_type` 可省略，其余 JSON Schema 继续禁止额外字段。
 - 缺失类型按列值确定性推断：有限数字为 `number`，明确 ISO 日期为 `datetime`，普通文本为
   `string`；全 null、混合类型、日期与普通文本混合、bool、NaN/Inf 和复杂值拒绝。

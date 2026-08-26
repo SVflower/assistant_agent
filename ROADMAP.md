@@ -17,7 +17,7 @@ RunState v10、Output v1、Event v1；模型只声明输出元数据，Runtime �
 API/Web 按 `docs/m33-managed-outputs-plan.md` 与正式 service guide 接入。
 109 项通过（附件/上下文/配置/服务/Session/Run/恢复/契约），未运行全量 pytest/coverage。
 
-**M34 当前状态**：Agent 侧已完成受控 Run observability v1。RunSnapshot/StepEvent additive 提供 timing、
+**M34 当前状态**：Agent 侧已完成受控 Run observability v1。RunSnapshot/ItemEvent additive 提供 timing、
 context、model usage 与最多 256 条安全 trajectory；RunState current-only 升为 v11，Event v1、Service v5、
 Session v5 保持不变。M34 首批 TaskPlan 为 `null`，不从自然语言猜测；M37-R1 已增加显式整表写入，
 仍无 trajectory 分页接口。API/Web 按
@@ -57,7 +57,7 @@ RunState current-only 升为 v13；Service 契约升为 v6，Session/Event/Obser
 - **记忆/恢复**：token 感知截断与摘要压缩；Session JSON 持久化；步骤级 Run checkpoint、
   `runs`/`resume`、双槽损坏回退和副作用不确定状态人工处置。
 - **公共服务边界（M16）**：UI 无关 Runtime 工厂、同步 InteractionPort、隔离 SessionRuntime、
-  Session/Run 门面和版本化 StepEvent；CLI/API 复用同一装配与恢复语义。
+  Session/Run 门面和版本化 ItemEvent；CLI/API 复用同一装配与恢复语义。
 - **生产 Runtime 策略（M17）**：调用方不可绕过的 RuntimePolicy；MCP optional/required、连接与调用
   timeout 分离及有界并行启动；Tool/Skill/MCP/sandbox 脱敏能力快照和一次性探测。
 - **运行可解释性（M18）**：结构化 RunFailure、activity 与安全预算快照；iteration/tool call/tool
@@ -317,7 +317,7 @@ D14，M9c 已还清 D9，M10a 已还清 D16，M10b 已还清 D8，M11a 已还清
 
 > **M16 已完成**：公共 Runtime 工厂不依赖 CLI/UI，固定 config/workspace 并逆序回滚资源；同步
 > InteractionPort 覆盖授权、澄清、续跑、定义变化和 uncertain recovery；SessionRuntime 统一
-> Session/Run/checkpoint/终态同步并保证单 Session 单 Run；StepEvent v1 标记 sensitive reasoning
+> Session/Run/checkpoint/终态同步并保证单 Session 单 Run；ItemEvent v1 标记 sensitive reasoning
 > 和无歧义 run_terminal。566 passed、5 skipped、覆盖率 83%，Ruff/format/mypy 全绿；未修改 Loop。
 
 ### 第十阶段（已完成）
@@ -337,7 +337,7 @@ D14，M9c 已还清 D9，M10a 已还清 D16，M10b 已还清 D8，M11a 已还清
 |--------|------|------|
 | M18 | 运行可解释性、预算恢复与结构化失败 | ✅ · [方案](docs/archive/phase11/m18-run-explainability-and-budget-continuation-plan.md) |
 
-> **M18 已完成**：StepEvent v1 向后兼容增加 RunFailure/activity/BudgetSnapshot；RunState v3 保存
+> **M18 已完成**：ItemEvent v1 向后兼容增加 RunFailure/activity/BudgetSnapshot；RunState v3 保存
 > failure、三类 continuation 上限/次数/决策并支持 v1/v2 迁移；Provider 429/5xx/timeout、工具、
 > 权限、依赖和未知副作用形成稳定分类；`final` 与唯一 `run_terminal` 规则保持。594 passed、
 > 5 skipped、覆盖率 84%，Ruff/format/mypy 全绿。经用户授权修改 Loop，并按架构硬线拆出
@@ -354,7 +354,7 @@ D14，M9c 已还清 D9，M10a 已还清 D16，M10b 已还清 D8，M11a 已还清
 > observability 与 integrations。开发期不保留旧内部导入：迁移前顶层包、Agent/Tool/Service 转发文件
 > 和对应兼容测试已删除，并增加防回归架构测试。604 passed、5 skipped、覆盖率 84%；12/12
 > import-linter、Ruff、mypy、scripted 18/18、recovery 4/4 全绿。生产 Python 为 13,467 行/120 文件，
-> eval 基础设施 1,404 行。经用户授权修改 Loop，StepEvent v1、
+> eval 基础设施 1,404 行。经用户授权修改 Loop，ItemEvent v1、
 > checkpoint v3、事件顺序、权限、预算和恢复语义保持不变。
 
 ### 第十三阶段（已完成）
@@ -366,7 +366,7 @@ D14，M9c 已还清 D9，M10a 已还清 D16，M10b 已还清 D8，M11a 已还清
 > **M20 已完成**：Runtime 工厂发布 UI 无关的安全启动阶段；required MCP 同步校验，optional MCP
 > 使用配置指纹工具目录、后台隔离发现和首次调用惰性连接，当前 Runtime 不动态改变工具 Schema；
 > Skill 元数据按上下文预算有界注入；`inspect_runtime` 从当前 Registry/SkillStore/MCPManager 返回
-> 安全动态能力，optional MCP Schema 不再挤占核心工具空间。StepEvent v1 与 checkpoint v3 不变。
+> 安全动态能力，optional MCP Schema 不再挤占核心工具空间。ItemEvent v1 与 checkpoint v3 不变。
 > 618 passed、5 skipped、覆盖率 83%；12/12 import-linter、Ruff、mypy、scripted 18/18、recovery
 > 4/4 全绿。生产 Python 为 14,360 行/123 文件，未修改 Loop。
 
@@ -379,7 +379,7 @@ D14，M9c 已还清 D9，M10a 已还清 D16，M10b 已还清 D8，M11a 已还清
 > **M21 已完成**：ProcessSupervisor 的 deadline 覆盖执行、PIPE 排空和清理；Windows `start /b`、
 > POSIX shell 后台及通用父退出/后代继承场景均有确定性回归。新增 `manage_process`，每个 Runtime
 > 独立拥有后台进程、opaque ID、有界输出/历史和关闭清理；二次逃逸会被清理并标为 failed。
-> ToolDisplay 向后兼容增加安全 timeout，StepEvent v1/checkpoint v3 不变。637 passed、6 skipped、
+> ToolDisplay 向后兼容增加安全 timeout，ItemEvent v1/checkpoint v3 不变。637 passed、6 skipped、
 > 覆盖率 84%；Ruff、mypy、12/12 import-linter、scripted 18/18、recovery 4/4 全绿；生产 Python
 > 14,897 行/125 文件，未修改 Loop。
 
@@ -392,7 +392,7 @@ D14，M9c 已还清 D9，M10a 已还清 D16，M10b 已还清 D8，M11a 已还清
 > **M24 已完成**：ChartSpecV1 严格限制六类图表、编码和数据规模；`present_chart` 纯且安全幂等，
 > Artifact 在 tool_result 前进入 RunState v4 原子 checkpoint，并在终态同步 Session message refs。
 > AgentService/SessionRuntime 提供 list/get/snapshot 和删除级联；低上下文或关闭 recovery 时安全省略工具。
-> StepEvent/EventKind v1 不变，新增 chart 为可选字段。654 passed、6 skipped、覆盖率 84%；Ruff、mypy、
+> ItemEvent/EventKind v1 不变，新增 chart 为可选字段。654 passed、6 skipped、覆盖率 84%；Ruff、mypy、
 > 12/12 import-linter、scripted 19/19、recovery 4/4 全绿；生产 Python 15,496 行/127 文件，
 > eval 基础设施 1,411 行，未修改 Loop。
 

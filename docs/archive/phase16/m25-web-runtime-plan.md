@@ -34,7 +34,7 @@ DNS rebinding。首版按 fail closed 只自动开放搜索 backend。
   `options`。
 - `BlockingInteractionPort.interrupt_pending()`：解除当前等待但不关闭 Runtime，晚到响应拒绝。
 
-`EVENT_CONTRACT_VERSION` 保持 1，Run checkpoint 保持 v4，StepEvent、final/run_terminal 顺序不变。
+`EVENT_CONTRACT_VERSION` 保持 1，Run checkpoint 保持 v4，ItemEvent、final/run_terminal 顺序不变。
 
 ## 验收
 

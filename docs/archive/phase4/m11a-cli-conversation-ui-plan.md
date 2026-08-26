@@ -5,7 +5,7 @@
 
 ## 1. 背景与问题
 
-当前执行与恢复能力已经成熟，但展示层仍直接消费通用 `StepEvent` 的原始字段：
+当前执行与恢复能力已经成熟，但展示层仍直接消费通用 `ItemEvent` 的原始字段：
 
 - `tool_call` 把参数拼成 `k=v`；多行正文会突破“一行截断”，文件内容、绝对路径和潜在密钥进入
   终端 scrollback。
@@ -75,7 +75,7 @@ screen，它们需要完整 TUI 状态管理，不适合本期 Rich scrollback �
 1. 新增 UI 无关 `ToolDisplay` 契约，至少包含动作、目标、结果摘要、可选详情和状态。
 2. BaseTool 提供默认展示方法；内置 list/read/write/edit/search/shell/git/ask/skill 覆盖语义摘要；MCP 和
    未知扩展工具走安全 fallback，不要求第三方立即实现。
-3. `StepEvent` 携带结构化展示字段；`execution.py` 从 Registry 取得 call/result display。
+3. `ItemEvent` 携带结构化展示字段；`execution.py` 从 Registry 取得 call/result display。
 4. 新增 `normal`、`verbose`、`quiet` 三种模式：配置 `ui.display_mode`；chat 支持
    `/display [normal|verbose|quiet]` 即时切换；`run --quiet` 覆盖为 quiet。
 5. normal：每个工具通常占一行，执行中显示动作+耗时，完成后原地或紧邻更新状态；错误最多展开限定行数。
@@ -125,13 +125,13 @@ Registry 负责查找工具并调用展示方法，fallback 参数先经 `saniti
 
 ### 5.2 事件流
 
-扩展 `agent/events.py` 的 `StepEvent`，增加 `call_id`、`display`、`result_code`、`result_metadata` 等可选
+扩展 `agent/events.py` 的 `ItemEvent`，增加 `call_id`、`display`、`result_code`、`result_metadata` 等可选
 字段。`agent/execution.py` 在既有 `tool_call/tool_result` 事件上填充，不新增循环状态，不改变 M10b
 checkpoint 顺序。
 
 ### 5.3 Renderer 拆分
 
-- `ui/conversation_renderer.py`：消费 StepEvent、管理模式和任务统计。
+- `ui/conversation_renderer.py`：消费 ItemEvent、管理模式和任务统计。
 - `ui/tool_renderer.py`：normal/verbose 工具活动、宽度适配和错误展开。
 - `ui/markdown_stream.py`：流式 Markdown 稳定前缀与活动尾部。
 - `ui/console.py`：保留输入、确认、菜单和对上述 renderer 的编排。
@@ -165,7 +165,7 @@ checkpoint 顺序。
 4. 模式：normal/verbose/quiet 的事件矩阵；错误、拒绝、notice、interrupted 和恢复提示永不被误隐藏。
 5. 终端：60/100/160 列快照；非 TTY、`NO_COLOR`、Windows UTF-8 与 emoji 缺字时不破版。
 6. Slash/CLI：`/display` 参数、无参状态、错误选项；`run --quiet`；配置迁移默认 normal。
-7. 回归：现有 StepEvent 构造保持兼容；M10b recovery eval 和 18 个 scripted eval 轨迹不变。
+7. 回归：现有 ItemEvent 构造保持兼容；M10b recovery eval 和 18 个 scripted eval 轨迹不变。
 
 ## 8. 验收标准
 

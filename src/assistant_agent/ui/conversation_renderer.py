@@ -1,4 +1,4 @@
-"""StepEvent 到终端会话轨迹的渲染状态机。"""
+"""ItemEvent 到终端会话轨迹的渲染状态机。"""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from typing import Any
 from rich.markdown import Markdown
 from rich.panel import Panel
 
-from assistant_agent.contracts.events import StepEvent
+from assistant_agent.contracts.events import ItemEvent
 from assistant_agent.tools.display import safe_text
 from assistant_agent.ui.activity import ActivityController
 from assistant_agent.ui.formatting import build_response_panel, build_turn_status, format_elapsed
@@ -24,7 +24,7 @@ class ConversationRenderer:
         self._mode = mode
         self._show_reasoning = show_reasoning
 
-    def render(self, events: Iterator[StepEvent]) -> None:
+    def render(self, events: Iterator[ItemEvent]) -> None:
         start = time.monotonic()
         markdown: StreamingMarkdownRenderer | None = None
         final_streamed = False

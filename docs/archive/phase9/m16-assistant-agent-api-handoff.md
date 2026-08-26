@@ -32,7 +32,7 @@ from assistant_agent.service import (
     EVENT_CONTRACT_VERSION,
     SessionBusyError,
     SessionRunConflictError,
-    StepEvent,
+    ItemEvent,
 )
 ```
 

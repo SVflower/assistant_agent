@@ -15,7 +15,7 @@ Agent M17 将补齐生产 Runtime 策略、MCP 有界降级启动和结构化能
 
 ```text
 assistant_agent
-  Runtime 策略、Runtime/Session/Run、InteractionPort、MCP 生命周期、能力快照、StepEvent
+  Runtime 策略、Runtime/Session/Run、InteractionPort、MCP 生命周期、能力快照、ItemEvent
 
 assistant_agent_api
   ASGI 生命周期、Runtime Pool、工作线程、REST/WebSocket、事件缓存、网络 DTO、服务级配额

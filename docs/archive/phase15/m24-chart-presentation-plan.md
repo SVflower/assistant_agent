@@ -7,7 +7,7 @@
 - 新增版本化 `ChartSpecV1`，只允许 line、bar、stacked_bar、area、scatter、donut。
 - Agent 是完整 Artifact 的唯一权威所有者；API 不复制、不扫描 Session/Run 文件。
 - `present_chart` 是纯、幂等工具，复用 Registry、审计和 Run checkpoint。
-- `ToolResult/StepEvent` additive 增加 `chart`，不新增 EventKind，事件契约保持 v1。
+- `ToolResult/ItemEvent` additive 增加 `chart`，不新增 EventKind，事件契约保持 v1。
 - Run checkpoint 升 v4，v1-v3 迁移为 `presentations=[]`。
 - 完整 Artifact 受硬限内联到 Run/Session 原子状态；删除 Session 级联删除所属 Run。
 - 低上下文 Runtime 可安全省略图表工具并产生 notice，不能因此阻止 Runtime 启动。
@@ -18,7 +18,7 @@
 ```text
 model -> present_chart -> ChartSpecV1 validation -> ChartArtifact
       -> RunCoordinator.tool_completed -> RunState v4 atomic checkpoint
-      -> StepEvent.tool_result(chart) -> final -> run_terminal
+      -> ItemEvent.tool_result(chart) -> final -> run_terminal
       -> terminal Session sync -> Session presentations/message refs
       -> AgentService.get_artifact / SessionRuntime list|get|snapshot
 ```

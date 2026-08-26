@@ -9,7 +9,7 @@
 > ⑤保留未来能力落位图，但外部项目只依赖 service/contracts，不穿透 application；
 > ⑥开发期不维护内部旧 import，最终删除全部迁移转发层。
 > 分支：`codex/m19-architecture-reconstruction`
-> 基线：M18，594 passed / 5 skipped，StepEvent contract v1，Run checkpoint v3。
+> 基线：M18，594 passed / 5 skipped，ItemEvent contract v1，Run checkpoint v3。
 > 前置条件已核实：M18 代码提交 `0ef635a`、正式契约提交 `fa97f52` 均已进入 `main`，
 > 且为当前分支 HEAD 的祖先；M19c 不会与未完成的 M18 并行修改预算/恢复模块。
 
@@ -28,7 +28,7 @@
    由 import-linter 机器强制，不靠自觉；
 4. **编排唯一**：CLI 与 Python Service 复用同一 application 用例，未来新通道只是新适配器；
 5. **扩展点显式**：§9 的每项未来能力都有预先声明的落位；本期不预建任何抽象；
-6. **行为冻结**：现有行为、checkpoint v3、StepEvent v1 契约完全兼容，结构改造不夹带功能。
+6. **行为冻结**：现有行为、checkpoint v3、ItemEvent v1 契约完全兼容，结构改造不夹带功能。
 
 **明确放弃的目标：目录形态的完美主义。** 凡不服务于以上 1-5 的搬迁，一律不做（见 §14）。
 
@@ -89,7 +89,7 @@
 ```text
 src/assistant_agent/
 ├── contracts/                       # 稳定公共 DTO 与错误；全仓库最低层，零项目内依赖
-│   ├── events.py                    # StepEvent、ToolDisplay、契约版本
+│   ├── events.py                    # ItemEvent、ToolDisplay、契约版本
 │   ├── failures.py                  # RunFailure、FailureCode、BudgetSnapshot
 │   ├── interactions.py              # Request/Decision DTO
 │   ├── capabilities.py
@@ -320,7 +320,7 @@ M19 完成后是否废弃 `assistant_agent.interaction` 另立版本计划，本
 
 ### 7.2 事件和 checkpoint
 
-- 不改变 StepEvent 字段、kind、顺序和 contract v1；
+- 不改变 ItemEvent 字段、kind、顺序和 contract v1；
 - 不改变 Run checkpoint v3 文档结构和存储路径；
 - 不改变 session/run/call ID 生成规则；
 - 不改变 permission、tool_uncertain、continuation 和 session_synced 语义；
@@ -345,7 +345,7 @@ M19 预期为结构性兼容改造，结论应为"公共服务契约无变化"�
 3. 项目内部 import cycle 检查；迁移期例外必须精确到 import 且标注删除阶段，禁止整包放行；
 4. `service/__init__.py` 无定义检查（只准 re-export）；
 5. `assistant_agent.service`、`interaction`、`tools` 公共导出快照测试；
-6. StepEvent/Failure/Interaction 序列化契约测试；
+6. ItemEvent/Failure/Interaction 序列化契约测试；
 7. Run 状态转换参数化测试；
 8. checkpoint v1/v2/v3 fixture 迁移与 round-trip 测试；
 9. CLI 和 Service 对同一 scripted provider 的事件序列一致性测试；
@@ -373,7 +373,7 @@ checkpoint 快照）。源码 `git mv` 后对应测试文件同步 `git mv` 并�
 | 新通道（HTTP API / IM 机器人 / Web） | 外部项目或新顶层适配包 | 只 import `assistant_agent.service` / `contracts`，不依赖内部 application |
 | 审计 / 多租户归属 | `observability/` + `persistence/` 加字段 | additive；权限钩子已在 tools/permissions |
 | 子 Agent / 多 Agent 编排 | 另立里程碑 | 依赖 event 脊柱演进，M19 只保证不阻断 |
-| event-sourcing 脊柱（状态由事件派生） | 另立里程碑 | M19 保证 StepEvent 是唯一事件出口、契约独立于实现，即为该方向留好接口 |
+| event-sourcing 脊柱（状态由事件派生） | 另立里程碑 | M19 保证 ItemEvent 是唯一事件出口、契约独立于实现，即为该方向留好接口 |
 
 ## 10. 文档和项目规则同步
 
@@ -401,18 +401,18 @@ checkpoint 快照）。源码 `git mv` 后对应测试文件同步 `git mv` 并�
 - 创建 `contracts/` 包，零项目内依赖 contract 与包同一提交生效；
 - 保留业务 MCP 外置等项目专属 AST 测试；
 - 移除 300/500 行失败规则，落地 600 行非阻断预警与大模块评审表；
-- 建立现有公共导出、StepEvent、Interaction、checkpoint v1/v2/v3 基线快照；
+- 建立现有公共导出、ItemEvent、Interaction、checkpoint v1/v2/v3 基线快照；
 - 不移动业务实现，不为尚不存在的目标包创建全局例外。
 
 验收：594 基线测试及既有质量门全绿；新 contract 真正约束已存在的 contracts 包。
 
 实施记录（2026-07-19）：公共服务契约无变化。依据：本阶段新增的 `contracts` 为空骨架，
 只增加依赖护栏、现有 DTO/导出快照和架构文档；未修改 `assistant_agent.service` 公共出口、
-StepEvent v1、Interaction、Run/Session 状态、checkpoint v3 或生命周期语义。
+ItemEvent v1、Interaction、Run/Session 状态、checkpoint v3 或生命周期语义。
 
 ### M19b：稳定公共契约
 
-- 迁移 StepEvent、ToolDisplay/ToolPreview DTO、RunFailure、Interaction DTO/Protocol、公共错误与能力 DTO；
+- 迁移 ItemEvent、ToolDisplay/ToolPreview DTO、RunFailure、Interaction DTO/Protocol、公共错误与能力 DTO；
 - `contracts` 中只保留数据、枚举、Protocol 和安全校验，不迁入渲染、脱敏或状态转换行为；
 - `agent/events.py`、`agent/failures.py`、`interaction/models.py`、`service/events.py` 等旧路径兼容转发；
 - 启用 contracts 与原实现包之间的 forbidden contract。
@@ -420,7 +420,7 @@ StepEvent v1、Interaction、Run/Session 状态、checkpoint v3 或生命周期�
 验收：字段、默认值、序列化、sensitive 标记和公共 root 导出完全一致；contract version 仍为 1。
 
 实施记录（2026-07-19）：已建立 `assistant_agent.contracts` 推荐公共入口；Service 既有导出、
-DTO 字段/default/类型身份和 StepEvent v1 均保持兼容，旧 `agent.events`、`agent.failures`、
+DTO 字段/default/类型身份和 ItemEvent v1 均保持兼容，旧 `agent.events`、`agent.failures`、
 `interaction.models`、`service.events/capabilities/errors` 路径保留薄转发。该变化为向后兼容扩展，
 不要求 API 立即修改导入；M19g 将同步正式契约中的推荐路径和迁移说明。
 
@@ -439,7 +439,7 @@ DTO 字段/default/类型身份和 StepEvent v1 均保持兼容，旧 `agent.eve
 `providers/litellm.py`；summary provider 的创建移至装配层显式注入。工具结果/预算、基础设施
 端口、运行上下文和 Tool 基类已分离，核心 `tools.context.ToolContext` 不再创建或导入具体
 Logger/Workspace/RunControl/ArtifactStore。旧 `llm.client`、`tools.base/result` 保留兼容出口。
-公共 Service/StepEvent/Interaction/checkpoint 契约无变化；AgentLoop 新增的 `summary_client`
+公共 Service/ItemEvent/Interaction/checkpoint 契约无变化；AgentLoop 新增的 `summary_client`
 仅为内部向后兼容可选参数，既有调用签名仍可用。
 
 ### M19d：Agent 核心收敛（**实施前需用户再次明确授权**）
@@ -458,7 +458,7 @@ Logger/Workspace/RunControl/ArtifactStore。旧 `llm.client`、`tools.base/resul
 `tool_batch.py`，Loop 保留在 `agent/loop.py`。ControlState、RunControl、checkpoint repository 和
 Run telemetry 均改为消费方端口；Agent 不再依赖 runtime/obs logger/session/具体 provider。
 `_drive` C901 从 35 降至 27，项目基线同步收紧。迁移前后 scripted eval 均为 18/18 PASS，
-tool calls 27→27、input/output tokens 120/31 保持不变；recovery eval 4/4 PASS；StepEvent v1、
+tool calls 27→27、input/output tokens 120/31 保持不变；recovery eval 4/4 PASS；ItemEvent v1、
 checkpoint v3、ID、权限、continuation、tool_uncertain 和 session_synced 语义无变化。公共服务契约
 无变化，旧 Agent 模块路径保留 identity-compatible 转发。
 
@@ -478,7 +478,7 @@ checkpoint v3、ID、权限、continuation、tool_uncertain 和 session_synced �
 AST 与 import-linter 双重约束。CLI 恢复命令不再穿透 Agent 状态机、Store 或日志 adapter，
 有 Session 的 Run 复用 `SessionRuntime`，历史无 Session Run 通过 Application 兼容用例恢复。
 Tool Interaction 脱敏改为由 composition root 注入，核心默认过度脱敏。公共 `AgentService`、
-`create_runtime` 和 DTO 身份保持兼容，StepEvent v1/checkpoint v3 无变化；全量 604 passed / 5 skipped
+`create_runtime` 和 DTO 身份保持兼容，ItemEvent v1/checkpoint v3 无变化；全量 604 passed / 5 skipped
 （含本阶段新增 inspect/delete Run 用例），Ruff、mypy 和 8 条 import-linter contract 已通过。
 
 ### M19f：基础设施与集成命名迁移
@@ -497,7 +497,7 @@ Tool Interaction 脱敏改为由 composition root 注入，核心默认过度脱
 `persistence/`。源码和主体测试只使用新路径；旧 `runtime/session/obs/mcp/skills/web` 及
 `tools.artifacts` 保留 identity-compatible 薄别名并由独立 contract 测试覆盖。新增 execution、
 persistence、observability 独立性及 integrations 不拥有用例的护栏，import-linter 12/12 通过；
-全量 606 passed / 5 skipped，Ruff、mypy 全绿。公共 Service DTO、StepEvent v1、checkpoint v3、
+全量 606 passed / 5 skipped，Ruff、mypy 全绿。公共 Service DTO、ItemEvent v1、checkpoint v3、
 Session/Run 生命周期和 CLI 行为无变化。
 
 ### M19g：兼容层、文档与契约收尾
@@ -514,7 +514,7 @@ Session/Run 生命周期和 CLI 行为无变化。
 实施记录（2026-07-19）：删除私有临时 `service._runtime_builders`，保留并测试正式公共根；
 阶段末曾暂留 identity-compatible 内部旧路径，随后由 M19h 全部清理。同步
 AGENTS/CLAUDE/README/DESIGN/ROADMAP/TECH_DEBT、架构事实源、
-正式 Service 契约和 API AI 交接。D11/D22 已还清，剩余 5 项技术债。公共契约结论：StepEvent v1、
+正式 Service 契约和 API AI 交接。D11/D22 已还清，剩余 5 项技术债。公共契约结论：ItemEvent v1、
 checkpoint v3、Interaction/Run/Session/failure/生命周期语义无破坏；`RunExecution.warning` 是默认空串的
 向后兼容扩展，API 无阻断性修改。M19g 验收：606 passed / 5 skipped、coverage 84%、Ruff/mypy、
 12/12 import-linter、scripted 18/18、recovery 4/4 全绿；13974 行生产 Python、1366 行 eval，
@@ -528,7 +528,7 @@ checkpoint v3、Interaction/Run/Session/failure/生命周期语义无破坏；`R
 - 源码、测试和 eval 全部改用唯一目标路径，测试便利装配移入 `tests/support.py` 与 `evals/support.py`；
 - 删除旧路径 identity 测试，新增“旧包和转发文件不得返回”的架构适应度测试；
 - 保留配置字段、checkpoint schema v1/v2 到 v3 等用户数据迁移，它们不属于代码路径兼容；
-- StepEvent v1、checkpoint v3、Service/Contracts/Interaction 三个正式根入口和运行语义保持不变；
+- ItemEvent v1、checkpoint v3、Service/Contracts/Interaction 三个正式根入口和运行语义保持不变；
 - API/Web 若穿透过内部路径必须同步迁移；只依赖正式根入口时无需改运行逻辑。
 
 验收：目标源码树无旧目录或 `sys.modules` 别名；pytest、coverage、Ruff、mypy、12 条
@@ -589,7 +589,7 @@ tokens 120/31）、recovery 4/4 全绿；13,467 行生产 Python、1,404 行 eva
 2. `agent/loop.py` 清晰可见且只负责 Agent 算法；
 3. Run 状态、预算、恢复、checkpoint 收敛到 `agent/run/`，内部 DAG 达标；
 4. Service/CLI 复用 application；`service/` 为纯 re-export 且公共导入兼容;
-5. StepEvent v1、checkpoint v3、Session 数据和 MCP/Tool 名称完全兼容；
+5. ItemEvent v1、checkpoint v3、Session 数据和 MCP/Tool 名称完全兼容；
 6. import-linter contracts、契约快照、状态机测试和跨入口一致性测试全部通过，例外清单清零
    或每条带明确删除计划；
 7. `pytest`、coverage、Ruff format/check、mypy、scripted eval、recovery eval 全绿；

@@ -13,7 +13,7 @@
 MCP 生命周期、Session/Run 状态机或终端渲染逻辑。
 
 M20 将 optional MCP 从 Runtime 创建关键路径移除，并增加安全启动阶段与动态 MCP capability 状态。
-StepEvent、Interaction、Run terminal、checkpoint 和恢复语义没有变化。
+ItemEvent、Interaction、Run terminal、checkpoint 和恢复语义没有变化。
 
 ## 2. API 必改项
 
@@ -60,7 +60,7 @@ Session/Run 状态机。
 合法 phase：`loading_config`、`starting_workspace`、`discovering_skills`、`starting_web`、
 `preparing_mcp`、`creating_loop`、`ready`。
 
-该事件不是 StepEvent，不进入 Run WebSocket；API 若转发，应使用独立的 Session/Runtime 创建进度事件，
+该事件不是 ItemEvent，不进入 Run WebSocket；API 若转发，应使用独立的 Session/Runtime 创建进度事件，
 自行增加 seq/timestamp。observer 异常不会中断 Runtime 创建。
 
 ## 4. MCP 状态映射
@@ -89,7 +89,7 @@ Session/Run 状态机。
 create/load Session
   -> capabilities: available_cached + tool_names
 start Run
-  -> StepEvent 流保持 v1
+  -> ItemEvent 流保持 v1
 首次调用 MCP tool
   -> capabilities: connecting
   -> connected 或 degraded_*
@@ -125,12 +125,12 @@ create/load Session
 4. `discovering -> restart_required` 不改变活跃 Runtime 的工具列表。
 5. API 能容忍未来未知 MCP 状态，并按 unavailable 显示。
 6. Session 关闭后无后台发现线程、MCP 子进程或 transport 遗留。
-7. StepEvent v1、`final -> run_terminal`、pause/cancel/resume 和 Interaction 测试无需改语义且继续全绿。
+7. ItemEvent v1、`final -> run_terminal`、pause/cancel/resume 和 Interaction 测试无需改语义且继续全绿。
 
 ## 7. 兼容性结论
 
 - **破坏性变化：无。**
 - **公共 additive 变化：有。** 新增 `RuntimeStartupEvent` 和 MCP 状态值。
-- **契约版本：不提升。** 新类型不进入 StepEvent，既有 DTO 字段未删除或改义。
+- **契约版本：不提升。** 新类型不进入 ItemEvent，既有 DTO 字段未删除或改义。
 - **API 最小必要修改：** 放宽并正确映射 MCP 状态，动态读取 capability，readiness 忽略 optional MCP。
 - **Web 修改：** 仅在产品要展示这些状态时需要；不得把工具目录状态展示成在线状态。

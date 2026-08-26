@@ -7,7 +7,7 @@ import json
 import pytest
 
 from assistant_agent.application.models import Session
-from assistant_agent.contracts import EVENT_CONTRACT_VERSION, ChartArtifactV2, StepEvent
+from assistant_agent.contracts import EVENT_CONTRACT_VERSION, ChartArtifactV2, ItemEvent
 from assistant_agent.contracts.charts import parse_chart_artifact, stable_message_id
 from assistant_agent.contracts.charts_v2 import build_chart_artifact_v2
 from assistant_agent.contracts.errors import UnsupportedSessionSchemaError
@@ -452,7 +452,7 @@ def test_v2_artifact_is_additive_on_event_v1_and_tool_uses_one_retry_policy(tmp_
         spec, session_id="session-1", run_id="run-1", call_id="call-1"
     )
     assert isinstance(parse_chart_artifact(artifact.model_dump(mode="json")), ChartArtifactV2)
-    event = StepEvent(kind="tool_result", chart=artifact)
+    event = ItemEvent(kind="tool_result", chart=artifact)
     assert EVENT_CONTRACT_VERSION == 1
     assert event.chart == artifact
 

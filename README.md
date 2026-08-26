@@ -273,7 +273,7 @@ MCP/Skill 自助管理。第五阶段 M12a 已完成 provider-neutral 的 MCP �
 M13a 已完成声明式工具适配层；第七阶段 M14 已完成暂停/取消、进程树监管与可选容器 Workspace，
 还清 D18。第八阶段 M15 已完成统一 CLI 活性反馈、动态阶段计时、正文停更后的模型生成提示、
 授权后恢复动画和关键外部动作摘要。第九阶段 M16 已完成 UI 无关 Runtime 工厂、同步
-InteractionPort、Session/Run 公共服务门面和稳定 StepEvent 契约，可供安装后的 Python 包直接调用。
+InteractionPort、Session/Run 公共服务门面和稳定 ItemEvent 契约，可供安装后的 Python 包直接调用。
 第十阶段 M17 已完成部署级 RuntimePolicy、MCP 有界降级启动和脱敏能力快照。第十一阶段 M18
 已完成结构化失败、安全 activity/预算快照，以及可 checkpoint 恢复的三类预算 continuation。
 第十二阶段 M19 已完成 contracts/agent/application/bootstrap/service 与 adapter 包重建，并删除
@@ -308,7 +308,7 @@ RunState v13 额外保存用户实时看到的有界 `ReasoningPresentationV1`�
 不进入 Session ledger、后续模型上下文、trajectory、日志或普通导出。
 Native ArtifactWriter 会在正式发布前验证 HTML/JSON/CSV/Markdown/纯文本的基础结构；无效草稿不会
 进入 Run、Session 或 API/Web，验证事实只以稳定错误码进入安全 trajectory。
-M34 新增 Observability v1：RunSnapshot 与非高频 StepEvent 提供受控 timing、context、model usage 和
+M34 新增 Observability v1：RunSnapshot 与非高频 ItemEvent 提供受控 timing、context、model usage 和
 有界 trajectory；Provider 未报告的指标保持 null。简单任务的 TaskPlan 为 null，多步骤交付任务通过
 `update_task_plan` 显式维护；当前没有 trajectory 分页接口。
 M35-R1 进一步让公开 user/assistant 消息以 nullable `run_id` 权威关联原 Run，并由 RunSnapshot 暴露

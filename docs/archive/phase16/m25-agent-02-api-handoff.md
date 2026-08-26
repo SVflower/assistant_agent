@@ -16,7 +16,7 @@
 
 ## 兼容影响
 
-- `EVENT_CONTRACT_VERSION == 1`，checkpoint schema v4，StepEvent 字段与 terminal 顺序不变。
+- `EVENT_CONTRACT_VERSION == 1`，checkpoint schema v4，ItemEvent 字段与 terminal 顺序不变。
 - `SessionRuntime.cancel_run(run_id) -> RunExecution` 是 additive 公共服务能力。
 - CLI 行为不变；API/Web 不需要导入 Agent 内部模块。
 

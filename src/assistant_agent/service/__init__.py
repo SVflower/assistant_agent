@@ -85,7 +85,6 @@ from assistant_agent.contracts.events import (
     BudgetSnapshot,
     ItemEvent,
     RunFailure,
-    StepEvent,
     ToolDisplay,
 )
 from assistant_agent.contracts.observability import (
@@ -214,9 +213,8 @@ __all__ = [
     "SessionSnapshot",
     "PresentationArtifactRefV2",
     "PublicMessageSnapshot",
-    "StepEvent",
-    "RunItemLifecycleEvent",
     "ItemEvent",
+    "RunItemLifecycleEvent",
     "RunItem",
     "RunItemKind",
     "RunItemStatus",

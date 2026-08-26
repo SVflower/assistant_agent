@@ -135,7 +135,7 @@
 
 ## 6. 公共契约影响
 
-- StepEvent v1、Run checkpoint v3 和 failure code 默认保持不变。
+- ItemEvent v1、Run checkpoint v3 和 failure code 默认保持不变。
 - 新工具 Schema 属 Runtime capability 的向后兼容增加；API 不得写死工具清单。
 - 若增加 capability/status 字段，同步正式服务契约、契约测试和 API AI 交接文档。
 - 若实现中发现必须改变 checkpoint，停止实施并单独给出迁移方案，不静默提升版本。

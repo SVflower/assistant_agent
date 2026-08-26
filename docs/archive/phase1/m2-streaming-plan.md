@@ -60,7 +60,7 @@ usage 字段在何处。据此再写拼接逻辑，不靠猜。
 
 ### 步骤 2：`AgentLoop.run` 消费流式（动内核，最小改动）
 - 把「一次性 `complete` → 拿完整 response」改为「迭代 `complete_stream` → 逐个转发增量事件」。
-- 新增 StepEvent 类型：`reasoning`（思考增量）、`content_delta`（正文增量）、`usage`（token）。
+- 新增 ItemEvent 类型：`reasoning`（思考增量）、`content_delta`（正文增量）、`usage`（token）。
 - 循环控制流（终止条件、工具执行、历史写回）**保持不变**，只改"如何获得 response"。
 - 保证：现有非流式测试仍可通过（用 `complete` 的路径或 mock 流）。
 

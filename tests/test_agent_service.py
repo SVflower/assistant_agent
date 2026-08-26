@@ -8,7 +8,7 @@ from collections.abc import Iterator
 import pytest
 
 from assistant_agent.bootstrap import runtime as runtime_module
-from assistant_agent.contracts.events import StepEvent
+from assistant_agent.contracts.events import ItemEvent
 from assistant_agent.contracts.failures import RunFailure
 from assistant_agent.interaction import (
     BlockingInteractionPort,
@@ -1850,7 +1850,7 @@ def test_event_source_exception_is_persisted_as_unique_failed_terminal(tmp_path,
     session_id = session_runtime.session.id
 
     def broken_source(*_args, **_kwargs):
-        yield StepEvent(kind="content_delta", text="partial")
+        yield ItemEvent(kind="content_delta", text="partial")
         raise RuntimeError("api_key=secret-value")
 
     monkeypatch.setattr(session_runtime.runtime.loop, "run", broken_source)

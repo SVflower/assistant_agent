@@ -18,7 +18,7 @@
 1. **模型只负责提出文本或工具调用，程序负责校验、授权、执行和持久化。**
 2. **`bootstrap` 负责组装对象，`application` 负责用例，`agent` 负责推理循环和 Run 状态。**
 3. **Conversation、Session、RunState 是三种不同状态，不能互相替代。**
-4. **`StepEvent` 是内核与 CLI/API 的边界，UI 不应读取日志或猜异常文本。**
+4. **`ItemEvent` 是内核与 CLI/API 的边界，UI 不应读取日志或猜异常文本。**
 
 ## 一张总图
 
@@ -34,7 +34,7 @@ flowchart LR
     TOOLS --> EXEC["Workspace / Process"]
     TOOLS --> INT["MCP / Skill / Web"]
     APP --> STORE["Session / Run / Artifact stores"]
-    CORE --> EVENTS["StepEvent"]
+    CORE --> EVENTS["ItemEvent"]
     EVENTS --> CLI
     EVENTS --> API
 ```

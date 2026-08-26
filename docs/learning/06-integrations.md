@@ -53,7 +53,7 @@ fetch 如果不能证明 DNS rebinding 与重定向目标安全，就不应进�
 ## Chart Artifact
 
 `present_chart` 不接受任意 ECharts option，而是验证版本化 `ChartSpecV1`/`ChartSpecV2`，只允许受控图表类型和数据。
-它拒绝 JS formatter、HTML、外部 URL 和任意执行代码。成功后生成不可变 Artifact，StepEvent 通过
+它拒绝 JS formatter、HTML、外部 URL 和任意执行代码。成功后生成不可变 Artifact，ItemEvent 通过
 结构化 `chart` 字段交给 UI；失败不改变文字回答和 Run terminal。
 
 ## 什么时候选哪种扩展
@@ -64,7 +64,7 @@ fetch 如果不能证明 DNS rebinding 与重定向目标安全，就不应进�
 | 教模型一套流程或领域知识 | Skill |
 | 调用独立业务/API/浏览器服务 | 外置 MCP |
 | 与 Agent 状态紧耦合的通用安全能力 | 内置 Tool |
-| 只改变展示 | CLI/Web adapter，消费 StepEvent |
+| 只改变展示 | CLI/Web adapter，消费 ItemEvent |
 
 不要为了一个业务 API 修改 Agent Loop，也不要让 Skill 直接获得 Python 执行特权。
 

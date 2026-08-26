@@ -58,7 +58,7 @@ service.AgentService (公开入口)
   -> SessionRuntime (绑定一个 Session 的 Run 用例)
 ```
 
-API 只消费公共对象与 `StepEvent`，不应导入 `cli`、解析终端文本或复制 checkpoint 状态机。
+API 只消费公共对象与 `ItemEvent`，不应导入 `cli`、解析终端文本或复制 checkpoint 状态机。
 
 ## create_runtime 为什么长
 

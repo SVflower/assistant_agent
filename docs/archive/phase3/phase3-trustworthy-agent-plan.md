@@ -78,7 +78,7 @@ ToolRegistry ---- ArgumentValidator ---- PermissionPolicy
 
 建议新增或抽取的模块：
 
-- `agent/events.py`：`StepEvent` / `EventKind`，让 UI 不再为事件类型依赖完整 Loop。
+- `agent/events.py`：`ItemEvent` / `EventKind`，让 UI 不再为事件类型依赖完整 Loop。
 - `agent/token_budget.py`：消息、工具 schema、摘要、输出预留和最终 envelope 校验。
 - `tools/policy.py`：权限请求、规则匹配、allow/ask/deny 决策。
 - `tools/validation.py`：统一参数校验与稳定错误反馈。

@@ -151,6 +151,16 @@ class AgentConfig(BaseModel):
         gt=0,
         description="单任务最多允许执行的工具调用数，限制单轮批量调用和跨轮累计",
     )
+    tool_result_context_chars: int = Field(
+        default=1600,
+        ge=0,
+        description="上下文压力较高时，较早工具结果在模型视图中的字符上限；0=不压缩",
+    )
+    recent_tool_result_blocks: int = Field(
+        default=3,
+        ge=0,
+        description="始终保留原文的最近工具批次数",
+    )
     max_total_tool_output_chars: int = Field(
         default=50_000,
         ge=0,

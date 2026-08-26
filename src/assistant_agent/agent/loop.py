@@ -81,6 +81,8 @@ class AgentLoop:
             system_prompt=self._system_prompt,
             tools_tokens=tools_tokens,
             reserved_output_tokens=config.agent.reserved_output_tokens,
+            tool_result_context_chars=config.agent.tool_result_context_chars,
+            recent_tool_result_blocks=config.agent.recent_tool_result_blocks,
             attachment_context_limit=min(
                 config.attachments.max_context_tokens,
                 int(

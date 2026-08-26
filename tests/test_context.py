@@ -181,6 +181,48 @@ def test_huge_tool_result_keeps_complete_protocol_block():
     assert c.budget_report()["used"] <= 120
 
 
+def test_high_pressure_shrinks_older_tool_results_only_in_model_view():
+    c = _conv(
+        max_context_tokens=1600,
+        tool_result_context_chars=80,
+        recent_tool_result_blocks=1,
+    )
+    for index in range(4):
+        c.add_assistant(
+            None,
+            tool_calls=[
+                {
+                    "id": f"c{index}",
+                    "type": "function",
+                    "function": {"name": "read", "arguments": "{}"},
+                }
+            ],
+        )
+        c.add_tool_result(f"c{index}", "read", f"result-{index}-" + "x" * 300)
+
+    projected = c.messages()
+    projected_tools = [m for m in projected if m.get("role") == "tool"]
+    assert len(projected_tools) == 4
+    assert "较早工具结果已压缩" in projected_tools[0]["content"]
+    assert len(projected_tools[0]["content"]) <= 80
+    assert projected_tools[-1]["content"].startswith("result-3-")
+    # 压缩只影响 provider-facing projection，原始历史必须保持完整。
+    stored = [m for m in c.export_history() if m.get("role") == "tool"]
+    assert len(stored[0]["content"]) > 300
+
+
+def test_tool_result_retention_can_be_disabled():
+    c = _conv(max_context_tokens=1200, tool_result_context_chars=0, recent_tool_result_blocks=0)
+    c.add_assistant(
+        None,
+        tool_calls=[
+            {"id": "c1", "type": "function", "function": {"name": "read", "arguments": "{}"}}
+        ],
+    )
+    c.add_tool_result("c1", "read", "x" * 300)
+    assert c.messages()[-1]["content"] == "x" * 300
+
+
 @pytest.mark.parametrize(
     "checkpoint",
     [

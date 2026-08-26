@@ -91,6 +91,10 @@ agent:
   max_iterations: 25
   # 单任务最多执行多少个工具调用（跨轮累计）
   max_tool_calls: 60
+  # 上下文压力较高时，较早工具结果在模型视图中的最大字符数；公开历史不受影响，0=不压缩
+  tool_result_context_chars: 1600
+  # 最近多少个工具批次始终保留原文
+  recent_tool_result_blocks: 3
   # 单任务写入上下文的工具结果累计字符上限；0=不限制
   max_total_tool_output_chars: 80000
   # 上下文里保留的最大消息数（超过则做长度感知截断）

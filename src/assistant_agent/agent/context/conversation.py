@@ -66,6 +66,8 @@ class Conversation:
         estimator: TokenEstimator = DEFAULT_ESTIMATOR,
         attachment_context_limit: int = 0,
         image_token_reserve: int = 2048,
+        tool_result_context_chars: int = 1600,
+        recent_tool_result_blocks: int = 3,
     ) -> None:
         prompt = system_prompt if system_prompt is not None else build_system_prompt(interactive)
         self._system: dict[str, Any] = {"role": "system", "content": prompt}
@@ -79,6 +81,8 @@ class Conversation:
         self._estimator = estimator
         self._attachment_context_limit = attachment_context_limit
         self._image_token_reserve = image_token_reserve
+        self._tool_result_context_chars = max(tool_result_context_chars, 0)
+        self._recent_tool_result_blocks = max(recent_tool_result_blocks, 0)
         # M8b：摘要 checkpoint。None（默认）时下方全部逻辑等于 M8b 前——不压缩、硬截断。
         # {"summary": 摘要文本, "covered_upto": 已覆盖到的 _messages 游标}
         self._checkpoint: dict[str, Any] | None = None
@@ -293,7 +297,12 @@ class Conversation:
         - extra_overhead：额外固定开销（如摘要消息 token），从预算里扣掉；默认 0。
         """
         # 先套用消息数硬上限（兜底，防极端条数）
-        candidates = source[-self._max :] if len(source) > self._max else list(source)
+        # Provider-facing projection may rewrite tool result text; never mutate the persisted
+        # working history while applying retention rules.
+        candidates = [
+            dict(message)
+            for message in (source[-self._max :] if len(source) > self._max else source)
+        ]
 
         # 消息可用预算 = 总窗口 − system − tools schema − 预留回复 − 额外开销（后三者默认 0）。
         budget = (
@@ -322,12 +331,38 @@ class Conversation:
             kept_blocks.append(block)
             used += cost
         kept_blocks.reverse()
+        # 只压缩发给模型的临时视图，不修改 `_messages`，所以公开历史与恢复数据仍保真。
+        if (
+            self._tool_result_context_chars > 0
+            and used > budget * 0.75
+            and len(kept_blocks) > self._recent_tool_result_blocks
+        ):
+            cutoff = len(kept_blocks) - self._recent_tool_result_blocks
+            for block in kept_blocks[:cutoff]:
+                self._shrink_tool_results(block)
         kept = [message for block in kept_blocks for message in block]
 
         # 丢弃开头孤立的 tool 消息（其对应的 assistant 调用可能被截掉）
         while kept and kept[0].get("role") == "tool":
             kept = kept[1:]
         return kept
+
+    def _shrink_tool_results(self, block: list[dict[str, Any]]) -> None:
+        """为较早工具结果建立有界模型投影，同时保持 tool_call/tool_result 配对。"""
+        marker = "\n[…较早工具结果已压缩，完整结果仍保存在运行历史中…]\n"
+        for message in block:
+            if message.get("role") != "tool":
+                continue
+            content = str(message.get("content") or "")
+            limit = self._tool_result_context_chars
+            if len(content) <= limit:
+                continue
+            if limit <= len(marker):
+                message["content"] = marker[:limit]
+                continue
+            head = (limit - len(marker)) // 2
+            tail = limit - len(marker) - head
+            message["content"] = content[:head] + marker + content[-tail:]
 
     def _message_tokens(self, message: dict[str, Any]) -> int:
         return estimate_message_tokens(message, self._estimator)

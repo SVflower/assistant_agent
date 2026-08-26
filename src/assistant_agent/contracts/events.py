@@ -1,6 +1,6 @@
-"""AgentLoop 对外事件契约。
+"""Agent 运行事件契约。
 
-StepEvent 把运行内核与 CLI/API 解耦：内核只产生结构化事实，调用方自行渲染或映射到网络事件，
+ItemEvent 把运行内核与 CLI/API 解耦：内核只产生结构化事实，调用方自行渲染或映射到网络事件，
 不得通过日志或中文错误文本推断状态。新增可选字段保持 v1 向后兼容；破坏性语义变化才提升版本。
 """
 
@@ -55,8 +55,8 @@ EVENT_CONTRACT_VERSION = 1
 
 
 @dataclass
-class StepEvent:
-    """循环和服务门面对外暴露的向后兼容事件。
+class ItemEvent:
+    """RunItem 生命周期事件的传输表示。
 
     ``final`` 只承载完整 assistant 正文，Run 是否结束只看唯一 ``run_terminal`` 及其
     ``terminal_status``。``call_id`` 用于稳定配对 tool_call/tool_result，``display`` 是已脱敏的
@@ -119,3 +119,18 @@ class StepEvent:
             }.get(self.kind)
         if self.kind == "reasoning":
             self.sensitive = True
+
+
+# 仅供尚未迁移的 CLI 渲染器和历史测试使用；公共服务边界只使用 ItemEvent。
+StepEvent = ItemEvent
+
+
+__all__ = [
+    "EVENT_CONTRACT_VERSION",
+    "EventKind",
+    "ItemEvent",
+    "StepEvent",
+    "TerminalStatus",
+    "ToolDisplay",
+    "ToolPreview",
+]

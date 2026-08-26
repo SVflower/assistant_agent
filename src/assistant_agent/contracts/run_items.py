@@ -38,7 +38,7 @@ class RunItem(BaseModel):
 
 
 @dataclass(frozen=True)
-class ItemEvent:
+class RunItemLifecycleEvent:
     """RunItem 生命周期事件；同一 item_id 的事件由消费者 upsert。"""
 
     event: Literal["item_started", "item_delta", "item_completed", "item_failed", "item_cancelled"]
@@ -47,4 +47,4 @@ class ItemEvent:
     contract_version: int = 2
 
 
-__all__ = ["ItemEvent", "RunItem", "RunItemKind", "RunItemStatus"]
+__all__ = ["RunItem", "RunItemKind", "RunItemLifecycleEvent", "RunItemStatus"]

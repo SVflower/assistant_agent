@@ -87,6 +87,7 @@ from assistant_agent.contracts.errors import (
 from assistant_agent.contracts.events import (
     EVENT_CONTRACT_VERSION,
     EventKind,
+    ItemEvent,
     StepEvent,
     TerminalStatus,
     ToolDisplay,
@@ -147,7 +148,12 @@ from assistant_agent.contracts.reasoning import (
     REASONING_PRESENTATION_VERSION,
     ReasoningPresentationV1,
 )
-from assistant_agent.contracts.run_items import ItemEvent, RunItem, RunItemKind, RunItemStatus
+from assistant_agent.contracts.run_items import (
+    RunItem,
+    RunItemKind,
+    RunItemLifecycleEvent,
+    RunItemStatus,
+)
 from assistant_agent.contracts.sessions import (
     SESSION_CONTRACT_VERSION,
     LastRunSummary,
@@ -204,6 +210,7 @@ __all__ = [
     "DefinitionDifferenceInfo",
     "EVENT_CONTRACT_VERSION",
     "EventKind",
+    "ItemEvent",
     "FailureCode",
     "InteractionDecision",
     "InteractionPort",
@@ -292,9 +299,9 @@ __all__ = [
     "ToolDisplay",
     "ToolPreview",
     "UpdateSessionMetadataRequest",
-    "ItemEvent",
     "RunItem",
     "RunItemKind",
+    "RunItemLifecycleEvent",
     "RunItemStatus",
     "TabularDatasetV1",
     "AnnotationSpecV1",

@@ -32,7 +32,7 @@ run_terminal.failure.allowed_actions = [retry_run, stop]
 空响应前已经完成的工具事实、Chart Artifact 和 Output Artifact 继续保留。重试前若收到 pause/cancel，
 优先按既有控制语义结束，不产生 `provider_empty_response`。API/Web 应按稳定 code 展示可重试失败，不解析
 `safe_message`，不在 API 层自动再试，不合成第二个 terminal。该扩展保持 Service v5、Session v5、
-RunState v13、Event v1 不变。
+RunState v13、ItemEvent v1 不变；StepEvent 仅为内部迁移别名。
 
 ## M35-R1 历史运行关联
 
@@ -50,7 +50,7 @@ base URL、provider payload 或配置。`SessionRuntime.run_snapshot(run_id)` �
 RunStore 全局最多保留 100 个已同步 terminal Run；`list_runs` 当前不分页。每个 Run 的 trajectory 最多
 256 条，超限时保留首条与末尾 255 条并设置 `truncated=true`。R1 没有 Session trajectory 分页或完整
 TraceStore，不能宣称永久、完整的运行历史。API 只调用公共 service，不扫描 Session/Run 文件或复制
-Agent 状态机。版本保持 Service v6、Session v5、RunState v13、Observability v1、Event v1。
+ Agent 状态机。版本保持 Service v6、Session v5、RunState v13、Observability v1、ItemEvent v1。
 
 ## M34 Run Observability
 

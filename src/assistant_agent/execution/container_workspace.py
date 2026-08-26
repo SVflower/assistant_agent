@@ -13,6 +13,7 @@ from assistant_agent.execution.process import BoundedProcessResult, ProcessSuper
 from assistant_agent.execution.workspace import ConfinedWorkspace, WorkspaceError
 
 _CONTAINER_ROOT = "/workspace"
+_CONTAINER_TMPFS = "/tmp:rw,nosuid,nodev,size=64m"
 
 
 class ContainerWorkspace(ConfinedWorkspace):
@@ -115,6 +116,10 @@ class ContainerWorkspace(ConfinedWorkspace):
             self.container_name,
             "--mount",
             mount,
+            # 系统层不可写；持久写入必须经过受控 Workspace 挂载。
+            "--read-only",
+            "--tmpfs",
+            _CONTAINER_TMPFS,
             "--workdir",
             _CONTAINER_ROOT,
             "--network",

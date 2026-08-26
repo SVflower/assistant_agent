@@ -94,6 +94,8 @@ def test_start_command_has_hardening_and_only_workspace_mount(tmp_path, monkeypa
     assert command[command.index("--pids-limit") + 1] == "128"
     mounts = [command[index + 1] for index, value in enumerate(command) if value == "--mount"]
     assert mounts == [f"type=bind,source={tmp_path.resolve()},target=/workspace"]
+    assert "--read-only" in command
+    assert command[command.index("--tmpfs") + 1] == "/tmp:rw,nosuid,nodev,size=64m"
     assert all("HOME" not in str(item) and ".ssh" not in str(item) for item in command)
     workspace.close()
 

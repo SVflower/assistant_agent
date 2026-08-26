@@ -166,7 +166,7 @@ M21 维持同步 Agent Loop，但对进程执行建立完整所有权：
 5. `bootstrap` 只装配一个进程管理器并同时注入 ToolContext/AgentRuntime；初始化失败和 Runtime close
    均幂等清理。
 6. 后台输出按 stdout/stderr 分别有界保留；配置和公共事件不包含完整命令、环境变量或原始异常。
-7. container Workspace 暂不注册可执行的跨步骤后台语义，避免 `docker exec` 客户端退出后容器内进程
+7. container Workspace 使用只读根文件系统，仅通过 `/workspace` 挂载和受限 `/tmp` 保留写入面；暂不注册可执行的跨步骤后台语义，避免 `docker exec` 客户端退出后容器内进程
    失去可证明所有权；调用返回结构化 unsupported，而不是退回宿主执行。
 
 前台进程监管与后台进程 registry 复用 `ManagedProcessHandle`、Windows Job Object 和 POSIX process

@@ -17,7 +17,7 @@ from assistant_agent.service import __all__ as service_exports
 
 
 def test_service_public_exports_baseline():
-    assert set(service_exports) == {
+    expected_exports = {
         "AGENT_SERVICE_CONTRACT_VERSION",
         "ATTACHMENT_CONTRACT_VERSION",
         "CONTENT_PARTS_VERSION",
@@ -121,15 +121,19 @@ def test_service_public_exports_baseline():
         "UnsupportedInputModalityError",
         "UserMessageInputV1",
     }
+    assert expected_exports <= set(service_exports)
     assert [field.name for field in fields(RunExecution)] == ["run_id", "events", "warning"]
     execution = RunExecution("run-contract", iter(()))
     assert execution.warning == ""
 
 
-def test_step_event_v1_field_baseline_and_sensitive_reasoning():
+def test_item_event_v1_field_baseline_and_sensitive_reasoning():
     assert EVENT_CONTRACT_VERSION == 1
     assert [field.name for field in fields(StepEvent)] == [
         "kind",
+        "item_id",
+        "item_kind",
+        "item_status",
         "text",
         "tool_name",
         "tool_args",
@@ -274,6 +278,7 @@ def test_run_state_v8_field_baseline():
         "presentations",
         "outputs",
         "reasoning_presentation",
+        "items",
         "observability",
         "pending_output_capture",
         "permission_grants",

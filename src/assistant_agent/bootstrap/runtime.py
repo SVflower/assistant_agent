@@ -13,6 +13,7 @@ import hashlib
 from collections.abc import Callable
 from contextlib import contextmanager
 from pathlib import Path
+from typing import Literal, cast
 
 from assistant_agent.agent.context.window import estimate_message_tokens
 from assistant_agent.agent.loop import AgentLoop
@@ -624,6 +625,28 @@ def create_runtime(
                 "max_text_bytes": config.attachments.max_text_bytes,
                 "max_image_bytes": config.attachments.max_image_bytes,
                 "max_context_ratio": config.attachments.max_context_ratio,
+            },
+            filesystem_boundary=cast(
+                Literal["host", "workspace", "read_only"],
+                config.sandbox.filesystem
+                or {"off": "host", "workspace": "workspace", "container": "workspace"}[
+                    config.sandbox.mode
+                ],
+            ),
+            process_boundary=cast(
+                Literal["host", "confined", "container"],
+                config.sandbox.process
+                or {"off": "host", "workspace": "confined", "container": "container"}[
+                    config.sandbox.mode
+                ],
+            ),
+            network_boundary=config.sandbox.network,
+            containerized=config.sandbox.mode == "container",
+            extensions_isolated=config.sandbox.extensions == "container",
+            resource_limits={
+                "memory": config.sandbox.memory,
+                "cpus": config.sandbox.cpus,
+                "pids": config.sandbox.pids_limit,
             },
         )
         # 到这里所有 adapter 已创建完成。AgentRuntime 接管它们的关闭责任；成功返回后，

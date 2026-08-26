@@ -80,3 +80,9 @@ class RuntimeCapabilities:
     input_modalities: tuple[Literal["text", "image"], ...] = ("text",)
     attachment_media_types: tuple[str, ...] = ()
     attachment_limits: dict[str, int | float] = field(default_factory=dict)
+    filesystem_boundary: Literal["host", "workspace", "read_only"] = "host"
+    process_boundary: Literal["host", "confined", "container"] = "host"
+    network_boundary: Literal["none", "bridge"] = "none"
+    containerized: bool = False
+    extensions_isolated: bool = False
+    resource_limits: dict[str, int | float | str] = field(default_factory=dict)

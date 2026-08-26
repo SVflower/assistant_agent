@@ -137,6 +137,43 @@ def test_runtime_budget_defaults(tmp_path):
     assert config.web.max_response_bytes == 2_000_000
 
 
+def test_sandbox_profile_defaults_to_host_boundaries(tmp_path):
+    config = load_config(_write(tmp_path, _VALID_YAML))
+    assert config.sandbox.mode == "off"
+    assert config.sandbox.filesystem == "host"
+    assert config.sandbox.process == "host"
+    assert config.sandbox.extensions == "disabled"
+
+
+@pytest.mark.parametrize(
+    ("mode", "filesystem", "process", "extensions"),
+    [
+        ("workspace", "workspace", "confined", "disabled"),
+        ("container", "workspace", "container", "container"),
+    ],
+)
+def test_sandbox_profile_defaults_follow_mode(tmp_path, mode, filesystem, process, extensions):
+    yaml_text = _VALID_YAML + f"\nsandbox:\n  mode: {mode}\n"
+    config = load_config(_write(tmp_path, yaml_text))
+    assert (config.sandbox.filesystem, config.sandbox.process, config.sandbox.extensions) == (
+        filesystem,
+        process,
+        extensions,
+    )
+
+
+def test_sandbox_profile_rejects_weaker_boundary(tmp_path):
+    yaml_text = _VALID_YAML + "\nsandbox:\n  mode: container\n  process: host\n"
+    with pytest.raises(ConfigError, match="filesystem/process"):
+        load_config(_write(tmp_path, yaml_text))
+
+
+def test_sandbox_profile_rejects_host_extensions_in_container(tmp_path):
+    yaml_text = _VALID_YAML + "\nsandbox:\n  mode: container\n  extensions: host\n"
+    with pytest.raises(ConfigError, match="extensions=host"):
+        load_config(_write(tmp_path, yaml_text))
+
+
 def test_mcp_per_tool_policy_parses_and_defaults_fail_closed(tmp_path):
     yaml_text = (
         _VALID_YAML

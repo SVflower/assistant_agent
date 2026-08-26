@@ -229,6 +229,9 @@ class SandboxConfig(BaseModel):
     """内置工具执行环境。workspace 是应用层约束，container 才是 OS 隔离。"""
 
     mode: Literal["off", "workspace", "container"] = "off"
+    filesystem: Literal["host", "workspace", "read_only"] | None = None
+    process: Literal["host", "confined", "container"] | None = None
+    extensions: Literal["host", "disabled", "container"] | None = None
     engine: Literal["docker", "podman"] = "docker"
     image: str = "python:3.11-slim"
     network: Literal["none", "bridge"] = "none"
@@ -240,6 +243,29 @@ class SandboxConfig(BaseModel):
         min_length=1,
         description="容器内非 root 用户；auto 在 POSIX 映射当前 uid/gid，其他平台用 65534",
     )
+
+    @model_validator(mode="after")
+    def _bound_profile_to_mode(self) -> SandboxConfig:
+        expected = {
+            "off": ("host", "host"),
+            "workspace": ("workspace", "confined"),
+            "container": ("workspace", "container"),
+        }[self.mode]
+        if self.filesystem is None:
+            object.__setattr__(self, "filesystem", expected[0])
+        if self.process is None:
+            object.__setattr__(self, "process", expected[1])
+        if self.extensions is None:
+            object.__setattr__(
+                self,
+                "extensions",
+                "container" if self.mode == "container" else "disabled",
+            )
+        if (self.filesystem, self.process) != expected:
+            raise ValueError("sandbox.filesystem/process 必须与 sandbox.mode 的执行边界一致")
+        if self.mode == "container" and self.extensions == "host":
+            raise ValueError("sandbox.container 不允许 extensions=host")
+        return self
 
     @field_validator("mode", mode="before")
     @classmethod

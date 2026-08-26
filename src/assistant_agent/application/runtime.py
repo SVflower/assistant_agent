@@ -98,6 +98,12 @@ class AgentRuntime:
             input_modalities=current.input_modalities,
             attachment_media_types=current.attachment_media_types,
             attachment_limits=dict(current.attachment_limits),
+            filesystem_boundary=current.filesystem_boundary,
+            process_boundary=current.process_boundary,
+            network_boundary=current.network_boundary,
+            containerized=current.containerized,
+            extensions_isolated=current.extensions_isolated,
+            resource_limits=dict(current.resource_limits),
         )
 
     def new_run(self, task: str, session_id: str | None = None) -> RunCoordinator | None:

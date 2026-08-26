@@ -48,7 +48,9 @@ def resume_loop(
     try:
         if coordinator.state.phase == "terminal":
             if coordinator.state.status == "completed":
-                yield StepEvent(kind="final", text=coordinator.state.terminal_text)
+                yield StepEvent(
+                    kind="final", item_id="item_final", text=coordinator.state.terminal_text
+                )
             elif coordinator.state.status == "cancelled":
                 yield StepEvent(kind="interrupted", text=coordinator.state.terminal_text)
             else:
@@ -86,12 +88,13 @@ def resume_loop(
             else:
                 result = coordinator.skip(call.id)
                 loop._conversation.add_tool_result(call.id, call.name, result.output)
-                yield StepEvent(
-                    kind="tool_result",
-                    tool_name=call.name,
-                    text=result.output,
-                    is_error=True,
-                )
+        yield StepEvent(
+            kind="tool_result",
+            item_id=f"item_tool_{call.id}",
+            tool_name=call.name,
+            text=result.output,
+            is_error=True,
+        )
         if coordinator.state.tool_calls:
             calls = [
                 ToolCall(id=call.id, name=call.name, arguments=call.arguments)

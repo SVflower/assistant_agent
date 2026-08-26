@@ -405,14 +405,14 @@ class AgentLoop:
                 final = f"已生成文件：{artifact.filename}"
                 self._conversation.add_assistant(final)
                 self._terminal(coordinator, True, final)
-                yield StepEvent(kind="final", text=final)
+                yield StepEvent(kind="final", item_id="item_final", text=final)
                 return
 
             if not tool_calls:
                 final = content or "（模型未返回内容）"
                 self._conversation.add_assistant(final)
                 self._terminal(coordinator, True, final)
-                yield StepEvent(kind="final", text=final)
+                yield StepEvent(kind="final", item_id="item_final", text=final)
                 return
 
             if coordinator is not None:

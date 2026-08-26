@@ -64,6 +64,9 @@ class StepEvent:
     """
 
     kind: EventKind
+    # Additive identity for consumers that reconcile a run as structured items.
+    # Existing callers may ignore it and continue using kind/call_id.
+    item_id: str | None = None
     text: str = ""
     tool_name: str = ""
     tool_args: dict[str, Any] | None = None

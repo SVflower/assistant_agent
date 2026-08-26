@@ -91,6 +91,7 @@ def execute_tool_batch(
         )
         yield StepEvent(
             kind="tool_call",
+            item_id=f"item_tool_{call.id}",
             tool_name=call.name,
             tool_args=call.arguments,
             call_id=call.id,
@@ -112,6 +113,7 @@ def execute_tool_batch(
             conversation.add_tool_result(call.id, call.name, result.output)
         yield StepEvent(
             kind="tool_result",
+            item_id=f"item_tool_{call.id}",
             tool_name=call.name,
             text=result.output,
             is_error=result.is_error,
@@ -163,6 +165,7 @@ def _cancel_pending(
         conversation.add_tool_result(call.id, call.name, result.output)
         yield StepEvent(
             kind="tool_result",
+            item_id=f"item_tool_{call.id}",
             tool_name=call.name,
             text=result.output,
             is_error=True,

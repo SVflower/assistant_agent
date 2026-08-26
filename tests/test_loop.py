@@ -287,7 +287,10 @@ def test_loop_executes_tool_then_finishes(tmp_path):
     kinds = [e.kind for e in events]
     assert "tool_call" in kinds
     assert "tool_result" in kinds
+    tool_events = [e for e in events if e.kind in {"tool_call", "tool_result"}]
+    assert all(e.item_id == "item_tool_c1" for e in tool_events)
     assert events[-1].kind == "final"
+    assert events[-1].item_id == "item_final"
     assert target.read_text(encoding="utf-8") == "data"
     assert client.calls == 2
 

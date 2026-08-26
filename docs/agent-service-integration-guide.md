@@ -957,6 +957,11 @@ degraded_discovery | required_failed
 仅存在于当前 Runtime 进程内，不跨 Runtime 或进程重启持久化；熔断剩余时间和失败
 计数当前不属于公共快照字段。
 
+stdio MCP 的 stderr 仅作为诊断流处理：Agent 使用独立管道持续排空，避免异常 Server
+因 stderr 管道写满而影响进程；诊断文件按 Server 保留最后 256 KiB。MCP stdout 不进入
+该文件，始终只承载 JSON-RPC。关闭 Runtime 时先关闭 SDK transport，再回收 stderr
+drain；调用方不能把该诊断文件当作 MCP 工具结果或完整日志历史。
+
 调用方应映射枚举，不要解析 notice 文本推断能力，也不要把 `available_cached` 当作 provider readiness。
 
 公共异常：

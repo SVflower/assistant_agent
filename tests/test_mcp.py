@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 from contextlib import AsyncExitStack
 from typing import Any
 
@@ -18,7 +19,12 @@ from assistant_agent.integrations.mcp import (
 from assistant_agent.integrations.mcp.discovery import _sanitize
 from assistant_agent.integrations.mcp.manager import _Server
 from assistant_agent.integrations.mcp.status import MCPServerStatus
-from assistant_agent.integrations.mcp.transport import _interpolate_env, _managed_args, _minimal_env
+from assistant_agent.integrations.mcp.transport import (
+    _BoundedStderr,
+    _interpolate_env,
+    _managed_args,
+    _minimal_env,
+)
 from assistant_agent.observability import NullLogger
 from assistant_agent.tools.permissions import Capability
 from assistant_agent.tools.registry import ToolRegistry
@@ -613,8 +619,18 @@ def test_stdio_transport_dispatch(monkeypatch, tmp_path):
     assert record["kind"] == "stdio" and rw == ("r", "w")
     assert record["params"].cwd == tmp_path / "artifacts" / "s"
     assert record["params"].env["ASSISTANT_AGENT_ARTIFACT_DIR"] == str(tmp_path / "artifacts" / "s")
+    assert isinstance(record["errlog"], int)
     assert (tmp_path / "stderr" / "s" / "server.log").is_file()
     m.close()
+
+
+def test_bounded_stderr_keeps_only_tail(tmp_path):
+    capture = _BoundedStderr(tmp_path / "server.log", max_bytes=8)
+    os.write(capture.write_fd, b"0123456789abcdef")
+    capture.close_write_end()
+    assert capture._done.wait(timeout=2)
+    capture.close()
+    assert (tmp_path / "server.log").read_bytes() == b"89abcdef"
 
 
 def test_playwright_args_route_outputs_and_explicit_output_wins(tmp_path):

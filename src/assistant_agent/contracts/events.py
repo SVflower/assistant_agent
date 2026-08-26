@@ -13,6 +13,7 @@ from assistant_agent.contracts.charts import ChartArtifactV2
 from assistant_agent.contracts.failures import ActivityPhase, BudgetSnapshot, RunFailure
 from assistant_agent.contracts.observability import RunObservabilitySnapshot, TrajectoryEntry
 from assistant_agent.contracts.outputs import OutputArtifactV1
+from assistant_agent.contracts.run_items import RunItem
 
 
 @dataclass(frozen=True)
@@ -88,6 +89,8 @@ class ItemEvent:
     output: OutputArtifactV1 | None = None
     observability: RunObservabilitySnapshot | None = None
     trajectory_entry: TrajectoryEntry | None = None
+    # 当前结构化时间轴项快照。调用方按 item_id upsert，避免从多个旧事件自行拼状态。
+    item: RunItem | None = None
 
     def __post_init__(self) -> None:
         if self.item_id is None:

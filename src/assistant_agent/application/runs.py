@@ -1251,6 +1251,14 @@ class SessionRuntime:
             trajectory = event.observability.trajectory
             event.trajectory_entry = trajectory[-1] if trajectory else None
 
+        # 实时事件携带与 checkpoint 相同的 RunItem 快照。旧消费者可忽略该可选字段，
+        # 新消费者无需根据 tool_call/tool_result 猜测生命周期。
+        if event.item_id is not None:
+            event.item = next(
+                (item for item in coordinator.state.items if item.item_id == event.item_id),
+                None,
+            )
+
     @staticmethod
     def _finalization_notice(code: str) -> ItemEvent:
         messages = {

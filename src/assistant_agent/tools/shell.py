@@ -38,6 +38,12 @@ class ShellTool(Tool):
         }
 
     def run(self, args: dict[str, Any], ctx: ToolContext) -> ToolResult:
+        if not getattr(ctx.workspace, "writable", True):
+            return ToolResult.error(
+                "当前 Run 是只读工作区，不允许执行 Shell。",
+                code="filesystem_read_only",
+                executed=False,
+            )
         command = args.get("command")
         if not isinstance(command, str) or not command.strip():
             return ToolResult.error(

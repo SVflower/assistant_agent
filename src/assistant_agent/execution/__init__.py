@@ -17,6 +17,7 @@ from assistant_agent.execution.workspace import (
     BaseWorkspace,
     ConfinedWorkspace,
     HostWorkspace,
+    ReadOnlyWorkspace,
     WorkspaceError,
 )
 
@@ -28,6 +29,7 @@ __all__ = [
     "ConfinedWorkspace",
     "ContainerWorkspace",
     "HostWorkspace",
+    "ReadOnlyWorkspace",
     "ManagedProcessError",
     "ManagedProcessRegistry",
     "ManagedProcessSnapshot",

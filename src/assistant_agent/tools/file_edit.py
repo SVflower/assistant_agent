@@ -69,6 +69,12 @@ class WriteFileTool(Tool):
         }
 
     def run(self, args: dict[str, Any], ctx: ToolContext) -> ToolResult:
+        if not getattr(ctx.workspace, "writable", True):
+            return ToolResult.error(
+                "当前 Run 是只读工作区，不允许写入文件。",
+                code="filesystem_read_only",
+                executed=False,
+            )
         try:
             path = ctx.resolve_path(args["path"])
         except WorkspaceError as exc:
@@ -116,6 +122,12 @@ class EditFileTool(Tool):
         }
 
     def run(self, args: dict[str, Any], ctx: ToolContext) -> ToolResult:
+        if not getattr(ctx.workspace, "writable", True):
+            return ToolResult.error(
+                "当前 Run 是只读工作区，不允许编辑文件。",
+                code="filesystem_read_only",
+                executed=False,
+            )
         try:
             path = ctx.resolve_path(args["path"])
         except WorkspaceError as exc:
@@ -172,6 +184,12 @@ class MultiEditTool(Tool):
         }
 
     def run(self, args: dict[str, Any], ctx: ToolContext) -> ToolResult:
+        if not getattr(ctx.workspace, "writable", True):
+            return ToolResult.error(
+                "当前 Run 是只读工作区，不允许编辑文件。",
+                code="filesystem_read_only",
+                executed=False,
+            )
         try:
             path = ctx.resolve_path(args["path"])
         except WorkspaceError as exc:

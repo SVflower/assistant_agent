@@ -87,6 +87,12 @@ class ManageProcessTool(Tool):
             return ToolResult.error(str(exc), code=code, retryable=code != "managed_process_closed")
 
     def _start(self, args: dict[str, Any], ctx: ToolContext) -> ToolResult:
+        if not getattr(ctx.workspace, "writable", True):
+            return ToolResult.error(
+                "当前 Run 是只读工作区，不允许启动后台进程。",
+                code="filesystem_read_only",
+                executed=False,
+            )
         if ctx.workspace.backend == "container":
             return ToolResult.error(
                 "容器 Workspace 暂不支持跨步骤后台进程。",

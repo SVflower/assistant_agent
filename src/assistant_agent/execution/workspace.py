@@ -20,6 +20,7 @@ class BaseWorkspace(ABC):
 
     backend = "base"
     os_sandboxed = False
+    writable = True
 
     def __init__(
         self,
@@ -83,3 +84,22 @@ class ConfinedWorkspace(HostWorkspace):
         except ValueError as exc:
             raise WorkspaceError(f"路径超出受限工作区：{path}", code="workspace_escape") from exc
         return path
+
+
+class ReadOnlyWorkspace(ConfinedWorkspace):
+    """只允许读取工作区；进程执行也关闭，避免 Shell 绕过文件写入边界。"""
+
+    backend = "read_only"
+    writable = False
+
+    def execute(
+        self,
+        command: str | list[str],
+        *,
+        shell: bool,
+        timeout: float,
+        max_stream_chars: int,
+        cwd: str | Path | None = None,
+    ) -> BoundedProcessResult:
+        del command, shell, timeout, max_stream_chars, cwd
+        raise WorkspaceError("只读工作区不允许执行进程", code="filesystem_read_only")

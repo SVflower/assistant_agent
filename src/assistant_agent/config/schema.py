@@ -261,7 +261,10 @@ class SandboxConfig(BaseModel):
                 "extensions",
                 "container" if self.mode == "container" else "disabled",
             )
-        if (self.filesystem, self.process) != expected:
+        if self.process != expected[1] or (
+            self.filesystem != expected[0]
+            and not (self.mode == "workspace" and self.filesystem == "read_only")
+        ):
             raise ValueError("sandbox.filesystem/process 必须与 sandbox.mode 的执行边界一致")
         if self.mode == "container" and self.extensions == "host":
             raise ValueError("sandbox.container 不允许 extensions=host")

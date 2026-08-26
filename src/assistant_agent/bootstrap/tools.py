@@ -15,6 +15,7 @@ from assistant_agent.execution import (
     ContainerWorkspace,
     HostWorkspace,
     ProcessSupervisor,
+    ReadOnlyWorkspace,
     RunControl,
 )
 from assistant_agent.integrations.mcp import MCPManager, MCPRequiredServerError
@@ -113,6 +114,8 @@ def start_workspace(
     if config.sandbox.mode == "off":
         return HostWorkspace(root, supervisor=supervisor, control=control), []
     if config.sandbox.mode == "workspace":
+        if config.sandbox.filesystem == "read_only":
+            return ReadOnlyWorkspace(root, supervisor=supervisor, control=control), []
         return ConfinedWorkspace(root, supervisor=supervisor, control=control), []
     workspace = ContainerWorkspace(
         root,

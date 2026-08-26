@@ -12,6 +12,7 @@ from assistant_agent.execution import (
     ConfinedWorkspace,
     HostWorkspace,
     ProcessSupervisor,
+    ReadOnlyWorkspace,
     RunControl,
     WorkspaceError,
 )
@@ -80,6 +81,16 @@ def test_shell_executes_with_workspace_as_cwd(tmp_path):
     result = ShellTool().run({"command": command}, ctx)
     assert result.code == "ok"
     assert (tmp_path / "cwd-marker.txt").read_text(encoding="utf-8") == "ok"
+
+
+def test_read_only_workspace_rejects_writes_and_processes(tmp_path):
+    workspace = _workspace(ReadOnlyWorkspace, tmp_path)
+    ctx = ToolContextFixture(workspace=workspace)
+    written = WriteFileTool().run({"path": "blocked.txt", "content": "no"}, ctx)
+    shell = ShellTool().run({"command": "echo blocked"}, ctx)
+    assert written.code == "filesystem_read_only"
+    assert shell.code == "filesystem_read_only"
+    assert not (tmp_path / "blocked.txt").exists()
 
 
 def test_workspace_backend_discloses_application_only_boundary(tmp_path):

@@ -210,6 +210,18 @@ def _managed_process_notices(policy: RuntimePolicy, available: bool) -> list[Run
     ]
 
 
+def _effective_mcp_transports(
+    config: AppConfig, policy: RuntimePolicy
+) -> tuple[frozenset[str], RuntimeNotice | None]:
+    if config.sandbox.mode != "container" or not config.mcp.servers:
+        return policy.allowed_mcp_transports, None
+    return frozenset(), RuntimeNotice(
+        "container_mcp_disabled",
+        "container 模式暂不启用宿主 MCP 扩展；等待容器内 MCP 执行器。",
+        details={"servers": sorted(config.mcp.servers)},
+    )
+
+
 def _create_provider_client(
     provider: ProviderConfig, codec: AttachmentContentCodec
 ) -> ModelProviderPort:
@@ -227,7 +239,7 @@ def _create_provider_client(
         return LLMClient(provider)
 
 
-def create_runtime(
+def create_runtime(  # noqa: C901 - composition root keeps one ordered rollback boundary
     *,
     config_path: Path,
     workspace_root: Path,
@@ -497,6 +509,8 @@ def create_runtime(
             )
 
         stage = "mcp"
+        mcp_transports, container_mcp_notice = _effective_mcp_transports(config, policy)
+        notices.extend([container_mcp_notice] if container_mcp_notice is not None else [])
         with _startup_stage(startup_observer, "preparing_mcp", "正在准备 MCP 扩展"):
             mcp, mcp_notices = start_mcp(
                 config.mcp,
@@ -507,7 +521,7 @@ def create_runtime(
                 catalog_root=paths.mcp_catalog,
                 run_control=control,
                 workspace_root=root,
-                allowed_transports=policy.allowed_mcp_transports,
+                allowed_transports=mcp_transports,
                 max_tools_schema_tokens=max(
                     config.agent.max_context_tokens
                     - config.agent.reserved_output_tokens

@@ -259,6 +259,8 @@ assistant_agent.tools
   Run terminal failure；模型可改用 `manage_process`。若进程在 tool started/completed checkpoint 边界
   崩溃，仍沿用既有 `tool_uncertain`，不得自动重放 start；
 - container Workspace 当前返回 `managed_process_container_unsupported`，绝不退化到宿主执行。
+- container 模式下外置 MCP 仍由宿主 MCPManager 管理，因此当前 Runtime 会将 MCP transport
+  fail closed 为 `blocked_by_policy`；不会把宿主 MCP 伪装成容器内扩展，也不会降级到宿主执行。
 
 ### 2.4 M24 图表与 Presentation Artifact 契约
 

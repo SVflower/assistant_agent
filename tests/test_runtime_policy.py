@@ -13,6 +13,7 @@ from assistant_agent.interaction import ApprovalDecision, BlockingInteractionPor
 from assistant_agent.service import (
     AgentService,
     RuntimeDependencyError,
+    RuntimeInitializationError,
     RuntimePolicy,
     RuntimePolicyError,
     create_runtime,
@@ -107,6 +108,32 @@ def test_disallowed_mcp_transport_is_visible_but_not_started(tmp_path: Path) -> 
         assert status.status == "blocked_by_policy"
         assert status.error_category == "policy"
         assert "never-run" not in repr(status)
+    finally:
+        runtime.close()
+
+
+def test_container_policy_does_not_run_host_mcp(tmp_path: Path) -> None:
+    config = _config(
+        tmp_path / "config.yaml",
+        "sandbox:\n  mode: container\nmcp:\n  servers:\n    local:\n      command: never-run\n",
+    )
+    # Container 引擎不可用时可能在 Workspace 阶段失败；此测试只验证策略构造规则。
+    try:
+        runtime = create_runtime(
+            config_path=config,
+            workspace_root=tmp_path,
+            interactive=False,
+            runtime_policy=RuntimePolicy.service(),
+        )
+    except RuntimeInitializationError as exc:
+        if exc.stage == "workspace" and any(
+            marker in str(exc) for marker in ("容器引擎", "隔离容器")
+        ):
+            return
+        raise
+    try:
+        assert runtime.capabilities is not None
+        assert runtime.capabilities.mcp_servers[0].status == "blocked_by_policy"
     finally:
         runtime.close()
 

@@ -208,8 +208,12 @@ class ContainerWorkspace(ConfinedWorkspace):
                     f"销毁隔离容器后仍可检查到容器（{detail}）",
                     code="container_cleanup_failed",
                 )
-        elif verification.timed_out and not ignore_failure:
-            raise WorkspaceError("无法确认隔离容器已销毁", code="container_cleanup_failed")
+        elif not _inspect_confirms_missing(verification) and not ignore_failure:
+            detail = verification.stderr.text.strip() or verification.stdout.text.strip()
+            raise WorkspaceError(
+                f"无法确认隔离容器已销毁：{detail or '容器状态检查失败'}",
+                code="container_cleanup_failed",
+            )
 
 
 def _resolve_user(
@@ -229,3 +233,17 @@ def _resolve_user(
         if uid != 0:
             return f"{uid}:{getgid()}"
     return "65534:65534"
+
+
+def _inspect_confirms_missing(result: BoundedProcessResult) -> bool:
+    """只接受引擎明确报告容器不存在，避免把 daemon 故障当成清理成功。"""
+    detail = f"{result.stdout.text}\n{result.stderr.text}".lower()
+    return any(
+        marker in detail
+        for marker in (
+            "no such container",
+            "no such object",
+            "container not found",
+            "no container with name",
+        )
+    )

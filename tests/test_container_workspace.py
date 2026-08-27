@@ -16,7 +16,7 @@ from assistant_agent.execution import (
     TerminationReason,
     WorkspaceError,
 )
-from assistant_agent.execution.container_workspace import _resolve_user
+from assistant_agent.execution.container_workspace import _inspect_confirms_missing, _resolve_user
 
 
 def _result(
@@ -41,6 +41,7 @@ class _Supervisor:
         self.next_result = None
         self.closed = False
         self.removed = False
+        self.inspect_status_result = None
 
     def run(self, command, **kwargs):
         self.calls.append((command, kwargs))
@@ -61,6 +62,8 @@ class _Supervisor:
             return result
         if command[1] == "inspect":
             if self.removed and command[3] == "{{.State.Status}}":
+                if self.inspect_status_result is not None:
+                    return self.inspect_status_result
                 return _result(1, stderr="No such container")
             return _result(stdout="true\n")
         return _result()
@@ -164,6 +167,21 @@ def test_cleanup_failure_is_reported_and_supervisor_still_closes(tmp_path, monke
         workspace.close()
     assert failed.value.code == "container_cleanup_failed"
     assert supervisor.closed is True
+
+
+def test_cleanup_inspect_daemon_failure_is_not_treated_as_missing(tmp_path, monkeypatch):
+    supervisor = _Supervisor()
+    workspace = _workspace(tmp_path, monkeypatch, supervisor)
+    supervisor.inspect_status_result = _result(1, stderr="Cannot connect to Docker daemon")
+    with pytest.raises(WorkspaceError) as failed:
+        workspace.close()
+    assert failed.value.code == "container_cleanup_failed"
+    assert "Docker daemon" in str(failed.value)
+
+
+def test_inspect_confirms_only_explicit_missing_container():
+    assert _inspect_confirms_missing(_result(1, stderr="Error: No such container: x"))
+    assert not _inspect_confirms_missing(_result(1, stderr="permission denied"))
 
 
 def test_missing_engine_and_start_failure_are_stable(tmp_path, monkeypatch):

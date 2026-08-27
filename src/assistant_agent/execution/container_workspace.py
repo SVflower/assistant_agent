@@ -188,9 +188,28 @@ class ContainerWorkspace(ConfinedWorkspace):
             cwd=str(self.root),
             control=None,
         )
-        if result.returncode != 0 and not ignore_failure:
+        if result.returncode != 0:
+            if ignore_failure:
+                return
             detail = result.stderr.text.strip() or result.stdout.text.strip() or "未知错误"
             raise WorkspaceError(f"销毁隔离容器失败：{detail}", code="container_cleanup_failed")
+        verification = self.supervisor.run(
+            [self.engine, "inspect", "--format", "{{.State.Status}}", self.container_name],
+            shell=False,
+            timeout=10,
+            max_stream_chars=4_000,
+            cwd=str(self.root),
+            control=None,
+        )
+        if verification.returncode == 0:
+            detail = verification.stdout.text.strip() or "容器仍然存在"
+            if not ignore_failure:
+                raise WorkspaceError(
+                    f"销毁隔离容器后仍可检查到容器（{detail}）",
+                    code="container_cleanup_failed",
+                )
+        elif verification.timed_out and not ignore_failure:
+            raise WorkspaceError("无法确认隔离容器已销毁", code="container_cleanup_failed")
 
 
 def _resolve_user(

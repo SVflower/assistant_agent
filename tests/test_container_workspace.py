@@ -40,9 +40,19 @@ class _Supervisor:
         self.results = list(results or [])
         self.next_result = None
         self.closed = False
+        self.removed = False
 
     def run(self, command, **kwargs):
         self.calls.append((command, kwargs))
+        if command[1] == "rm":
+            result = self.next_result
+            self.next_result = None
+            if result is not None:
+                if result.returncode == 0:
+                    self.removed = True
+                return result
+            self.removed = True
+            return _result()
         if self.results:
             return self.results.pop(0)
         if self.next_result is not None:
@@ -50,6 +60,8 @@ class _Supervisor:
             self.next_result = None
             return result
         if command[1] == "inspect":
+            if self.removed and command[3] == "{{.State.Status}}":
+                return _result(1, stderr="No such container")
             return _result(stdout="true\n")
         return _result()
 
@@ -128,9 +140,9 @@ def test_interruption_destroys_and_next_exec_restarts(tmp_path, monkeypatch):
     assert supervisor.calls[3][0][1:3] == ["rm", "--force"]
 
     workspace.execute("echo resumed", shell=True, timeout=5, max_stream_chars=100)
-    assert supervisor.calls[4][0][1] == "run"
-    assert supervisor.calls[5][0][1] == "inspect"
-    assert supervisor.calls[6][0][1] == "exec"
+    assert supervisor.calls[5][0][1] == "run"
+    assert supervisor.calls[6][0][1] == "inspect"
+    assert supervisor.calls[7][0][1] == "exec"
     workspace.close()
 
 
@@ -166,13 +178,13 @@ def test_missing_engine_and_start_failure_are_stable(tmp_path, monkeypatch):
     with pytest.raises(WorkspaceError, match="daemon unavailable") as failed:
         _workspace(tmp_path, monkeypatch, supervisor)
     assert failed.value.code == "container_start_failed"
-    assert supervisor.calls[-1][0][1:3] == ["rm", "--force"]
+    assert supervisor.calls[-2][0][1:3] == ["rm", "--force"]
 
     unhealthy = _Supervisor([_result(), _result(stdout="false\n")])
     with pytest.raises(WorkspaceError, match="健康检查") as failed_health:
         _workspace(tmp_path, monkeypatch, unhealthy)
     assert failed_health.value.code == "container_start_failed"
-    assert unhealthy.calls[-1][0][1:3] == ["rm", "--force"]
+    assert unhealthy.calls[-2][0][1:3] == ["rm", "--force"]
 
 
 @pytest.mark.parametrize("user", ["root", "0", "000:1000", " 0:1 "])

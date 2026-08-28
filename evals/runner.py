@@ -14,10 +14,11 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Literal
 
-from assistant_agent.agent.loop import AgentLoop, StepEvent
+from assistant_agent.agent.loop import AgentLoop
 from assistant_agent.agent.prompts import build_system_prompt
 from assistant_agent.config.loader import load_config
 from assistant_agent.config.schema import AppConfig
+from assistant_agent.contracts.events import ItemEvent
 from assistant_agent.integrations.mcp import MCPManager
 from assistant_agent.integrations.mcp.tool import MCPTool
 from assistant_agent.integrations.skills import LoadSkillTool, SkillStore
@@ -142,7 +143,7 @@ def _config(case: EvalCase, base: AppConfig | None = None) -> AppConfig:
 
 
 def _collect(
-    events: list[StepEvent],
+    events: list[ItemEvent],
 ) -> tuple[Literal["success", "error", "interrupted"], str, list[TraceCall], int, int]:
     outcome: Literal["success", "error", "interrupted"] = "error"
     final = ""

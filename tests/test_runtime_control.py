@@ -12,7 +12,7 @@ import time
 from assistant_agent.config.schema import MCPConfig
 from assistant_agent.execution import ControlState, ProcessSupervisor, RunControl, RunInterrupted
 from assistant_agent.integrations.mcp.manager import MCPManager
-from assistant_agent.main import _interruptible, _run_control
+from assistant_agent.main import _run_streamed
 
 
 def test_run_control_only_upgrades_and_resets():
@@ -93,11 +93,19 @@ def test_mcp_future_wait_responds_to_control():
 
 
 def test_cli_sigint_escalates_from_pause_to_cancel():
-    with _interruptible():
-        signal.raise_signal(signal.SIGINT)
-        assert _run_control.state is ControlState.PAUSE_REQUESTED
-        signal.raise_signal(signal.SIGINT)
-        assert _run_control.state is ControlState.CANCEL_REQUESTED
+    control = RunControl()
+    previous = signal.getsignal(signal.SIGINT)
+
+    class InterruptingConsole:
+        def render_stream(self, _events):
+            signal.raise_signal(signal.SIGINT)
+            assert control.state is ControlState.PAUSE_REQUESTED
+            signal.raise_signal(signal.SIGINT)
+
+    _run_streamed(InterruptingConsole(), iter(()), control)  # type: ignore[arg-type]
+
+    assert control.state is ControlState.CANCEL_REQUESTED
+    assert signal.getsignal(signal.SIGINT) is previous
 
 
 def test_timeout_terminates_descendant_tree(tmp_path):

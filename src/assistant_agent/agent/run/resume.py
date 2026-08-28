@@ -88,13 +88,13 @@ def resume_loop(
             else:
                 result = coordinator.skip(call.id)
                 loop._conversation.add_tool_result(call.id, call.name, result.output)
-        yield ItemEvent(
-            kind="tool_result",
-            item_id=f"item_tool_{call.id}",
-            tool_name=call.name,
-            text=result.output,
-            is_error=True,
-        )
+                yield ItemEvent(
+                    kind="tool_result",
+                    item_id=f"item_tool_{call.id}",
+                    tool_name=call.name,
+                    text=result.output,
+                    is_error=True,
+                )
         if coordinator.state.tool_calls:
             calls = [
                 ToolCall(id=call.id, name=call.name, arguments=call.arguments)

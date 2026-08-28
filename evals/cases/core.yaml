@@ -429,9 +429,15 @@
   tags: [scripted, compaction, context]
   task: 回答当前任务。
   history:
-    - {role: user, content: 第一轮早期事实 alpha}
+    - role: user
+      content:
+        schema_version: 1
+        parts: [{type: text, text: 第一轮早期事实 alpha}]
     - {role: assistant, content: 已记录 alpha}
-    - {role: user, content: 第二轮早期事实 beta}
+    - role: user
+      content:
+        schema_version: 1
+        parts: [{type: text, text: 第二轮早期事实 beta}]
     - {role: assistant, content: 已记录 beta}
   budget:
     max_iterations: 3

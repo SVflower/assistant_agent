@@ -16,8 +16,7 @@ from assistant_agent.tools.permissions import (
 from assistant_agent.tools.tool import Tool
 
 _PUBLIC_WEB_RISK = (
-    "仅访问当前 Runtime 的受控网络工具和公开网络；不包含 Shell、任意 Python "
-    "或服务器文件权限"
+    "仅访问当前 Runtime 的受控网络工具和公开网络；不包含 Shell、任意 Python 或服务器文件权限"
 )
 
 

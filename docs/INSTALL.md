@@ -1,7 +1,7 @@
 # 安装与平台支持
 
 > 如何在各平台安装、运行本项目，以及各平台的验证状态与已知坑。
-> 最后更新：2026-07-03
+> 最后更新：2026-08-27
 
 ## 前置要求
 
@@ -15,8 +15,12 @@
 git clone <repo-url> && cd assistant_agent
 python -m venv .venv
 # 激活虚拟环境（见下方各平台）
-pip install -e ".[dev]"     # 开发/测试；只用不开发可去掉 [dev]
+python -m pip install --upgrade pip
+python -m pip install -e ".[dev]"     # 开发/测试；只用不开发可去掉 [dev]
 ```
+
+`.[dev]` 包含项目的构建工具，因此安装后可以直接构建 wheel/sdist；不需要手动安装
+`setuptools`、`wheel` 或 `build`。只运行而不开发时，使用 `python -m pip install .`。
 
 激活 venv：
 - Linux/macOS/WSL2：`source .venv/bin/activate`
@@ -28,6 +32,10 @@ pip install -e ".[dev]"     # 开发/测试；只用不开发可去掉 [dev]
 assistant-agent --help          # 控制台脚本
 python -m assistant_agent --help   # 或模块方式
 ```
+
+如果当前终端提示找不到 `assistant-agent`，说明虚拟环境尚未激活；直接使用
+`.venv/bin/assistant-agent`（Linux/macOS/WSL2）或 `.venv\\Scripts\\assistant-agent.exe`
+（Windows）即可。
 
 ## 平台支持矩阵
 
@@ -81,6 +89,28 @@ pytest                                  # 全测试应通过
 assistant-agent providers -c config.example.yaml   # 列出示例 provider
 assistant-agent run "列出当前目录有哪些文件"        # 需已配好可用后端
 ```
+
+构建与安装验证：
+
+```bash
+pyproject-build
+python -m pip uninstall -y assistant-agent
+python -m pip install --no-cache-dir dist/*.whl   # PowerShell 请使用 dist\\*.whl
+assistant-agent --help
+```
+
+Windows PowerShell 下的完整等价写法：
+
+```powershell
+py -3.11 -m venv .venv
+.venv\\Scripts\\python.exe -m pip install --upgrade pip
+.venv\\Scripts\\python.exe -m pip install -e ".[dev]"
+.venv\\Scripts\\pyproject-build.exe
+.venv\\Scripts\\assistant-agent.exe --help
+```
+
+不要在仓库根目录使用 `python -m build`：构建过程会生成名为 `build` 的产物目录，
+它会遮蔽同名的 Python 构建模块。`pyproject-build` 是等价的官方入口，不受该目录影响。
 
 ## 未来（暂未做）
 

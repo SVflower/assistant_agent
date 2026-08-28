@@ -25,11 +25,13 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
+    "build>=1.2,<2",
     "import-linter>=2.0,<3",
     "pytest>=8.0",
     "pytest-cov>=5.0",
     "ruff>=0.6.0",
     "mypy>=1.11",
+    "setuptools>=68",
 ]
 
 [project.scripts]

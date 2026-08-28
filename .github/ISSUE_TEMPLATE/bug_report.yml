@@ -1,0 +1,31 @@
+name: Bug report
+description: Report a reproducible problem
+title: "[Bug] "
+labels:
+  - bug
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What happened and what did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Reproduction
+      description: Include the smallest safe reproduction. Remove keys and private data.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version and commit
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: OS, Python version, provider type, and sandbox mode

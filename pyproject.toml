@@ -7,6 +7,8 @@ name = "assistant-agent"
 version = "0.1.0"
 description = "一个模型后端可自由切换（云端 API / 本地）的通用任务 Agent，编码能力优先"
 readme = "README.md"
+license = { file = "LICENSE" }
+authors = [{ name = "SVflower" }]
 requires-python = ">=3.11"
 dependencies = [
     "litellm>=1.51.0",
@@ -36,6 +38,11 @@ dev = [
 
 [project.scripts]
 assistant-agent = "assistant_agent.main:main"
+
+[project.urls]
+Homepage = "https://github.com/SVflower/assistant_agent"
+Repository = "https://github.com/SVflower/assistant_agent"
+Issues = "https://github.com/SVflower/assistant_agent/issues"
 
 [tool.setuptools.packages.find]
 where = ["src"]

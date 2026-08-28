@@ -40,3 +40,20 @@ evals/reports/
 # 个人 AI 编程工具配置（仅本机使用，不进入项目）
 .claude/
 .codex/
+
+# 本地运行与交付结果
+outputs/
+runs/
+sessions/
+attachments/
+artifacts/
+logs/
+
+# 本地扩展与测试证据
+skills/local/
+skills/.hub/
+screenshots/
+playwright-report/
+test-results/
+*.trace
+*.har

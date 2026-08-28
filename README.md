@@ -1,5 +1,7 @@
 # Assistant Agent
 
+> 开发预览版：适合本地试用、二次开发和评测；不建议未经安全评审直接用于生产数据。
+
 一个跑在本地、**模型后端可自由切换**（云端 OpenAI 兼容 / Anthropic，本地 LM Studio / Ollama / vLLM）的通用任务 Agent，编码能力优先。
 
 核心卖点：换模型只改 `config.yaml`，业务代码零改动。
@@ -7,6 +9,9 @@
 面向企业工业问答、知识/MCP/分析模块化接入与工业数据分析的长期产品方向，见
 [工业智能 Agent 产品蓝图](docs/INDUSTRIAL_AGENT_PRODUCT_BLUEPRINT.md)。该文档描述目标产品和演进路线，
 当前已交付能力仍以 [ROADMAP.md](ROADMAP.md) 为准。
+
+项目采用 MIT License。安全边界、凭据处理和漏洞报告见 [SECURITY.md](SECURITY.md)，
+贡献代码前请阅读 [CONTRIBUTING.md](CONTRIBUTING.md)。
 
 ## 安装
 
@@ -330,4 +335,4 @@ Performance Foundation P0 为 Observability v1 additive 增加 Agent 自身 cont
 recovery 4/4；剩余 8 项技术债（5 中/3 低，无高优先级）。详见
 [架构事实源](docs/ARCHITECTURE.md)和[通用服务调用指南](docs/agent-service-integration-guide.md)。
 
-详见 [DESIGN.md](DESIGN.md)。
+当前架构详见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)；历史设计过程保留在 `docs/archive/`。

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from typing import Any
+from typing import Any, cast
 
 from rich import box
 from rich.markdown import Markdown
@@ -11,7 +11,7 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
-from assistant_agent.tools.permissions import permission_mode_label
+from assistant_agent.tools.permissions import PermissionMode, permission_mode_label
 
 
 def read_input(prompt: str = "") -> str:
@@ -50,7 +50,7 @@ def build_banner(
     info.append("\n权限  ", style="dim")
     known_modes = {"readonly", "workspace", "strict", "unrestricted"}
     label = (
-        permission_mode_label(permission_mode)
+        permission_mode_label(cast(PermissionMode, permission_mode))
         if permission_mode in known_modes
         else permission_mode
     )
